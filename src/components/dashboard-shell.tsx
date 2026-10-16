@@ -1,151 +1,168 @@
 "use client";
 
+import "@/components/panel-sidebar.css";
+
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { FeaturesProvider } from "@/components/features";
-import { cn, Icon, IconButton, ToastProvider } from "@/components/ui";
+import { cn, Icon, ToastProvider, EmojiIcon } from "@/components/ui";
 import { hasAny, planName, type FeatureMap } from "@/lib/plans";
 import { MODULE_ONLY, STAFF_ROLE_LABELS } from "@/lib/roles";
 import { DashboardBanners } from "@/components/dashboard-banners";
 
-type Item = { href: string; label: string; emoji: string; feature?: string | string[] };
+type Item = { href: string; label: string; icon: string; feature?: string | string[] };
 const NAV: { title?: string; items: Item[] }[] = [
-  { items: [{ href: "/dashboard", label: "نمای کلی", emoji: "🏠" }] },
-  {
-    title: "سفارش و فروش",
-    items: [
-      { href: "/dashboard/orders", label: "سفارش‌ها", emoji: "🧾", feature: "cashier_pos" },
-      { href: "/dashboard/waiter", label: "پنل گارسون", emoji: "🧑‍🍳", feature: "cashier_pos" },
-      { href: "/dashboard/cashier", label: "سفارش‌گیر صندوق", emoji: "💳", feature: "cashier_pos" },
-      { href: "/dashboard/kiosk", label: "سفارش‌گیر کیوسک", emoji: "🖥️", feature: "kiosk" },
-      { href: "/dashboard/tables", label: "میزها و QR", emoji: "🪑", feature: ["self_order", "cashier_pos"] },
-      { href: "/dashboard/discounts", label: "کد تخفیف", emoji: "🎟️", feature: "discount" },
-      { href: "/dashboard/payments", label: "درگاه پرداخت", emoji: "🏦", feature: ["ipg", "installment"] },
-      { href: "/dashboard/staff", label: "کارمندان", emoji: "👥", feature: "cashier_pos" },
-    ],
-  },
-  {
-    title: "منو و وب‌سایت",
-    items: [
-      { href: "/dashboard/products", label: "منو و محصولات", emoji: "🍽️" },
-      { href: "/dashboard/categories", label: "دسته‌بندی‌ها", emoji: "🏷️" },
-      { href: "/dashboard/cross-sell", label: "پیشنهاد مکمل", emoji: "🧩", feature: "cross_sell" },
-      { href: "/dashboard/translations", label: "ترجمه منو", emoji: "🌐", feature: "translation" },
-      { href: "/dashboard/ar", label: "واقعیت افزوده", emoji: "🕶️", feature: "ar" },
-      { href: "/dashboard/mini-site", label: "مینی وبسایت", emoji: "🌍", feature: "mini_site" },
-      { href: "/dashboard/domain", label: "دامنه اختصاصی", emoji: "🔗", feature: "custom_domain" },
-    ],
-  },
-  {
-    title: "مشتریان و بازاریابی",
-    items: [
-      { href: "/dashboard/customers", label: "باشگاه مشتریان", emoji: "💎", feature: "loyalty" },
-      { href: "/dashboard/cashback", label: "کش‌بک", emoji: "🪙", feature: "cashback" },
-      { href: "/dashboard/surveys", label: "نظرسنجی", emoji: "📝", feature: "surveys" },
-      { href: "/dashboard/sms", label: "پنل پیامک", emoji: "✉️", feature: "sms" },
-      { href: "/dashboard/bale", label: "پیام‌رسان بله", emoji: "💬", feature: "bale" },
-      { href: "/dashboard/ai", label: "هوش مصنوعی", emoji: "🤖", feature: "ai" },
-    ],
-  },
-  {
-    title: "مالی و حسابداری",
-    items: [
-      { href: "/dashboard/accounting", label: "حسابداری (دوطرفه)", emoji: "📒", feature: "accounting" },
-      { href: "/dashboard/income-expense", label: "درآمد و هزینه", emoji: "💸", feature: "income_expense" },
-      { href: "/dashboard/reports", label: "گزارش فروش", emoji: "📊", feature: "sales_reports" },
-      { href: "/dashboard/profit-loss", label: "سود و زیان", emoji: "📈", feature: "profit_loss" },
-      { href: "/dashboard/bank", label: "گزارش بانک", emoji: "🏛️", feature: "bank_report" },
-      { href: "/dashboard/assets", label: "اموال و استهلاک", emoji: "🏗️", feature: "assets" },
-    ],
-  },
-  {
-    title: "انبار و تولید",
-    items: [
-      { href: "/dashboard/inventory", label: "انبارداری", emoji: "📦", feature: "inventory" },
-      { href: "/dashboard/stock-movements", label: "گردش انبار", emoji: "🔄", feature: "stock_movements" },
-      { href: "/dashboard/stock-control", label: "کنترل انبار", emoji: "🔍", feature: "stock_control" },
-      { href: "/dashboard/suppliers", label: "تأمین‌کنندگان و بدهی", emoji: "🏷️", feature: ["inventory", "accounting"] },
-      { href: "/dashboard/recipes", label: "فرمول ساخت", emoji: "🧪", feature: "recipes" },
-      { href: "/dashboard/costing", label: "بهای تمام‌شده", emoji: "🧮", feature: "costing" },
-    ],
-  },
-  {
-    title: "سخت‌افزار و ارسال",
-    items: [
-      { href: "/dashboard/couriers", label: "مدیریت پیک", emoji: "🛵", feature: "courier" },
-      { href: "/dashboard/zones", label: "محدوده‌های ارسال", emoji: "🗺️", feature: "zones" },
-      { href: "/dashboard/devices", label: "تبلت و پوز", emoji: "📱", feature: "tablet_pos" },
-      { href: "/dashboard/printers", label: "پرینتر ابری", emoji: "🖨️", feature: "cloud_printer" },
-      { href: "/dashboard/caller-id", label: "کالر آیدی", emoji: "☎️", feature: "caller_id" },
-      { href: "/dashboard/scale", label: "ترازوی دیجیتال", emoji: "⚖️", feature: "scale" },
-      { href: "/dashboard/voice-pager", label: "پیجر صوتی", emoji: "📢", feature: "pager_voice" },
-      { href: "/dashboard/food-court-pager", label: "پیجر فودکورت", emoji: "🔔", feature: "foodcourt_pager" },
-    ],
-  },
-  {
-    title: "حساب",
-    items: [
-      { href: "/dashboard/tickets", label: "پشتیبانی و تیکت", emoji: "🎧", feature: "support" },
-      { href: "/dashboard/plan", label: "پلن و امکانات", emoji: "⭐" },
-      { href: "/dashboard/settings", label: "تنظیمات", emoji: "⚙️" },
-    ],
-  },
+  { items: [{ href: "/dashboard", label: "نمای کلی", icon: "home" }] },
+  { title: "سفارش و فروش", items: [
+    { href: "/dashboard/orders", label: "سفارش‌ها", icon: "orders", feature: "cashier_pos" },
+    { href: "/dashboard/waiter", label: "پنل گارسون", icon: "waiter", feature: "cashier_pos" },
+    { href: "/dashboard/cashier", label: "سفارش‌گیر صندوق", icon: "pay", feature: "cashier_pos" },
+    { href: "/dashboard/kiosk", label: "سفارش‌گیر کیوسک", icon: "desktop", feature: "kiosk" },
+    { href: "/dashboard/tables", label: "میزها و QR", icon: "table", feature: ["self_order", "cashier_pos"] },
+    { href: "/dashboard/discounts", label: "کد تخفیف", icon: "ticket", feature: "discount" },
+    { href: "/dashboard/reservations", label: "رزرو میز", icon: "calendar", feature: "reservations" },
+    { href: "/dashboard/payments", label: "درگاه پرداخت", icon: "bank", feature: ["ipg", "installment"] },
+    { href: "/dashboard/staff", label: "کارمندان", icon: "users", feature: "cashier_pos" },
+  ] },
+  { title: "منو و وب‌سایت", items: [
+    { href: "/dashboard/products", label: "منو و محصولات", icon: "utensils" },
+    { href: "/dashboard/categories", label: "دسته‌بندی‌ها", icon: "layers" },
+    { href: "/dashboard/cross-sell", label: "پیشنهاد مکمل", icon: "sparkle", feature: "cross_sell" },
+    { href: "/dashboard/translations", label: "ترجمه منو", icon: "globe", feature: "translation" },
+    { href: "/dashboard/ar", label: "واقعیت افزوده", icon: "glasses", feature: "ar" },
+    { href: "/dashboard/mini-site", label: "مینی وبسایت", icon: "globe", feature: "mini_site" },
+    { href: "/dashboard/domain", label: "دامنه اختصاصی", icon: "link", feature: "custom_domain" },
+  ] },
+  { title: "مشتریان و بازاریابی", items: [
+    { href: "/dashboard/customers", label: "باشگاه مشتریان", icon: "users", feature: "loyalty" },
+    { href: "/dashboard/cashback", label: "کش‌بک", icon: "coins", feature: "cashback" },
+    { href: "/dashboard/surveys", label: "نظرسنجی", icon: "clipboard", feature: "surveys" },
+    { href: "/dashboard/sms", label: "پنل پیامک", icon: "envelope", feature: "sms" },
+    { href: "/dashboard/bale", label: "پیام‌رسان بله", icon: "message", feature: "bale" },
+    { href: "/dashboard/ai", label: "هوش مصنوعی", icon: "robot", feature: "ai" },
+  ] },
+  { title: "مالی و حسابداری", items: [
+    { href: "/dashboard/accounting", label: "حسابداری (دوطرفه)", icon: "book", feature: "accounting" },
+    { href: "/dashboard/income-expense", label: "درآمد و هزینه", icon: "wallet", feature: "income_expense" },
+    { href: "/dashboard/reports", label: "گزارش فروش", icon: "chart", feature: "sales_reports" },
+    { href: "/dashboard/profit-loss", label: "سود و زیان", icon: "trend", feature: "profit_loss" },
+    { href: "/dashboard/bank", label: "گزارش بانک", icon: "bank", feature: "bank_report" },
+    { href: "/dashboard/assets", label: "اموال و استهلاک", icon: "building", feature: "assets" },
+  ] },
+  { title: "انبار و تولید", items: [
+    { href: "/dashboard/inventory", label: "انبارداری", icon: "box", feature: "inventory" },
+    { href: "/dashboard/stock-movements", label: "گردش انبار", icon: "refresh", feature: "stock_movements" },
+    { href: "/dashboard/stock-control", label: "کنترل انبار", icon: "search", feature: "stock_control" },
+    { href: "/dashboard/suppliers", label: "تأمین‌کنندگان و بدهی", icon: "truck", feature: ["inventory", "accounting"] },
+    { href: "/dashboard/recipes", label: "فرمول ساخت", icon: "book", feature: "recipes" },
+    { href: "/dashboard/costing", label: "بهای تمام‌شده", icon: "calculator", feature: "costing" },
+  ] },
+  { title: "سخت‌افزار و ارسال", items: [
+    { href: "/dashboard/couriers", label: "مدیریت پیک", icon: "motorcycle", feature: "courier" },
+    { href: "/dashboard/zones", label: "محدوده‌های ارسال", icon: "map", feature: "zones" },
+    { href: "/dashboard/devices", label: "تبلت و پوز", icon: "mobile", feature: "tablet_pos" },
+    { href: "/dashboard/printers", label: "پرینتر ابری", icon: "print", feature: "cloud_printer" },
+    { href: "/dashboard/caller-id", label: "کالر آیدی", icon: "phone", feature: "caller_id" },
+    { href: "/dashboard/scale", label: "ترازوی دیجیتال", icon: "scale", feature: "scale" },
+    { href: "/dashboard/voice-pager", label: "پیجر صوتی", icon: "bell", feature: "pager_voice" },
+    { href: "/dashboard/food-court-pager", label: "پیجر فودکورت", icon: "bell", feature: "foodcourt_pager" },
+  ] },
+  { title: "حساب", items: [
+    { href: "/dashboard/tickets", label: "پشتیبانی و تیکت", icon: "headset", feature: "support" },
+    { href: "/dashboard/plan", label: "پلن و امکانات", icon: "star" },
+    { href: "/dashboard/settings", label: "تنظیمات", icon: "settings" },
+  ] },
 ];
 const ALL = NAV.flatMap((g) => g.items);
 
-export function DashboardShell({
-  business,
-  user,
-  features,
-  planFeatures,
-  role,
-  plan,
-  isAdmin,
-  impersonating,
-  children,
-}: {
+export function DashboardShell({ business, user, features, planFeatures, role, plan, isAdmin, impersonating, children }: {
   business: { name: string; slug: string; logoEmoji: string };
   user: { name: string; email: string };
-  features: FeatureMap;
-  planFeatures: FeatureMap;
-  role: string;
-  plan: string;
-  isAdmin: boolean;
-  impersonating?: string;
-  children: ReactNode;
+  features: FeatureMap; planFeatures: FeatureMap; role: string; plan: string;
+  isAdmin: boolean; impersonating?: string; children: ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [menuSearch, setMenuSearch] = useState("");
+  const [expandedGroup, setExpandedGroup] = useState<{ pathname: string; title: string } | null>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const isMgr = role === "owner" || role === "manager";
-
   async function logout() {
     setLoggingOut(true);
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     router.push("/login");
     router.refresh();
   }
-
   const current = [...ALL].sort((a, b) => b.href.length - a.href.length).find((n) => (n.href === "/dashboard" ? pathname === n.href : pathname.startsWith(n.href)));
+  const activeGroup = NAV.find((g) => g.title && g.items.includes(current as Item))?.title;
+  const defaultExpandedGroup = activeGroup ?? NAV.find((g) => g.title)?.title;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    const trigger = menuTriggerRef.current;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = drawerRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])');
+      if (!elements?.length) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    requestAnimationFrame(() => searchRef.current?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+      if (trigger?.isConnected) requestAnimationFrame(() => trigger.focus());
+    };
+  }, [open]);
 
   const sidebar = (
-    <div className="flex h-full flex-col bg-stone-900 text-stone-300">
-      <div className="flex items-center gap-3 px-5 py-5">
-        <span className="flex size-10 items-center justify-center rounded-xl bg-brand-500 text-xl shadow-lg shadow-brand-500/30">{business.logoEmoji}</span>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-white">{business.name}</p>
-          {role === "owner" ? <Link href="/dashboard/plan" onClick={() => setOpen(false)} className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-500/20 px-2 py-0.5 text-[10px] font-bold text-brand-300">⭐ پلن {planName(plan)}</Link> : <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-bold text-sky-300">👤 {STAFF_ROLE_LABELS[role] ?? role}</span>}
+    <div className="panel-sidebar flex h-full flex-col border-e border-base-300 bg-base-100 text-base-content">
+      <div className="border-b border-base-200 px-5 py-5">
+        <Link href="/dashboard" className="flex items-center gap-3">
+          <span className="flex size-11 items-center justify-center rounded-2xl bg-primary text-white shadow-lg shadow-primary/20"><EmojiIcon emoji={business.logoEmoji} className="text-xl" /></span>
+          <span className="min-w-0"><span className="block truncate text-sm font-extrabold">{business.name}</span><span className="mt-1 inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">{role === "owner" ? "پلن " + planName(plan) : STAFF_ROLE_LABELS[role] ?? role}</span></span>
+        </Link>
+      </div>
+      <div className="px-3 pb-1 pt-3">
+        <div className="relative">
+          <Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-base-content/45" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={menuSearch}
+            onChange={(event) => setMenuSearch(event.target.value)}
+            aria-label="جست‌وجو در منوی پنل"
+            placeholder="جست‌وجوی بخش‌ها..."
+            autoComplete="off"
+            className="input input-bordered h-10 w-full rounded-xl bg-base-200/60 pe-9 ps-10 text-sm"
+          />
+          {menuSearch && <button type="button" onClick={() => setMenuSearch("")} aria-label="پاک کردن جست‌وجو" className="absolute end-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-base-content/50 hover:text-base-content"><Icon name="x" className="size-3.5" /></button>}
         </div>
       </div>
-      <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-2">
-        {isAdmin && (
-          <Link href="/admin" className="flex items-center gap-3 rounded-xl bg-rose-500/15 px-3.5 py-2.5 text-sm font-bold text-rose-300 hover:bg-rose-500/25">🛡️ پنل مدیر سامانه</Link>
-        )}
+      <nav aria-label="منوی پنل رستوران" className="menu flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-3">
+        {isAdmin && <Link href="/admin" onClick={() => { setOpen(false); setMenuSearch(""); }} className="flex min-h-10 shrink-0 items-center gap-3 rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100"><Icon name="shield" className="size-4" />پنل مدیر سامانه</Link>}
         {NAV.map((g, gi) => {
-          const vis = g.items.map((n) => {
+          const available = g.items.map((n) => {
             const slug = n.href.split("/").pop() ?? "";
             const only = MODULE_ONLY[slug];
             if (only && !only.includes(role)) return null;
@@ -154,71 +171,56 @@ export function DashboardShell({
             if (isMgr && !hasAny(planFeatures, n.feature)) return { n, locked: true };
             return null;
           }).filter(Boolean) as { n: Item; locked: boolean }[];
-          if (!vis.length) return null;
-          return (
-            <div key={gi}>
-              {g.title && <p className="mb-1.5 px-3.5 text-[10px] font-bold tracking-wide text-stone-500">{g.title}</p>}
-              <div className="space-y-0.5">
-                {vis.map(({ n, locked }) => {
-                  const active = n === current;
-                  const href = locked ? `/dashboard/plan?locked=${Array.isArray(n.feature) ? n.feature[0] : n.feature}` : n.href;
-                  return (
-                    <Link key={n.href} href={href} onClick={() => setOpen(false)} className={cn("flex items-center gap-3 rounded-xl px-3.5 py-2 text-[13px] font-medium transition", active ? "bg-brand-500 text-white shadow-md shadow-brand-500/20" : locked ? "text-stone-500 hover:bg-white/5" : "hover:bg-white/5 hover:text-white")}>
-                      <span className={cn("w-5 text-center text-base", locked && "opacity-50 grayscale")}>{n.emoji}</span>
-                      <span className="flex-1">{n.label}</span>
-                      {locked && <Icon name="lock" className="size-3.5" />}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          );
+          const groupMatches = !!menuSearch && !!g.title && g.title.toLowerCase().includes(menuSearch.trim().toLowerCase());
+          const visible = available.filter(({ n }) => !menuSearch.trim() || groupMatches || n.label.toLowerCase().includes(menuSearch.trim().toLowerCase()));
+          if (!visible.length) return null;
+          const expanded = !!menuSearch.trim() || (expandedGroup?.pathname === pathname ? expandedGroup.title === g.title : g.title === defaultExpandedGroup);
+          return <div key={gi} className="w-full shrink-0 space-y-1 border-b border-base-200/80 pb-2 last:border-0">
+            {g.title && <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroup({ pathname, title: expanded ? "" : g.title ?? "" })} className="flex min-h-10 w-full items-center gap-2 rounded-xl px-3.5 py-2 text-start text-[11px] font-extrabold text-base-content/55 transition hover:bg-base-200 hover:text-base-content">
+              <span className="flex-1">{g.title}</span>
+              <span className="rounded-full bg-base-200 px-2 py-0.5 text-[10px] tabular-nums">{visible.length.toLocaleString("fa-IR")}</span>
+              <Icon name="chevronDown" className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
+            </button>}
+            {(!g.title || expanded) && <div className="flex w-full shrink-0 flex-col gap-1">
+              {visible.map(({ n, locked }) => {
+                const active = n === current;
+                const href = locked ? "/dashboard/plan?locked=" + (Array.isArray(n.feature) ? n.feature[0] : n.feature) : n.href;
+                return <Link key={n.href} href={href} aria-current={active ? "page" : undefined} aria-label={locked ? n.label + " (قفل؛ مشاهده‌ی پلن)" : undefined} onClick={() => { setOpen(false); setMenuSearch(""); }} className={cn("group flex min-h-11 w-full min-w-0 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-1.5 text-[13px] font-semibold transition", active ? "bg-primary text-primary-content shadow-md shadow-primary/15" : locked ? "text-base-content/40 hover:bg-base-200" : "text-base-content/70 hover:bg-base-200 hover:text-base-content")}>
+                  <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-xl transition", active ? "bg-white/15" : "bg-base-200/80 group-hover:bg-base-300/70")}><Icon name={n.icon} className={cn("size-4", locked && "opacity-50")} /></span>
+                  <span className="flex-1">{n.label}</span>
+                  {locked && <Icon name="lock" className="size-3.5" />}
+                </Link>;
+              })}
+            </div>}
+          </div>;
         })}
+        {menuSearch && !NAV.some((g) => g.items.some((n) => n.label.toLowerCase().includes(menuSearch.trim().toLowerCase()) || g.title?.toLowerCase().includes(menuSearch.trim().toLowerCase()))) && <p className="rounded-xl bg-base-200 px-3.5 py-3 text-xs text-base-content/60">بخشی با این نام پیدا نشد.</p>}
       </nav>
-      <div className="m-3 rounded-2xl bg-white/5 p-3">
-        <Link
-          href={`/m/${business.slug}`}
-          target="_blank"
-          className="flex items-center justify-between rounded-xl bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/15"
-        >
-          مشاهده منوی مشتری
-          <Icon name="external" className="size-4" />
-        </Link>
+      <div className="m-3 rounded-2xl bg-base-200/75 p-3">
+        <Link href={"/m/" + business.slug} target="_blank" className="flex items-center justify-between rounded-xl bg-base-100 px-3 py-2.5 text-xs font-bold text-base-content shadow-sm transition hover:text-primary">نمایش منوی مشتری<Icon name="external" className="size-4" /></Link>
         <div className="mt-3 flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-full bg-stone-700 text-sm font-bold text-white">{user.name.trim()[0]}</span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-white">{user.name}</p>
-            <p className="truncate text-[11px] text-stone-400" dir="ltr">{user.email}</p>
-          </div>
-          <button onClick={logout} disabled={loggingOut} aria-label="خروج" title="خروج" className="rounded-lg p-2 text-stone-400 transition hover:bg-white/10 hover:text-white">
-            <Icon name="logout" className="size-[18px]" />
-          </button>
+          <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-extrabold text-primary">{user.name.trim()[0]}</span>
+          <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{user.name}</p><p className="truncate text-[11px] text-base-content/55" dir="ltr">{user.email}</p></div>
+          <button onClick={logout} disabled={loggingOut} aria-label="خروج" title="خروج" className="btn btn-ghost btn-square btn-sm text-base-content/55 hover:text-error"><Icon name="logout" className="size-[18px]" /></button>
         </div>
       </div>
     </div>
   );
-
-  return (
-    <ToastProvider>
-      <FeaturesProvider features={features} role={role}>
-        <div className="min-h-dvh">
-          <aside className="no-print fixed inset-y-0 start-0 z-30 hidden w-64 lg:block">{sidebar}</aside>
-          {open && (
-            <div className="fixed inset-0 z-40 lg:hidden">
-              <div className="absolute inset-0 animate-fade-in bg-stone-900/50" onClick={() => setOpen(false)} />
-              <aside className="absolute inset-y-0 start-0 w-72 max-w-[85%] animate-slide-up">{sidebar}</aside>
-            </div>
-          )}
-          <div className="lg:ps-64 print:ps-0">
-            <header className="no-print sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-stone-200/70 bg-white/80 px-4 backdrop-blur lg:hidden">
-              <IconButton icon="menuBurger" label="منو" onClick={() => setOpen(true)} />
-              <h2 className="text-sm font-bold">{current?.label ?? "داشبورد"}</h2>
-              <span className="ms-auto text-lg">{business.logoEmoji}</span>
-            </header>
-            <main className="mx-auto max-w-[1400px] p-4 sm:p-6 lg:p-8"><div className="mb-5 empty:hidden"><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></div>{children}</main>
-          </div>
-        </div>
-      </FeaturesProvider>
-    </ToastProvider>
-  );
+  return <ToastProvider><FeaturesProvider features={features} role={role}>
+    <div className="min-h-dvh bg-base-200/70">
+      <aside className="no-print fixed inset-y-0 start-0 z-30 hidden w-72 lg:block">{sidebar}</aside>
+      {open && <div className="fixed inset-0 z-40 lg:hidden">
+        <button type="button" aria-label="بستن منو" onClick={() => setOpen(false)} className="absolute inset-0 animate-fade-in bg-base-content/45 backdrop-blur-sm" />
+        <aside ref={drawerRef} id="restaurant-navigation-drawer" role="dialog" aria-modal="true" aria-label="منوی پنل رستوران" tabIndex={-1} className="absolute inset-y-0 start-0 w-80 max-w-[90vw] animate-slide-up outline-none">{sidebar}</aside>
+      </div>}
+      <div className="lg:ps-72 print:ps-0">
+        <header className="no-print sticky top-0 z-20 flex h-[4.25rem] items-center gap-3 border-b border-base-300/80 bg-base-100/90 px-4 backdrop-blur-xl sm:px-6">
+          <button ref={menuTriggerRef} type="button" aria-label="منو" aria-expanded={open} aria-controls="restaurant-navigation-drawer" onClick={() => setOpen(true)} className="btn btn-ghost btn-square btn-sm inline-flex size-9 items-center justify-center rounded-xl text-base-content/65 transition hover:bg-base-200 hover:text-base-content lg:hidden"><Icon name="menuBurger" className="size-[18px]" /></button>
+          <div className="min-w-0"><p className="text-[10px] font-bold text-base-content/45">پنل مدیریت کسب‌وکار</p><h2 className="truncate text-sm font-extrabold sm:text-base">{current?.label ?? "داشبورد"}</h2></div>
+          <div className="ms-auto flex items-center gap-2"><span className="hidden items-center gap-2 rounded-full bg-success/10 px-3 py-2 text-xs font-bold text-success sm:inline-flex"><span className="size-1.5 rounded-full bg-success" />سامانه فعال</span><Link href={"/m/" + business.slug} target="_blank" className="btn btn-primary btn-sm rounded-xl px-3"><Icon name="external" className="size-4" /><span className="hidden sm:inline">نمایش منو</span></Link></div>
+        </header>
+        <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8"><div className="mb-5 empty:hidden"><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></div>{children}</main>
+      </div>
+    </div>
+  </FeaturesProvider></ToastProvider>;
 }

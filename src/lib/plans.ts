@@ -15,12 +15,12 @@ export const PLANS: { key: PlanKey; name: string; tag: string; price: number; ol
 export const planName = (k: string) => PLANS.find((p) => p.key === k)?.name ?? k;
 
 export const GROUPS: Record<string, { title: string; emoji: string }> = {
-  base: { title: "امکانات پایه", emoji: "🧩" },
-  marketing: { title: "بازاریابی و ارتباط با مشتری", emoji: "📣" },
-  sales: { title: "سفارش‌گیری، فروش و سبد خرید", emoji: "🛒" },
-  accounting: { title: "حسابداری و امور مالی", emoji: "💰" },
-  inventory: { title: "انبار و تولید", emoji: "📦" },
-  hardware: { title: "سخت‌افزار و اتوماسیون", emoji: "🖨️" },
+  base: { title: "امکانات پایه", emoji: "" },
+  marketing: { title: "بازاریابی و ارتباط با مشتری", emoji: "" },
+  sales: { title: "سفارش‌گیری، فروش و سبد خرید", emoji: "" },
+  accounting: { title: "حسابداری و امور مالی", emoji: "" },
+  inventory: { title: "انبار و تولید", emoji: "" },
+  hardware: { title: "سخت‌افزار و اتوماسیون", emoji: "" },
 };
 
 export type FeatureDef = {
@@ -39,6 +39,8 @@ export const FEATURES: FeatureDef[] = [
   { key: "setup", group: "base", label: "راه‌اندازی رایگان توسط شرکت", levels: [Y, Y, Y] },
   { key: "support", group: "base", label: "پشتیبانی ۲۴ ساعته (تیکت و خط موبایل)", levels: [Y, Y, Y] },
   { key: "mini_site", group: "base", label: "مینی وبسایت مجزا", desc: "وبسایت اختصاصی برای معرفی کسب‌وکار، نمایش منو و اطلاعات تماس.", levels: [Y, N, C] },
+  { key: "operating_hours", group: "base", label: "تنظیم ساعت کاری", desc: "نمایش ساعت فعالیت و محدودکردن سفارش‌ها به بازه‌ی کاری.", levels: [Y, Y, Y] },
+  { key: "scheduled_menus", group: "base", label: "مدیریت منوهای زمان‌دار", desc: "نمایش دسته‌های منوی صبحانه، ناهار و شام در ساعت‌های انتخابی.", levels: [Y, Y, Y] },
   { key: "surveys", group: "base", label: "طراحی و ساخت و اشتراک‌گذاری نظرسنجی", desc: "ساخت فرم نظرسنجی و دریافت بازخورد مشتریان.", levels: [Y, Y, Y] },
   { key: "loyalty", group: "base", label: "باشگاه مشتریان هوشمند", desc: "مدیریت مشتریان و برنامه‌های وفاداری برای افزایش خرید مجدد.", levels: [Y, Y, Y] },
 
@@ -51,12 +53,14 @@ export const FEATURES: FeatureDef[] = [
 
   { key: "cross_sell", group: "sales", label: "پیشنهاد محصول مکمل به مشتری (Cross Sell)", desc: "پیشنهاد خودکار محصولات مرتبط برای افزایش میانگین مبلغ سفارش.", levels: [Y, Y, Y] },
   { key: "ipg", group: "sales", label: "اتصال به درگاه پرداخت بانکی (IPG)", desc: "دریافت آنلاین وجه سفارش‌ها.", levels: [N, Y, Y] },
+  { key: "card_transfer", group: "sales", label: "پرداخت کارت‌به‌کارت", desc: "نمایش اطلاعات کارت رستوران و ثبت تأیید پرداخت توسط مدیر.", levels: [Y, Y, Y] },
   { key: "installment", group: "sales", label: "اتصال به درگاه اقساطی اسنپ‌پی و دیجی‌پی", levels: [N, Y, Y] },
   { key: "cashier_pos", group: "sales", label: "سیستم سفارش‌گیر صندوق و گارسون", levels: [N, Y, Y] },
   { key: "self_order", group: "sales", label: "سیستم سفارش‌گیر حضوری توسط مشتری", levels: [N, Y, Y] },
   { key: "kiosk", group: "sales", label: "سفارش‌گیر کیوسک (خودسفارش‌دهی لمسی)", desc: "صفحه‌ی لمسی سفارش‌دهی مشتری با ۵ قالب طراحی.", levels: [N, Y, Y] },
   { key: "delivery_order", group: "sales", label: "سیستم سفارش‌گیر دلیوری آنلاین", levels: [N, Y, Y] },
   { key: "preorder", group: "sales", label: "سیستم پیش‌سفارش", desc: "ثبت سفارش از قبل و آماده‌سازی در زمان مشخص.", levels: [N, Y, Y] },
+  { key: "reservations", group: "sales", label: "ماژول رزرو میز", desc: "ثبت و مدیریت رزرو میز با امکان دریافت پیش‌پرداخت.", levels: [N, Y, Y] },
   { key: "discount", group: "sales", label: "سیستم کد تخفیف", levels: [N, Y, Y] },
   { key: "cashback", group: "sales", label: "سیستم تخفیف کش‌بک", desc: "بازگرداندن بخشی از مبلغ خرید به‌صورت اعتبار.", levels: [N, Y, Y] },
 
@@ -124,6 +128,7 @@ export type Settings = {
   cashbackPercent?: number;
   ipg?: { provider: string; merchantId: string; sandbox: boolean };
   installment?: { snappay: boolean; digipay: boolean };
+  cardTransfer?: { enabled: boolean; cardNumber: string; accountHolder: string; bankName: string; instructions: string };
   smsSender?: string;
   sms?: { provider: "kavenegar" | "smsir"; apiKey: string; sender?: string; origin?: string; birthdayAuto?: boolean; birthdayTemplateId?: number; birthdayCode?: string; birthdayDiscount?: string };
   cashbackEnabled?: boolean;
@@ -131,6 +136,25 @@ export type Settings = {
   cashbackMaxRedeemPercent?: number;
   baleBot?: string;
   crossSellAuto?: boolean;
+  operatingHours?: {
+    enabled?: boolean;
+    days?: { day: number; open: boolean; start: string; end: string }[];
+  };
+  scheduledMenus?: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    start: string;
+    end: string;
+    days: number[];
+    categoryIds: number[];
+  }[];
+  reservations?: {
+    enabled?: boolean;
+    requireDeposit?: boolean;
+    depositPerGuest?: number;
+    durationMinutes?: number;
+  };
   segments?: { vipSpent?: number; vipOrders?: number; loyalSpent?: number; loyalOrders?: number; atRiskDays?: number; lostDays?: number };
   kiosk?: { template: string; welcomeTitle?: string; welcomeSubtitle?: string; idleSeconds?: number; allowCounter?: boolean; allowOnline?: boolean; askPhone?: boolean; allowPos?: boolean; posDeviceId?: number };
 };

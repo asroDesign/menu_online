@@ -47,7 +47,7 @@ export const businesses = pgTable("businesses", {
   address: text("address").notNull().default(""),
   instagram: text("instagram").notNull().default(""),
   accentColor: text("accent_color").notNull().default("#f97316"),
-  logoEmoji: text("logo_emoji").notNull().default("☕"),
+  logoEmoji: text("logo_emoji").notNull().default(""),
   taxPercent: integer("tax_percent").notNull().default(10),
   servicePercent: integer("service_percent").notNull().default(0),
   acceptOrders: boolean("accept_orders").notNull().default(true),
@@ -73,7 +73,7 @@ export const categories = pgTable(
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    emoji: text("emoji").notNull().default("🍽️"),
+    emoji: text("emoji").notNull().default(""),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -95,7 +95,7 @@ export const products = pgTable(
     description: text("description").notNull().default(""),
     price: integer("price").notNull().default(0),
     oldPrice: integer("old_price"),
-    emoji: text("emoji").notNull().default("🍽️"),
+    emoji: text("emoji").notNull().default(""),
     imageUrl: text("image_url").notNull().default(""),
     prepMinutes: integer("prep_minutes").notNull().default(10),
     isAvailable: boolean("is_available").notNull().default(true),
@@ -180,6 +180,8 @@ export const orders = pgTable(
   pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
   deliveryFinishedAt: timestamp("delivery_finished_at", { withTimezone: true }),
   courierNote: text("courier_note").notNull().default(""),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -200,7 +202,7 @@ export const orderItems = pgTable(
       onDelete: "set null",
     }),
     name: text("name").notNull(),
-    emoji: text("emoji").notNull().default("🍽️"),
+    emoji: text("emoji").notNull().default(""),
     price: integer("price").notNull(),
     quantity: integer("quantity").notNull().default(1),
     note: text("note").notNull().default(""),
@@ -363,6 +365,26 @@ export const inventoryItems = pgTable("inventory_items", {
   createdAt: created(),
 });
 
+export const stockReceipts = pgTable("stock_receipts", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  requestKey: text("request_key").notNull(),
+  type: text("type").notNull(),
+  date: timestamp("date", { withTimezone: true }).notNull(),
+  invoiceNo: text("invoice_no").notNull().default(""),
+  supplierId: integer("supplier_id"),
+  subtotal: bigint("subtotal", { mode: "number" }).notNull().default(0),
+  discount: bigint("discount", { mode: "number" }).notNull().default(0),
+  extraCost: bigint("extra_cost", { mode: "number" }).notNull().default(0),
+  total: bigint("total", { mode: "number" }).notNull().default(0),
+  paidAmount: bigint("paid_amount", { mode: "number" }).notNull().default(0),
+  payFrom: text("pay_from").notNull().default("cash"),
+  documentId: integer("document_id"),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull().default(""),
+  createdAt: created(),
+}, (t) => [uniqueIndex("stock_receipts_request_idx").on(t.businessId, t.requestKey)]);
+
 export const stockMovements = pgTable(
   "stock_movements",
   {
@@ -379,6 +401,8 @@ export const stockMovements = pgTable(
     supplierId: integer("supplier_id"),
     unitCost: integer("unit_cost").notNull().default(0),
     invoiceNo: text("invoice_no").notNull().default(""),
+    receiptId: integer("receipt_id").references(() => stockReceipts.id),
+    amount: bigint("amount", { mode: "number" }).notNull().default(0),
     createdAt: created(),
   },
   (t) => [index("stock_mov_biz_idx").on(t.businessId, t.createdAt)],
@@ -471,6 +495,7 @@ export const devices = pgTable("devices", {
   kind: text("kind").notNull(), // tablet | pos | printer | scale | caller_id
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
+  printerCategoryIds: jsonb("printer_category_ids").$type<number[]>().notNull().default([]),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   lastValue: doublePrecision("last_value").notNull().default(0),
   createdAt: created(),
@@ -503,8 +528,9 @@ export const printJobs = pgTable("print_jobs", {
   businessId: bizId(),
   orderId: integer("order_id"),
   deviceId: integer("device_id").references(() => devices.id, { onDelete: "cascade" }),
-  status: text("status").notNull().default("pending"), // pending | printed | failed
+  status: text("status").notNull().default("pending"), // pending | printing | printed | failed
   content: text("content").notNull(),
+  detail: text("detail").notNull().default(""),
   createdAt: created(),
   printedAt: timestamp("printed_at", { withTimezone: true }),
 });
@@ -775,4 +801,33 @@ export const adminAudit = pgTable(
 export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
+});
+
+export const reservations = pgTable(
+  "reservations",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+    tableId: integer("table_id").references(() => diningTables.id, { onDelete: "set null" }),
+    customerName: text("customer_name").notNull(),
+    customerPhone: text("customer_phone").notNull(),
+    guestCount: integer("guest_count").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    durationMinutes: integer("duration_minutes").notNull().default(90),
+    status: text("status").notNull().default("requested"), // requested | confirmed | cancelled | completed | no_show
+    depositAmount: integer("deposit_amount").notNull().default(0),
+    depositStatus: text("deposit_status").notNull().default("not_required"), // not_required | pending | paid | waived
+    depositMethod: text("deposit_method").notNull().default(""),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("reservations_business_start_idx").on(t.businessId, t.startsAt), index("reservations_table_start_idx").on(t.tableId, t.startsAt)],
+);
+
+export const apiRateLimits = pgTable("api_rate_limits", {
+  key: text("key").primaryKey(),
+  windowStarted: timestamp("window_started", { withTimezone: true }).notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

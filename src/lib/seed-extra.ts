@@ -250,7 +250,7 @@ export async function seedExtras() {
   await db.insert(S.campaigns).values([
     { businessId: bid, channel: "sms", kind: "promo", audience: "all", body: "شب یلدا با ما! با کد YALDA25 پنجاه هزار تومان تخفیف بگیرید. کافه نیلوفر", recipients: 24, createdAt: ago(4) },
     { businessId: bid, channel: "sms", kind: "service", audience: "manual", body: "سفارش شما آماده تحویل است. نوش جان!", recipients: 3, createdAt: ago(1) },
-    { businessId: bid, channel: "bale", kind: "promo", audience: "vip", body: "مشتری ویژه‌ی عزیز؛ این هفته دسر رایگان همراه هر سفارش ✨", recipients: 9, createdAt: ago(2) },
+    { businessId: bid, channel: "bale", kind: "promo", audience: "vip", body: "مشتری ویژه‌ی عزیز؛ این هفته دسر رایگان همراه هر سفارش ", recipients: 9, createdAt: ago(2) },
   ]);
 
   // translations
@@ -300,9 +300,9 @@ async function lite(email: string, name: string, bizName: string, slug: string, 
 }
 
 export async function seedAccounts() {
-  await lite("basic@menudigital.ir", "آرش پارسایی", "کافه کتاب پارسه", "parse", "basic", "📚", "#0d9488", [1, 2, 8], false);
-  await lite("premium@menudigital.ir", "نسرین فلاحی", "ساندویچ‌لند", "sandwichland", "premium", "🍔", "#ef4444", [3, 4, 6], true);
-  await lite("admin@menudigital.ir", "مدیر سامانه", "مدیریت سامانه منوی دیجیتال", "admin-panel", "premium_plus", "🛡️", "#44403c", [], false);
+  await lite("basic@menudigital.ir", "آرش پارسایی", "کافه کتاب پارسه", "parse", "basic", "", "#0d9488", [1, 2, 8], false);
+  await lite("premium@menudigital.ir", "نسرین فلاحی", "ساندویچ‌لند", "sandwichland", "premium", "", "#ef4444", [3, 4, 6], true);
+  await lite("admin@menudigital.ir", "مدیر سامانه", "مدیریت سامانه منوی دیجیتال", "admin-panel", "premium_plus", "", "#44403c", [], false);
 }
 
 /* ------------------------------------------------------------------ phase 3 */
@@ -350,8 +350,8 @@ export async function seedPhase3() {
 
   // 4) SMS panel (simulated mode: no API key) + pattern templates
   const [tb, ty, tp, ts] = await db.insert(S.smsTemplates).values([
-    { businessId: bid, purpose: "birthday", title: "تبریک تولد", templateId: "birthday", params: [{ name: "token", var: "customer_name" }, { name: "token2", var: "code" }, { name: "token3", var: "discount" }], sampleText: "%token عزیز، تولدت مبارک! 🎂 با کد %token2 از %token3 تخفیف هدیه‌ی ما را در سفارش بعدی بگیر. کافه نیلوفر" },
-    { businessId: bid, purpose: "occasion", title: "تبریک شب یلدا", templateId: "yalda", params: [{ name: "token", var: "customer_name" }, { name: "token2", var: "restaurant" }], sampleText: "%token عزیز، شب یلدا مبارک! 🍉 میزبان شما در %token2 هستیم." },
+    { businessId: bid, purpose: "birthday", title: "تبریک تولد", templateId: "birthday", params: [{ name: "token", var: "customer_name" }, { name: "token2", var: "code" }, { name: "token3", var: "discount" }], sampleText: "%token عزیز، تولدت مبارک!  با کد %token2 از %token3 تخفیف هدیه‌ی ما را در سفارش بعدی بگیر. کافه نیلوفر" },
+    { businessId: bid, purpose: "occasion", title: "تبریک شب یلدا", templateId: "yalda", params: [{ name: "token", var: "customer_name" }, { name: "token2", var: "restaurant" }], sampleText: "%token عزیز، شب یلدا مبارک!  میزبان شما در %token2 هستیم." },
     { businessId: bid, purpose: "promo", title: "تخفیف ویژه", templateId: "promo", params: [{ name: "token", var: "customer_name" }, { name: "token2", var: "code" }, { name: "token3", var: "discount" }], sampleText: "%token عزیز، با کد %token2 تا %token3 تخفیف بگیرید. کافه نیلوفر" },
     { businessId: bid, purpose: "service", title: "آماده‌شدن سفارش", templateId: "order-ready", params: [{ name: "token", var: "customer_name" }], sampleText: "%token عزیز، سفارش شما آماده تحویل است. نوش جان!" },
   ]).returning();
@@ -439,7 +439,7 @@ export async function seedPhase5() {
   // extra demo tenants so the platform numbers look alive
   const mk = async (name: string, owner: string, email: string, plan: string, slug: string, months: number | null, daysAgo: number) => {
     const [u] = await db.insert(S.users).values({ name: owner, email, passwordHash: pw }).returning();
-    const [b] = await db.insert(S.businesses).values({ userId: u.id, name, slug, plan, description: `منوی دیجیتال ${name}`, logoEmoji: "🍴", createdAt: ago(daysAgo), subscriptionEndsAt: months ? new Date(Date.now() + months * DAY) : null }).returning();
+    const [b] = await db.insert(S.businesses).values({ userId: u.id, name, slug, plan, description: `منوی دیجیتال ${name}`, logoEmoji: "", createdAt: ago(daysAgo), subscriptionEndsAt: months ? new Date(Date.now() + months * DAY) : null }).returning();
     return b;
   };
   const t1 = await mk("کافه باغ", "امیر کاظمی", "baagh@example.ir", "premium", "cafe-baagh", 200, 130);

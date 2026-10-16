@@ -1,3 +1,4 @@
+import { EmojiIcon , IconText} from "@/components/ui";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import Link from "next/link";
@@ -15,7 +16,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     return (
       <div className="flex min-h-dvh items-center justify-center p-6 text-center">
         <div className="max-w-sm">
-          <div className="text-5xl">🚫</div>
+          <div className="text-5xl"><IconText>{<EmojiIcon emoji="" />}</IconText></div>
           <h1 className="mt-4 text-xl font-extrabold">حساب شما مسدود شده است</h1>
           <p className="mt-2 text-sm leading-7 text-stone-500">برای رفع مسدودی با پشتیبانی تماس بگیرید.</p>
           <Link href="/login" className="mt-5 inline-block text-sm font-bold text-brand-600">بازگشت</Link>

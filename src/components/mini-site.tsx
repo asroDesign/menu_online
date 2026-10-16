@@ -1,3 +1,4 @@
+import { iconGlyph, EmojiIcon , IconText} from "@/components/ui";
 import Link from "next/link";
 import type { businesses } from "@/db/schema";
 import type { Settings } from "@/lib/plans";
@@ -15,12 +16,12 @@ export function MiniSite({ biz, custom }: { biz: Biz; custom: boolean }) {
           <img src={ms.heroImage} alt="" className="absolute inset-0 size-full object-cover opacity-40" />
         )}
         <div className="relative mx-auto max-w-2xl">
-          <div className="mx-auto flex size-20 items-center justify-center rounded-3xl bg-white text-4xl shadow-xl">{biz.logoEmoji}</div>
+          <div className="mx-auto flex size-20 items-center justify-center rounded-3xl bg-white text-4xl shadow-xl">{<EmojiIcon emoji={biz.logoEmoji} /> }</div>
           <h1 className="mt-6 text-4xl font-black">{ms.heroTitle || biz.name}</h1>
           <p className="mt-4 text-lg leading-8 text-white/85">{ms.heroSubtitle || biz.description}</p>
-          {ms.showMenuButton !== false && (
-            <Link href={`/m/${biz.slug}`} className="mt-8 inline-block rounded-2xl bg-white px-8 py-3.5 font-bold text-stone-900 shadow-xl transition hover:scale-105">مشاهده منو و سفارش 🍽️</Link>
-          )}
+          <IconText>{ms.showMenuButton !== false && (
+            <Link href={`/m/${biz.slug}`} className="mt-8 inline-block rounded-2xl bg-white px-8 py-3.5 font-bold text-stone-900 shadow-xl transition hover:scale-105">مشاهده منو و سفارش {<EmojiIcon emoji="" />}</Link>
+          )}</IconText>
         </div>
       </header>
       <main className="mx-auto max-w-4xl space-y-14 px-6 py-14">
@@ -42,13 +43,13 @@ export function MiniSite({ biz, custom }: { biz: Biz; custom: boolean }) {
           </section>
         )}
         <section className="grid gap-4 sm:grid-cols-3">
-          {ms.hours && <div className="rounded-2xl bg-stone-50 p-5"><p className="text-2xl">⏰</p><p className="mt-2 text-xs text-stone-500">ساعات کار</p><p className="mt-1 font-bold">{ms.hours}</p></div>}
-          {biz.phone && <a href={`tel:${biz.phone}`} className="rounded-2xl bg-stone-50 p-5"><p className="text-2xl">📞</p><p className="mt-2 text-xs text-stone-500">تماس</p><p className="mt-1 font-bold">{biz.phone}</p></a>}
-          {biz.address && <div className="rounded-2xl bg-stone-50 p-5"><p className="text-2xl">📍</p><p className="mt-2 text-xs text-stone-500">آدرس</p><p className="mt-1 font-bold leading-7">{biz.address}</p></div>}
+          <IconText>{ms.hours && <div className="rounded-2xl bg-stone-50 p-5"><p className="text-2xl">{<EmojiIcon emoji="" />}</p><p className="mt-2 text-xs text-stone-500">ساعات کار</p><p className="mt-1 font-bold">{ms.hours}</p></div>}</IconText>
+          <IconText>{biz.phone && <a href={`tel:${biz.phone}`} className="rounded-2xl bg-stone-50 p-5"><p className="text-2xl">{<EmojiIcon emoji="" />}</p><p className="mt-2 text-xs text-stone-500">تماس</p><p className="mt-1 font-bold">{biz.phone}</p></a>}</IconText>
+          <IconText>{biz.address && <div className="rounded-2xl bg-stone-50 p-5"><p className="text-2xl">{<EmojiIcon emoji="" />}</p><p className="mt-2 text-xs text-stone-500">آدرس</p><p className="mt-1 font-bold leading-7">{biz.address}</p></div>}</IconText>
         </section>
         {biz.instagram && <p className="text-center"><a href={`https://instagram.com/${biz.instagram}`} target="_blank" className="font-bold" style={{ color: accent }} dir="ltr">@{biz.instagram}</a></p>}
       </main>
-      <footer className="border-t border-stone-100 py-6 text-center text-xs text-stone-400">© {biz.name} · قدرت‌گرفته از منوی دیجیتال</footer>
+      <footer className="border-t border-stone-100 py-6 text-center text-xs text-stone-400"><IconText>{<EmojiIcon emoji="" />}</IconText> {biz.name} · قدرت‌گرفته از منوی دیجیتال</footer>
     </div>
   );
 }

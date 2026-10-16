@@ -211,6 +211,16 @@ export async function postDocument(biz: Biz, d: DocIn, opts: { allowClosed?: boo
   });
 }
 
+/** Participate in the caller's stock transaction so posting failures roll everything back. */
+export async function postDocumentInTransaction(tx: Q, biz: Biz, d: DocIn) {
+  await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+  const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+  const maps = { all, byCode: new Map(all.map((a) => [a.code, a])), byId: new Map(all.map((a) => [a.id, a])) };
+  const prepared = await prepare(biz.id, d, maps);
+  const [doc] = await insertDocs(tx, biz.id, [prepared]);
+  return doc;
+}
+
 export async function replaceDraftLines(biz: Biz, docId: number, d: Omit<DocIn, "date"> & { date: Date }) {
   const maps = await codeMap(biz.id);
   const prepared = await prepare(biz.id, { ...d, status: d.status }, maps, d.status === "posted");

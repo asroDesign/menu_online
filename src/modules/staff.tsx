@@ -1,7 +1,7 @@
 "use client";
 
 import { ResourcePage } from "@/components/resource-page";
-import { Badge, Card, Switch } from "@/components/ui";
+import { Badge, Card, Switch , IconText} from "@/components/ui";
 import { STAFF_ROLE_LABELS } from "@/lib/roles";
 import { toFa } from "@/lib/format";
 
@@ -22,7 +22,7 @@ export default function Staff() {
       title="کارمندان"
       subtitle="هر کارمند می‌تواند با ایمیل و رمز خودش وارد شود و فقط به بخش مربوط به نقشش دسترسی دارد"
       endpoint="/api/staff"
-      emoji="👥"
+      emoji=""
       emptyTitle="هنوز کارمندی ثبت نشده"
       emptyDesc="گارسون، آشپز، انباردار و حسابدار اضافه کنید و برایشان حساب ورود بسازید."
       addLabel="کارمند جدید"
@@ -45,7 +45,7 @@ export default function Staff() {
       columns={[
         { label: "کارمند", render: (r) => <div className="flex items-center gap-3"><span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-sm font-extrabold text-white">{r.name.trim()[0]}</span><div><p className="font-bold">{r.name}</p><p className="text-xs text-stone-400">{r.phone ? toFa(r.phone) : "—"}</p></div></div> },
         { label: "نقش", render: (r) => <Badge color={COLOR[r.role] ?? "stone"}>{STAFF_ROLE_LABELS[r.role] ?? r.role}</Badge> },
-        { label: "حساب ورود", render: (r) => (r.hasLogin ? <span className="text-xs" dir="ltr">{r.email || "✔ دارد"}</span> : <span className="text-xs text-stone-400">ندارد</span>) },
+        { label: "حساب ورود", render: (r) => (r.hasLogin ? <span className="text-xs" dir="ltr"><IconText>{r.email || " دارد"}</IconText></span> : <span className="text-xs text-stone-400">ندارد</span>) },
         { label: "وضعیت", render: (r) => <span className="inline-flex items-center gap-2 text-xs">{r.isActive ? "فعال" : "غیرفعال"}</span> },
       ]}
       rowActions={(r, ctx) => <Switch checked={r.isActive} label="فعال" onChange={(v) => ctx.update(r.id, { isActive: v }).catch((e) => ctx.toast(e.message, "error"))} />}

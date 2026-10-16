@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
 import type { Settings } from "@/lib/plans";
 import Link from "next/link";
-import { Badge, Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 const TEMPLATES: { key: string; name: string; desc: string }[] = [
   { key: "classic", name: "کلاسیک", desc: "منوی دسته‌ها در کنار صفحه و محصولات به‌صورت کاشی؛ آشناترین و سریع‌ترین چیدمان" },
@@ -71,12 +71,12 @@ export default function Kiosk() {
       <PageHeader title="سفارش‌گیر کیوسک" subtitle="صفحه‌ی لمسی خودسفارش‌دهی؛ مشتری سفارش می‌دهد و در صندوق (یا آنلاین) پرداخت می‌کند، سفارش مستقیم به آشپزخانه می‌رسد" actions={<a href={url} target="_blank"><Button><Icon name="external" className="size-4" /> باز کردن کیوسک</Button></a>} />
       <h2 className="mb-3 font-bold">قالب نمایش (۵ طرح)</h2>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {TEMPLATES.map((t) => (
+        <IconText>{TEMPLATES.map((t) => (
           <div key={t.key} className={cn("flex flex-col rounded-2xl bg-white p-3 ring-2 transition", cfg.template === t.key ? "ring-brand-500 shadow-lg" : "ring-stone-200 hover:ring-brand-300")}>
             <button onClick={() => set({ template: t.key })} className="text-start"><Mini k={t.key} active={cfg.template === t.key} /><div className="mt-3 flex items-center justify-between"><b>{t.name}</b>{cfg.template === t.key && <Badge color="brand">فعال</Badge>}</div><p className="mt-1 text-xs leading-6 text-stone-500">{t.desc}</p></button>
-            <a className="mt-3 text-center text-xs font-bold text-brand-600 hover:underline" href={`${url}?template=${t.key}`} target="_blank">پیش‌نمایش تمام‌صفحه ↗</a>
+            <a className="mt-3 text-center text-xs font-bold text-brand-600 hover:underline" href={`${url}?template=${t.key}`} target="_blank">پیش‌نمایش تمام‌صفحه {<EmojiIcon emoji="" />}</a>
           </div>
-        ))}
+        ))}</IconText>
       </div>
       <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_300px]">
         <Card className="space-y-4 p-5">
@@ -92,7 +92,7 @@ export default function Kiosk() {
             ))}
             <div className={cn("rounded-xl bg-stone-50 px-4 py-3", !posOk && "opacity-60")}>
               <div className="flex items-center justify-between gap-3">
-                <div><span className="text-sm font-medium">💳 پرداخت با دستگاه کارتخوان (ارسال خودکار مبلغ)</span><p className="mt-0.5 text-[11px] leading-5 text-stone-500">پس از تأیید سفارش، مبلغ خودکار به کارتخوان می‌رود و مشتری فقط کارت می‌زند.</p></div>
+                <div><span className="text-sm font-medium"><IconText>{<EmojiIcon emoji="" />}</IconText> پرداخت با دستگاه کارتخوان (ارسال خودکار مبلغ)</span><p className="mt-0.5 text-[11px] leading-5 text-stone-500">پس از تأیید سفارش، مبلغ خودکار به کارتخوان می‌رود و مشتری فقط کارت می‌زند.</p></div>
                 <Switch checked={!!cfg.allowPos && posOk} disabled={!posOk} onChange={(v) => set({ allowPos: v })} label="کارتخوان" />
               </div>
               {cfg.allowPos && posOk && (

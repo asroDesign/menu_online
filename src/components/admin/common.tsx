@@ -1,8 +1,7 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
-import { Card, cn } from "@/components/ui";
+import { Card, cn, EmojiIcon } from "@/components/ui";
 import type { AdminPerm } from "@/lib/admin-meta";
 
 export type Me = { id: number; name: string; email: string; dept: string; perms: AdminPerm[]; businessId: number };
@@ -25,7 +24,7 @@ export function useGet<T = any>(url: string | null, poll?: number) {
 
 export const Stat = ({ label, value, sub, tone = "text-stone-900", icon }: { label: string; value: ReactNode; sub?: ReactNode; tone?: string; icon?: string }) => (
   <Card className="p-4">
-    <div className="flex items-start justify-between"><p className="text-xs font-semibold text-stone-500">{label}</p>{icon && <span className="text-xl">{icon}</span>}</div>
+    <div className="flex items-start justify-between gap-3"><p className="min-w-0 text-xs font-semibold text-stone-500">{label}</p>{icon && <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-base-200 text-primary"><EmojiIcon emoji={icon} className="text-base" /></span>}</div>
     <p className={cn("mt-2 text-2xl font-extrabold tracking-tight", tone)}>{value}</p>
     {sub && <p className="mt-1 text-xs text-stone-500">{sub}</p>}
   </Card>

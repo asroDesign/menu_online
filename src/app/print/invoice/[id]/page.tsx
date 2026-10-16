@@ -1,3 +1,4 @@
+import { EmojiIcon , IconText} from "@/components/ui";
 import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/db";
@@ -28,7 +29,7 @@ export default async function InvoicePrint({ params }: { params: Promise<{ id: s
     <div className="min-h-dvh bg-stone-100 p-4 print:bg-white print:p-0">
       <div className="no-print mx-auto mb-4 flex max-w-3xl items-center justify-between"><a href="javascript:history.back()" className="text-sm font-semibold text-stone-600">← بازگشت</a><PrintButton /></div>
       <div className="mx-auto max-w-3xl rounded-2xl bg-white p-10 shadow print:max-w-none print:rounded-none print:shadow-none">
-        <div className="flex items-start justify-between border-b-2 border-stone-800 pb-5"><div><h1 className="text-2xl font-black">🍽️ منوی دیجیتال</h1><p className="mt-1 text-sm text-stone-600">فاکتور فروش اشتراک نرم‌افزار</p></div>
+        <div className="flex items-start justify-between border-b-2 border-stone-800 pb-5"><div><h1 className="text-2xl font-black"><IconText>{<EmojiIcon emoji="" />}</IconText> منوی دیجیتال</h1><p className="mt-1 text-sm text-stone-600">فاکتور فروش اشتراک نرم‌افزار</p></div>
           <table className="text-sm"><tbody><tr><td className="pe-3 text-stone-500">شماره فاکتور:</td><td className="font-black">{toFa(i.number)}</td></tr><tr><td className="pe-3 text-stone-500">تاریخ صدور:</td><td className="font-bold">{fmtJLong(i.createdAt)}</td></tr><tr><td className="pe-3 text-stone-500">وضعیت:</td><td className="font-bold">{ST[i.status]}</td></tr></tbody></table></div>
         <div className="my-6 grid gap-4 text-sm sm:grid-cols-2"><div className="rounded-xl bg-stone-50 p-4"><p className="text-xs font-bold text-stone-500">خریدار</p><p className="mt-1 text-base font-extrabold">{r.b.name}</p><p>{r.owner}</p>{r.b.phone && <p>{r.b.phone}</p>}{r.b.address && <p className="text-stone-600">{r.b.address}</p>}</div>
           <div className="rounded-xl bg-stone-50 p-4"><p className="text-xs font-bold text-stone-500">دوره‌ی اشتراک</p><p className="mt-1 font-bold">{i.periodStart ? `${fmtJ(i.periodStart)} تا ${fmtJ(i.periodEnd ?? i.periodStart)}` : `${toFa(i.months)} ماه (پس از پرداخت فعال می‌شود)`}</p>{i.paidAt && <p className="mt-1 text-stone-600">پرداخت: {fmtJ(i.paidAt)}{i.refNo && ` · پیگیری ${i.refNo}`}</p>}</div></div>

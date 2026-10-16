@@ -2,12 +2,13 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import headerStyles from "./accounting-header.module.css";
 import { JalaliInput } from "@/components/jalali-input";
 import { formatNumber, toFa } from "@/lib/format";
 import { fmtJ, toJ, jYearRange } from "@/lib/jalali";
 import {
-  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, cn, useToast,
-} from "@/components/ui";
+  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, Select, Skeleton, Switch, cn, useToast,
+ EmojiIcon, IconText} from "@/components/ui";
 
 type Acc = { id: number; code: string; name: string; level: "kol" | "moein" | "tafsili"; parentId: number | null; type: string; nature: string; isSystem: boolean; isActive: boolean };
 type Year = { id: number; title: string; startDate: string; endDate: string; isClosed: boolean };
@@ -46,24 +47,57 @@ export function Accounting() {
   useEffect(() => { loadMeta(); }, [loadMeta]);
 
   const year = years.find((y) => String(y.id) === range.year);
-  const tabs: [typeof tab, string][] = [["docs", "📄 اسناد"], ["chart", "🌳 سرفصل حساب‌ها"], ["journal", "📖 دفتر روزنامه"], ["ledger", "📚 دفتر کل / معین / تفصیلی"], ["trial", "⚖️ تراز آزمایشی"], ["statements", "📊 صورت‌های مالی"], ["years", "📅 سال مالی"]];
+  const tabs: [typeof tab, string, string][] = [["docs", "اسناد", "file"], ["chart", "سرفصل حساب‌ها", "layers"], ["journal", "دفتر روزنامه", "book"], ["ledger", "دفتر کل / معین / تفصیلی", "book"], ["trial", "تراز آزمایشی", "scale"], ["statements", "صورت‌های مالی", "chart"], ["years", "سال مالی", "calendar"]];
   const showRange = tab !== "chart" && tab !== "years";
 
   if (err) return <ErrorState message={err} onRetry={() => { setErr(""); loadMeta(); }} />;
   return (
     <div className="animate-fade-in">
-      <PageHeader title="حسابداری دوطرفه" subtitle="ثبت خودکار اسناد فروش و انبار، اسناد دستی، سرفصل کل/معین/تفصیلی و گزارش‌های استاندارد با تاریخ شمسی" />
-      <div className="no-print mb-4 flex gap-2 overflow-x-auto pb-1 no-scrollbar">{tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition", tab === k ? "bg-stone-900 text-white shadow" : "bg-white ring-1 ring-stone-200 hover:bg-stone-50")}>{l}</button>)}</div>
-      {showRange && (
-        <Card className="no-print mb-5 flex flex-wrap items-end gap-3 p-4">
-          <Field label="سال مالی" className="w-44"><Select value={range.year} onChange={(e) => setRange({ ...range, year: e.target.value })}>{years.map((y) => <option key={y.id} value={y.id}>{y.title}{y.isClosed ? " (بسته)" : ""}</option>)}</Select></Field>
-          <Field label="از تاریخ" className="w-36"><JalaliInput value={range.from} onChange={(v) => setRange((r) => ({ ...r, from: v }))} /></Field>
-          <Field label="تا تاریخ" className="w-36"><JalaliInput end value={range.to} onChange={(v) => setRange((r) => ({ ...r, to: v }))} /></Field>
-          {tab !== "docs" && <label className="flex h-10 items-center gap-2 text-xs text-stone-600"><input type="checkbox" className="accent-brand-500" checked={range.closing} onChange={(e) => setRange({ ...range, closing: e.target.checked })} /> شامل اسناد اختتامیه</label>}
-          {year && <span className="pb-2 text-xs text-stone-400">{fmtJ(year.startDate)} تا {fmtJ(year.endDate)}</span>}
-          {tab !== "docs" && <Button variant="secondary" className="ms-auto" onClick={() => window.print()}>🖨️ چاپ گزارش</Button>}
-        </Card>
-      )}
+      <section className={headerStyles.header} aria-label="مدیریت حسابداری">
+        <div className={headerStyles.overview}>
+          <div className={headerStyles.identity}>
+            <span className={headerStyles.emblem}><Icon name="book" className="size-6" /></span>
+            <div>
+              <p className={headerStyles.eyebrow}>امور مالی و گزارش‌ها</p>
+              <h1 className={headerStyles.title}>حسابداری دوطرفه</h1>
+              <p className={headerStyles.description}>مدیریت اسناد، سرفصل حساب‌ها و گزارش‌های مالی</p>
+            </div>
+          </div>
+          <div className={headerStyles.period}>
+            <div className={headerStyles.periodTitle}>
+              <Icon name="calendar" className="size-4" />
+              <span>{year?.title ?? "در حال دریافت سال مالی…"}</span>
+              {year && <Badge color={year.isClosed ? "stone" : "emerald"}>{year.isClosed ? "بسته" : "باز"}</Badge>}
+            </div>
+            {year && <p>{fmtJ(year.startDate)} <span>تا</span> {fmtJ(year.endDate)}</p>}
+          </div>
+        </div>
+        <nav className={cn("no-print", headerStyles.navigation)} aria-label="بخش‌های حسابداری">
+          {tabs.map(([key, label, icon]) => (
+            <button key={key} type="button" aria-current={tab === key ? "page" : undefined} onClick={() => setTab(key)} className={headerStyles.navItem}>
+              <Icon name={icon} className="size-4 shrink-0" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        {showRange && (
+          <div className={cn("no-print", headerStyles.filters)}>
+            <div className={headerStyles.filterHeading}><Icon name="calendar" className="size-4" /><span>بازه گزارش</span><span className={headerStyles.dateHint}>تاریخ شمسی</span></div>
+            <div className={headerStyles.filterFields}>
+              <Field label="سال مالی"><Select className="w-full" value={range.year} onChange={(e) => setRange({ ...range, year: e.target.value })}>{years.map((y) => <option key={y.id} value={y.id}>{y.title}{y.isClosed ? " (بسته)" : ""}</option>)}</Select></Field>
+              <Field label="از تاریخ"><JalaliInput value={range.from} onChange={(v) => setRange((r) => ({ ...r, from: v }))} /></Field>
+              <Field label="تا تاریخ"><JalaliInput end value={range.to} onChange={(v) => setRange((r) => ({ ...r, to: v }))} /></Field>
+            </div>
+            <div className={headerStyles.filterActions}>
+              {tab !== "docs" && <label className={headerStyles.closing}><input type="checkbox" className="checkbox checkbox-primary checkbox-sm" checked={range.closing} onChange={(e) => setRange({ ...range, closing: e.target.checked })} />شامل اسناد اختتامیه</label>}
+              <div className={headerStyles.actionButtons}>
+                {(range.from || range.to) && <Button variant="ghost" size="sm" onClick={() => setRange((r) => ({ ...r, from: "", to: "" }))}><Icon name="x" className="size-4" />پاک کردن تاریخ‌ها</Button>}
+                {tab !== "docs" && <Button variant="secondary" onClick={() => window.print()}><Icon name="print" className="size-4" />چاپ گزارش</Button>}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
       {!range.year ? <Skeleton className="h-64 rounded-2xl" /> : (
         <>
           {tab === "docs" && <DocsTab key={version} range={range} accounts={accounts} year={year} openDoc={setViewId} changed={bump} />}
@@ -103,14 +137,14 @@ function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; ac
   const total = (items ?? []).reduce((s, d) => s + d.totalAmount, 0);
   return (
     <div>
-      <div className="no-print mb-4 flex flex-wrap items-center gap-2">
+      <div className={cn("no-print", headerStyles.documentToolbar)}>
         <Select className="w-36" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">همه انواع</option>{Object.entries(KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
         <Select className="w-40" value={source} onChange={(e) => setSource(e.target.value)}><option value="">همه منابع</option>{Object.entries(SRC).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}</Select>
         <Select className="w-36" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">همه وضعیت‌ها</option><option value="posted">قطعی</option><option value="draft">پیش‌نویس</option></Select>
         <div className="relative w-56"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder="شماره یا شرح سند…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <Button className="ms-auto" onClick={() => setEditor("new")} disabled={year?.isClosed}><Icon name="plus" className="size-4" /> سند جدید</Button>
       </div>
-      {err ? <ErrorState message={err} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="📄" title="سندی یافت نشد" description="اسناد فروش و انبار خودکار ثبت می‌شوند؛ برای ثبت دستی روی «سند جدید» بزنید." action={<Button onClick={() => setEditor("new")}>سند جدید</Button>} /> : (
+      <IconText>{err ? <ErrorState message={err} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="" title="سندی یافت نشد" description="اسناد فروش و انبار خودکار ثبت می‌شوند؛ برای ثبت دستی روی «سند جدید» بزنید." action={<Button onClick={() => setEditor("new")}>سند جدید</Button>} /> : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[820px] text-sm">
             <thead><tr className="border-b bg-stone-50/70 text-xs text-stone-500"><th className="p-3 text-start">شماره</th><th className="p-3 text-start">تاریخ</th><th className="p-3 text-start">نوع</th><th className="p-3 text-start">منبع</th><th className="p-3 text-start">شرح</th><th className="p-3 text-start">مبلغ</th><th className="p-3 text-start">وضعیت</th><th className="no-print p-3" /></tr></thead>
@@ -127,14 +161,14 @@ function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; ac
                   <IconButton icon="search" label="مشاهده" onClick={() => openDoc(d.id)} />
                   <a href={`/print/doc/${d.id}`} target="_blank" aria-label="چاپ روکش"><IconButton icon="print" label="چاپ روکش سند" /></a>
                   {d.status === "draft" && <><IconButton icon="edit" label="ویرایش" onClick={() => edit(d)} /><IconButton icon="check" label="قطعی کردن" className="text-emerald-600" onClick={() => act(d, "post")} /><IconButton icon="trash" label="حذف" className="hover:text-rose-600" onClick={() => setDel(d)} /></>}
-                  {d.status === "posted" && !d.reversed && !d.reversedOf && d.kind !== "closing" && <button className="rounded-lg px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50" onClick={() => act(d, "reverse")}>↩ برگشت</button>}
+                  {d.status === "posted" && !d.reversed && !d.reversedOf && d.kind !== "closing" && <button className="rounded-lg px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50" onClick={() => act(d, "reverse")}>{<EmojiIcon emoji="" />} برگشت</button>}
                 </div></td>
               </tr>
             ))}</tbody>
             <tfoot><tr className="border-t bg-stone-50 text-xs font-bold"><td colSpan={5} className="p-3">{toFa(items.length)} سند</td><td className="p-3">{formatNumber(total)}</td><td colSpan={2} /></tr></tfoot>
           </table>
         </Card>
-      )}
+      )}</IconText>
       <DocEditor open={!!editor} doc={editor === "new" ? null : editor} accounts={accounts} onClose={() => setEditor(null)} saved={() => { setEditor(null); load(); changed(); }} />
       <ConfirmDialog open={!!del} title="حذف پیش‌نویس" message="این پیش‌نویس حذف می‌شود." onClose={() => setDel(null)} onConfirm={async () => { if (!del) return; try { await api(`/api/acc/documents/${del.id}`, { method: "DELETE" }); toast("حذف شد"); load(); } catch (e) { toast((e as Error).message, "error"); } }} />
     </div>
@@ -213,12 +247,12 @@ function DocEditor({ open, doc, accounts, onClose, saved }: { open: boolean; doc
           ))}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <Button size="sm" variant="secondary" onClick={() => setLines([...lines, blank()])}><Icon name="plus" className="size-4" /> ردیف جدید</Button>
-            <Button size="sm" variant="ghost" onClick={balance} disabled={diff === 0}>⚖️ تراز خودکار</Button>
+            <Button size="sm" variant="ghost" onClick={balance} disabled={diff === 0}><IconText>{<EmojiIcon emoji="" />}</IconText> تراز خودکار</Button>
           </div>
         </div>
         <div className={cn("flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-bold", diff === 0 && td > 0 ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800")}>
           <span>جمع بدهکار: {formatNumber(td)}</span><span>جمع بستانکار: {formatNumber(tc)}</span>
-          <span>{diff === 0 && td > 0 ? "✅ سند تراز است" : diff === 0 ? "مبلغی وارد نشده" : `اختلاف: ${formatNumber(Math.abs(diff))} ${diff > 0 ? "(بدهکار بیشتر)" : "(بستانکار بیشتر)"}`}</span>
+          <span><IconText>{diff === 0 && td > 0 ? " سند تراز است" : diff === 0 ? "مبلغی وارد نشده" : `اختلاف: ${formatNumber(Math.abs(diff))} ${diff > 0 ? "(بدهکار بیشتر)" : "(بستانکار بیشتر)"}`}</IconText></span>
         </div>
       </div>
     </Modal>
@@ -235,8 +269,8 @@ function DocView({ id, onClose, changed, toast }: { id: number | null; onClose: 
   const td = d?.lines.reduce((s, l) => s + l.debit, 0) ?? 0, tc = d?.lines.reduce((s, l) => s + l.credit, 0) ?? 0;
   return (
     <Modal open={!!id} onClose={onClose} title={d ? `سند شماره ${toFa(d.number)} — ${fmtJ(d.date)}` : "…"} size="lg" footer={d && <>
-      {d.status === "posted" && !d.reversed && !d.reversedOf && d.kind !== "closing" && <Button variant="ghost" className="me-auto text-rose-600" onClick={reverse}>↩ برگشت سند</Button>}
-      <a href={`/print/doc/${d.id}`} target="_blank"><Button>🖨️ چاپ روکش سند</Button></a></>}>
+      <IconText>{d.status === "posted" && !d.reversed && !d.reversedOf && d.kind !== "closing" && <Button variant="ghost" className="me-auto text-rose-600" onClick={reverse}>{<EmojiIcon emoji="" />} برگشت سند</Button>}</IconText>
+      <a href={`/print/doc/${d.id}`} target="_blank"><Button><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ روکش سند</Button></a></>}>
       {!d ? <Skeleton className="h-40" /> : (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-xs"><Badge color="violet">{KIND[d.kind]}</Badge><Badge color={SRC[d.source]?.[1]}>{SRC[d.source]?.[0]}</Badge>{d.status === "draft" ? <Badge color="amber">پیش‌نویس</Badge> : d.reversed ? <Badge color="rose">برگشت‌خورده</Badge> : <Badge color="emerald">قطعی</Badge>}<span className="text-stone-500">{d.yearTitle} · تنظیم: {d.createdBy || "—"}</span></div>
@@ -323,7 +357,7 @@ function JournalTab({ range, version, openDoc }: { range: Range; version: number
   const { d, err } = useRep<{ items: (Doc & { lines: { id: number; code: string; name: string; kol: string; moein: string; debit: number; credit: number; description: string }[] })[] }>("journal", range, {}, version);
   if (err) return <ErrorState message={err} />;
   if (!d) return <Skeleton className="h-72 rounded-2xl" />;
-  if (!d.items.length) return <EmptyState emoji="📖" title="سندی در این بازه نیست" />;
+  if (!d.items.length) return <EmptyState emoji="" title="سندی در این بازه نیست" />;
   const td = d.items.reduce((s, x) => s + x.lines.reduce((a, l) => a + l.debit, 0), 0);
   return (
     <div className="space-y-3">
@@ -346,14 +380,14 @@ function LedgerTab({ range, accounts, openDoc }: { range: Range; accounts: Acc[]
   return (
     <div className="space-y-4">
       <Card className="no-print p-4"><Field label="حساب (کل، معین یا تفصیلی)"><AccountSelect allowKol accounts={accounts} value={acc} onChange={setAcc} /></Field></Card>
-      {!acc ? <EmptyState emoji="📚" title="یک حساب انتخاب کنید" description="دفتر کل، معین یا تفصیلی همان حساب با مانده‌ی تجمعی نمایش داده می‌شود." /> : err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-64 rounded-2xl" /> : (
+      <IconText>{!acc ? <EmptyState emoji="" title="یک حساب انتخاب کنید" description="دفتر کل، معین یا تفصیلی همان حساب با مانده‌ی تجمعی نمایش داده می‌شود." /> : err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-64 rounded-2xl" /> : (
         <Card className="overflow-x-auto">
           <div className="border-b border-stone-100 p-4"><h3 className="font-extrabold">{d.account.level === "kol" ? "دفتر کل" : d.account.level === "moein" ? "دفتر معین" : "دفتر تفصیلی"}: {toFa(d.account.code)} — {d.account.name}</h3><p className="mt-1 text-xs text-stone-500">مانده‌ی ابتدای دوره: <b>{bal(d.opening)}</b></p></div>
           <table className="w-full min-w-[720px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-2.5 text-start">تاریخ</th><th className="p-2.5 text-start">سند</th><th className="p-2.5 text-start">حساب</th><th className="p-2.5 text-start">شرح</th><th className="p-2.5 text-end">بدهکار</th><th className="p-2.5 text-end">بستانکار</th><th className="p-2.5 text-end">مانده</th></tr></thead>
             <tbody className="divide-y divide-stone-100">{d.lines.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-stone-400">گردشی در این بازه نیست</td></tr>}{d.lines.map((l) => <tr key={l.id}><td className="whitespace-nowrap p-2.5 text-xs">{fmtJ(l.date)}</td><td className="p-2.5"><button className="font-bold text-brand-600" onClick={() => openDoc(l.docId)}>{toFa(l.docNumber)}</button></td><td className="p-2.5 text-xs">{toFa(l.accountCode)} {l.accountName}</td><td className="max-w-60 truncate p-2.5 text-xs text-stone-500">{l.description}</td><td className="p-2.5 text-end tabular-nums">{num(l.debit)}</td><td className="p-2.5 text-end tabular-nums">{num(l.credit)}</td><td className="p-2.5 text-end text-xs font-bold tabular-nums">{bal(l.balance)}</td></tr>)}</tbody>
             <tfoot><tr className="bg-stone-50 font-extrabold"><td colSpan={4} className="p-2.5">جمع گردش / مانده نهایی</td><td className="p-2.5 text-end">{formatNumber(d.totals.debit)}</td><td className="p-2.5 text-end">{formatNumber(d.totals.credit)}</td><td className="p-2.5 text-end text-xs">{bal(d.closing)}</td></tr></tfoot></table>
         </Card>
-      )}
+      )}</IconText>
     </div>
   );
 }
@@ -368,7 +402,7 @@ function TrialTab({ range, version }: { range: Range; version: number }) {
         {[["kol", "تراز کل"], ["moein", "تراز معین"], ["tafsili", "تراز تفصیلی"]].map(([k, l]) => <button key={k} onClick={() => setLevel(k)} className={cn("rounded-xl px-4 py-2 text-sm font-semibold", level === k ? "bg-brand-500 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}
         <label className="ms-2 flex items-center gap-2 text-xs text-stone-600"><input type="checkbox" className="accent-brand-500" checked={all} onChange={(e) => setAll(e.target.checked)} /> نمایش حساب‌های بدون گردش</label>
       </div>
-      {err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-72 rounded-2xl" /> : d.rows.length === 0 ? <EmptyState emoji="⚖️" title="گردشی ثبت نشده" /> : (
+      <IconText>{err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-72 rounded-2xl" /> : d.rows.length === 0 ? <EmptyState emoji="" title="گردشی ثبت نشده" /> : (
         <Card className="overflow-x-auto">
           <div className="border-b border-stone-100 p-4 text-center"><h3 className="font-extrabold">تراز آزمایشی {level === "kol" ? "حساب‌های کل" : level === "moein" ? "حساب‌های معین" : "حساب‌های تفصیلی"} (۴ ستونی)</h3></div>
           <table className="w-full min-w-[720px] text-sm">
@@ -376,9 +410,9 @@ function TrialTab({ range, version }: { range: Range; version: number }) {
             <tbody className="divide-y divide-stone-100">{d.rows.map((r) => <tr key={r.id}><td className="p-2.5 tabular-nums">{toFa(r.code)}</td><td className="p-2.5">{r.name}{level !== "kol" && <span className="ms-2 text-[11px] text-stone-400">{r.parent}</span>}</td><td className="p-2.5 text-end tabular-nums">{num(r.debit)}</td><td className="p-2.5 text-end tabular-nums">{num(r.credit)}</td><td className="p-2.5 text-end font-semibold tabular-nums">{num(r.balDebit)}</td><td className="p-2.5 text-end font-semibold tabular-nums">{num(r.balCredit)}</td></tr>)}</tbody>
             <tfoot><tr className="bg-stone-100 font-extrabold"><td colSpan={2} className="p-2.5">جمع</td><td className="p-2.5 text-end">{formatNumber(d.totals.debit)}</td><td className="p-2.5 text-end">{formatNumber(d.totals.credit)}</td><td className="p-2.5 text-end">{formatNumber(d.totals.balDebit)}</td><td className="p-2.5 text-end">{formatNumber(d.totals.balCredit)}</td></tr></tfoot>
           </table>
-          {level === "tafsili" ? <p className="m-4 rounded-xl bg-stone-50 px-4 py-2.5 text-xs text-stone-600">تراز تفصیلی فقط حساب‌های تفصیلی را نشان می‌دهد و (چون بخشی از گردش روی حساب‌های معین ثبت شده) لزوماً متعادل نیست؛ برای کنترل تعادل از تراز کل یا معین استفاده کنید.</p> : <p className={cn("m-4 rounded-xl px-4 py-2.5 text-sm font-bold", d.totals.debit === d.totals.credit && d.totals.balDebit === d.totals.balCredit ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700")}>{d.totals.debit === d.totals.credit && d.totals.balDebit === d.totals.balCredit ? "✅ تراز آزمایشی برقرار است (جمع بدهکار = جمع بستانکار)" : "⚠️ تراز آزمایشی برقرار نیست"}</p>}
+          {level === "tafsili" ? <p className="m-4 rounded-xl bg-stone-50 px-4 py-2.5 text-xs text-stone-600">تراز تفصیلی فقط حساب‌های تفصیلی را نشان می‌دهد و (چون بخشی از گردش روی حساب‌های معین ثبت شده) لزوماً متعادل نیست؛ برای کنترل تعادل از تراز کل یا معین استفاده کنید.</p> : <p className={cn("m-4 rounded-xl px-4 py-2.5 text-sm font-bold", d.totals.debit === d.totals.credit && d.totals.balDebit === d.totals.balCredit ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700")}>{d.totals.debit === d.totals.credit && d.totals.balDebit === d.totals.balCredit ? " تراز آزمایشی برقرار است (جمع بدهکار = جمع بستانکار)" : " تراز آزمایشی برقرار نیست"}</p>}
         </Card>
-      )}
+      )}</IconText>
     </div>
   );
 }
@@ -412,7 +446,7 @@ function StatementsTab({ range, version }: { range: Range; version: number }) {
           <Sec title="حقوق صاحبان سرمایه" rows={b.equity} total={b.totals.equity} />
           <tr className="bg-stone-100 font-extrabold"><td className="p-3">جمع بدهی‌ها و حقوق صاحبان سرمایه</td><td className="p-3 text-end">{formatNumber(b.totals.liabilities + b.totals.equity)}</td></tr>
         </tbody></table>
-        <p className={cn("m-4 rounded-xl px-4 py-2.5 text-sm font-bold", b.totals.assets === b.totals.liabilities + b.totals.equity ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800")}>{b.totals.assets === b.totals.liabilities + b.totals.equity ? "✅ ترازنامه متعادل است" : `اختلاف: ${formatNumber(Math.abs(b.totals.assets - b.totals.liabilities - b.totals.equity))}`}</p>
+        <p className={cn("m-4 rounded-xl px-4 py-2.5 text-sm font-bold", b.totals.assets === b.totals.liabilities + b.totals.equity ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800")}><IconText>{b.totals.assets === b.totals.liabilities + b.totals.equity ? " ترازنامه متعادل است" : `اختلاف: ${formatNumber(Math.abs(b.totals.assets - b.totals.liabilities - b.totals.equity))}`}</IconText></p>
       </Card>
     </div>
   );
@@ -432,14 +466,14 @@ function YearsTab({ years, reload }: { years: Year[]; reload: () => void }) {
   return (
     <div className="space-y-5">
       <Card className="divide-y divide-stone-100">
-        {years.map((y) => (
+        <IconText>{years.map((y) => (
           <div key={y.id} className="flex flex-wrap items-center gap-3 p-4">
-            <span className="text-2xl">{y.isClosed ? "🔒" : "📅"}</span>
+            <span className="text-2xl">{y.isClosed ? "" : ""}</span>
             <div className="min-w-40 flex-1"><p className="font-extrabold">{y.title}</p><p className="text-xs text-stone-500">{fmtJ(y.startDate)} تا {fmtJ(y.endDate)}</p></div>
             {y.isClosed ? <Badge color="stone">بسته‌شده</Badge> : <Badge color="emerald">باز</Badge>}
             {!y.isClosed && <Button size="sm" variant="secondary" onClick={() => setClosing(y)}>بستن سال مالی</Button>}
           </div>
-        ))}
+        ))}</IconText>
       </Card>
       <div className="grid gap-5 md:grid-cols-2">
         <Card className="space-y-3 p-5"><h3 className="font-bold">تعریف سال مالی جدید</h3><div className="flex gap-2"><Input inputMode="numeric" dir="ltr" className="text-center" value={newYear} onChange={(e) => setNewYear(e.target.value)} /><Button loading={busy === "y"} onClick={() => run("y", async () => { await api("/api/acc/years", { method: "POST", body: { year: Number(faToEn(newYear)) } }); return "سال مالی ایجاد شد"; })}>ایجاد</Button></div><p className="text-xs text-stone-400">سال مالی از ۱ فروردین تا پایان اسفند همان سال شمسی است.</p></Card>

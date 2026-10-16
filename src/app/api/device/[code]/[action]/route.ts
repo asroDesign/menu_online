@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, calls, devices, orders, pagers, posRequests, printJobs } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
@@ -30,9 +30,32 @@ async function handle(req: Request, ctx: Ctx) {
         return Response.json({ ok: true, device: dev.name, business: biz.name });
       case "jobs": {
         need("cloud_printer", ["printer"]);
-        const jobs = await db.select().from(printJobs).where(and(eq(printJobs.deviceId, dev.id), eq(printJobs.status, "pending"))).orderBy(printJobs.id).limit(20);
-        if (jobs.length) await db.update(printJobs).set({ status: "printed", printedAt: new Date() }).where(inArray(printJobs.id, jobs.map((j) => j.id)));
-        return Response.json({ jobs: jobs.map((j) => ({ id: j.id, orderId: j.orderId, content: j.content })) });
+        if (req.method === "POST") {
+          const jobId = Number(body.jobId);
+          const status = String(body.status);
+          if (!Number.isInteger(jobId) || !["printed", "failed"].includes(status)) throw new HttpError(400, "نتیجه‌ی چاپ نامعتبر است");
+          const [job] = await db.update(printJobs).set({
+            status,
+            printedAt: status === "printed" ? new Date() : null,
+            detail: status === "printed" ? "" : String(body.detail ?? "").slice(0, 300),
+          }).where(and(eq(printJobs.id, jobId), eq(printJobs.deviceId, dev.id), eq(printJobs.status, "printing"))).returning({ id: printJobs.id });
+          if (!job) throw new HttpError(409, "این کار چاپ در انتظار تأیید این دستگاه نیست");
+          return Response.json({ ok: true });
+        }
+        // A claimed job is leased for five minutes. If the bridge stopped before acknowledging it,
+        // return it to the queue so a restart can retry it.
+        const leaseExpired = new Date(Date.now() - 5 * 60_000);
+        await db.update(printJobs).set({ status: "pending", printedAt: null, detail: "" }).where(and(
+          eq(printJobs.deviceId, dev.id), eq(printJobs.status, "printing"), lt(printJobs.printedAt, leaseExpired),
+        ));
+        const candidates = await db.select({ id: printJobs.id }).from(printJobs)
+          .where(and(eq(printJobs.deviceId, dev.id), eq(printJobs.status, "pending")))
+          .orderBy(printJobs.id).limit(20);
+        if (!candidates.length) return Response.json({ jobs: [] });
+        const claimed = await db.update(printJobs).set({ status: "printing", printedAt: new Date(), detail: "" })
+          .where(and(eq(printJobs.deviceId, dev.id), eq(printJobs.status, "pending"), inArray(printJobs.id, candidates.map((j) => j.id))))
+          .returning({ id: printJobs.id, orderId: printJobs.orderId, content: printJobs.content });
+        return Response.json({ jobs: claimed });
       }
       case "orders": {
         need("tablet_pos", ["tablet", "pos"]);
@@ -99,4 +122,3 @@ async function handle(req: Request, ctx: Ctx) {
 }
 export const GET = handle;
 export const POST = handle;
-void desc;

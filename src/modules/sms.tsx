@@ -7,14 +7,14 @@ import { formatDate, formatTime, timeAgo, toFa } from "@/lib/format";
 import { fromJ, fmtJ, toJ } from "@/lib/jalali";
 import { OCCASIONS, SMS_VARS } from "@/lib/sms-meta";
 import type { Settings } from "@/lib/plans";
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 type Tpl = { id: number; purpose: string; title: string; templateId: string; params: { name: string; var: string }[]; sampleText: string; isActive: boolean };
 type Camp = { id: number; title: string; templateTitle: string; audience: string; recipients: number; sentCount: number; failedCount: number; status: string; scheduledAt: string | null; createdAt: string };
 type Log = { id: number; kind: string; phone: string; customerName: string; provider: string; status: string; detail: string; createdAt: string };
 type SmsCfg = NonNullable<Settings["sms"]> & { apiKeySet?: boolean };
 
-const PURPOSE: Record<string, string> = { birthday: "تولد", occasion: "مناسبتی", promo: "تبلیغاتی", service: "خدماتی" };
+const PURPOSE: Record<string, string> = { birthday: "تولد", occasion: "مناسبتی", promo: "تبلیغاتی", service: "خدماتی", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو" };
 const AUD: Record<string, string> = { "seg:vip": "گروه ویژه (VIP)", "seg:loyal": "گروه وفادار", "seg:regular": "گروه عادی", "seg:new": "گروه جدید", "seg:at_risk": "گروه در خطر ریزش", "seg:lost": "گروه ازدست‌رفته", all: "همه مشتریان باشگاه", vip: "مشتریان ویژه (امتیاز ۸۰۰+)", inactive: "کم‌سفارش (۱ سفارش یا کمتر)", birthday_month: "متولدین این ماه", manual: "شماره‌های دستی" };
 const CST: Record<string, [string, string]> = { scheduled: ["زمان‌بندی‌شده", "violet"], sending: ["در حال ارسال", "amber"], sent: ["ارسال شد", "emerald"], failed: ["ناموفق", "rose"] };
 
@@ -28,15 +28,15 @@ export function SmsPanel() {
   if (err) return <ErrorState message={err} />;
   if (!cfg) return <Skeleton className="h-96 rounded-2xl" />;
   const connected = !!cfg.apiKeySet;
-  const tabs: [typeof tab, string][] = [["campaigns", "📣 کمپین‌ها"], ["templates", "🧩 قالب‌ها (پترن)"], ["auto", "🎂 خودکار (تولد)"], ["settings", "🔌 اتصال پنل"], ["logs", "📜 گزارش ارسال"]];
+  const tabs: [typeof tab, string][] = [["campaigns", " کمپین‌ها"], ["templates", " قالب‌ها (پترن)"], ["auto", " خودکار (تولد)"], ["settings", " اتصال پنل"], ["logs", " گزارش ارسال"]];
   return (
     <div className="animate-fade-in">
       <PageHeader title="پنل پیامک باشگاه مشتریان" subtitle="ارسال پیامک مناسبتی، تبلیغاتی و تولد با روش پترن (قالب‌های تأییدشده) از طریق کاوه‌نگار یا sms.ir" actions={<Badge color={connected ? "emerald" : "amber"}>{connected ? `متصل: ${cfg.provider === "smsir" ? "sms.ir" : "کاوه‌نگار"}` : "متصل نیست"}</Badge>} />
-      <div className="no-scrollbar mb-5 flex gap-2 overflow-x-auto">{tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold", tab === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</div>
-      {!connected && tab !== "settings" && <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200">⚠️ کلید API پنل پیامک تنظیم نشده؛ تا زمان اتصال، ارسال پیامک انجام نمی‌شود. <button className="font-bold underline" onClick={() => setTab("settings")}>اتصال پنل</button></div>}
+      <div className="no-scrollbar mb-5 flex gap-2 overflow-x-auto">{tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold", tab === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}><IconText>{l}</IconText></button>)}</div>
+      <IconText>{!connected && tab !== "settings" && <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200">{<EmojiIcon emoji="" />} کلید API پنل پیامک تنظیم نشده؛ تا زمان اتصال، ارسال پیامک انجام نمی‌شود. <button className="font-bold underline" onClick={() => setTab("settings")}>اتصال پنل</button></div>}</IconText>
       {tab === "settings" && <SettingsTab cfg={cfg} templates={tpls.items} saved={loadCfg} />}
       {tab === "templates" && <TemplatesTab col={tpls} provider={cfg.provider} />}
-      {tab === "campaigns" && <CampaignsTab templates={tpls.items} />}
+      {tab === "campaigns" && <CampaignsTab templates={tpls.items.filter((t) => t.purpose !== "reservation_confirmed" && t.purpose !== "reservation_rejected")} />}
       {tab === "auto" && <AutoTab cfg={cfg} templates={tpls.items} saved={loadCfg} />}
       {tab === "logs" && <LogsTab />}
     </div>
@@ -105,8 +105,8 @@ function TemplatesTab({ col, provider }: { col: ReturnType<typeof useCollection<
   }
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between"><p className="text-sm text-stone-500">هر قالب به یک پترن تأییدشده در پنل پیامک شما اشاره می‌کند.</p><Button onClick={() => open("new")}><Icon name="plus" className="size-4" /> قالب جدید</Button></div>
-      {col.loading ? <Skeleton className="h-48 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="🧩" title="هنوز قالبی تعریف نشده" description="برای هر مناسبت (تولد، یلدا، تخفیف…) یک قالب بسازید." action={<Button onClick={() => open("new")}>ساخت قالب</Button>} /> : (
+      <div className="mb-4 flex items-center justify-between gap-3"><p className="text-sm leading-6 text-stone-500">هر قالب به یک پترن تأییدشده در پنل پیامک شما اشاره می‌کند. برای پیامک رزرو، دو پترن ثابتِ تأیید و رد بسازید؛ متن وضعیت از همان پترن ارسال می‌شود.</p><Button onClick={() => open("new")}><Icon name="plus" className="size-4" /> قالب جدید</Button></div>
+      <IconText>{col.loading ? <Skeleton className="h-48 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="" title="هنوز قالبی تعریف نشده" description="برای هر مناسبت (تولد، یلدا، تخفیف…) یک قالب بسازید." action={<Button onClick={() => open("new")}>ساخت قالب</Button>} /> : (
         <div className="grid gap-4 md:grid-cols-2">{col.items.map((t) => (
           <Card key={t.id} className={cn("p-4 animate-pop", t.id < 0 && "opacity-60")}>
             <div className="flex items-start justify-between gap-2"><div><p className="font-bold">{t.title}</p><div className="mt-1 flex gap-1.5"><Badge color="brand">{PURPOSE[t.purpose]}</Badge><Badge><span dir="ltr">{t.templateId}</span></Badge></div></div><div className="flex"><IconButton icon="edit" label="ویرایش" onClick={() => open(t)} /><IconButton icon="trash" label="حذف" className="hover:text-rose-600" onClick={() => setDel(t)} /></div></div>
@@ -114,10 +114,15 @@ function TemplatesTab({ col, provider }: { col: ReturnType<typeof useCollection<
             <div className="mt-2 flex flex-wrap gap-1.5">{t.params.map((p, i) => <Badge key={i} color="blue">{p.name} ← {SMS_VARS[p.var]}</Badge>)}</div>
           </Card>
         ))}</div>
-      )}
+      )}</IconText>
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit === "new" ? "قالب جدید" : "ویرایش قالب"} footer={<><Button variant="ghost" onClick={() => setEdit(null)}>انصراف</Button><Button onClick={save}>ذخیره</Button></>}>
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2"><Field label="کاربرد"><Select value={f.purpose} onChange={(e) => setF({ ...f, purpose: e.target.value })}>{Object.entries(PURPOSE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field><Field label="عنوان داخلی"><Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="تبریک تولد" /></Field></div>
+          <div className="grid gap-3 sm:grid-cols-2"><Field label="کاربرد"><Select value={f.purpose} onChange={(e) => {
+            const purpose = e.target.value;
+            const isReservation = purpose === "reservation_confirmed" || purpose === "reservation_rejected";
+            const sampleText = purpose === "reservation_confirmed" ? "رزرو میز شما تأیید شد." : "متأسفانه امکان تأیید رزرو میز شما وجود ندارد.";
+            setF({ ...f, purpose, ...(isReservation ? { params: [], sampleText } : {}) });
+          }}>{Object.entries(PURPOSE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field><Field label="عنوان داخلی"><Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="تبریک تولد" /></Field></div>
           <Field label={provider === "smsir" ? "شناسه قالب (TemplateId عددی)" : "نام قالب (Template) در کاوه‌نگار"}><Input dir="ltr" className="text-left" value={f.templateId} onChange={(e) => setF({ ...f, templateId: e.target.value })} placeholder={provider === "smsir" ? "123456" : "birthday"} /></Field>
           <Field label="متن نمونه‌ی قالب (برای پیش‌نمایش و گزارش)" hint="مثال: %token عزیز، تولدت مبارک! کد تخفیف %token2 در %token3"><Textarea rows={3} value={f.sampleText} onChange={(e) => setF({ ...f, sampleText: e.target.value })} /></Field>
           <div>
@@ -169,19 +174,19 @@ function CampaignsTab({ templates }: { templates: Tpl[] }) {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between"><p className="text-sm text-stone-500">کمپین تبلیغاتی، مناسبتی یا خدماتی بسازید و همین حالا یا در تاریخ شمسی دلخواه ارسال کنید.</p><Button onClick={() => { setF({ title: "", templateId: "", audience: "all", numbers: "", code: "", discount: "", when: "now", date: "", time: "10:00" }); setOpen(true); }} disabled={!templates.length}><Icon name="plus" className="size-4" /> کمپین جدید</Button></div>
-      {templates.length === 0 && <EmptyState emoji="🧩" title="ابتدا یک قالب بسازید" description="بدون قالب (پترن) امکان ارسال نیست؛ از تب «قالب‌ها» شروع کنید." />}
-      {templates.length > 0 && (col.loading ? <Skeleton className="h-48 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="📣" title="هنوز کمپینی ارسال نشده" description="برای نوروز، یلدا یا تخفیف ویژه کمپین بسازید." action={<Button onClick={() => setOpen(true)}>کمپین جدید</Button>} /> : (
+      <IconText>{templates.length === 0 && <EmptyState emoji="" title="ابتدا یک قالب بسازید" description="بدون قالب (پترن) امکان ارسال نیست؛ از تب «قالب‌ها» شروع کنید." />}</IconText>
+      <IconText>{templates.length > 0 && (col.loading ? <Skeleton className="h-48 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="" title="هنوز کمپینی ارسال نشده" description="برای نوروز، یلدا یا تخفیف ویژه کمپین بسازید." action={<Button onClick={() => setOpen(true)}>کمپین جدید</Button>} /> : (
         <div className="space-y-2.5">{col.items.map((c) => (
           <Card key={c.id} className="flex flex-wrap items-center gap-3 p-4 animate-pop">
             <div className="min-w-48 flex-1"><p className="font-bold">{c.title}</p><p className="text-xs text-stone-500">{c.templateTitle} · {AUD[c.audience]} · {toFa(c.recipients)} نفر</p></div>
             <Badge color={CST[c.status]?.[1]}>{CST[c.status]?.[0]}</Badge>
-            {c.status === "scheduled" && c.scheduledAt && <span className="text-xs text-violet-700">⏰ {fmtJ(c.scheduledAt)} {formatTime(c.scheduledAt)}</span>}
-            {(c.status === "sent" || c.status === "failed") && <span className="text-xs text-stone-500">✔ {toFa(c.sentCount)} · ✘ {toFa(c.failedCount)}</span>}
+            {c.status === "scheduled" && c.scheduledAt && <span className="text-xs text-violet-700">{<EmojiIcon emoji="" />} {fmtJ(c.scheduledAt)} {formatTime(c.scheduledAt)}</span>}
+            {(c.status === "sent" || c.status === "failed") && <span className="text-xs text-stone-500">{<EmojiIcon emoji="" />} {toFa(c.sentCount)} · ✘ {toFa(c.failedCount)}</span>}
             <span className="text-xs text-stone-400">{timeAgo(c.createdAt)}</span>
             {c.status === "scheduled" && <IconButton icon="trash" label="لغو" className="hover:text-rose-600" onClick={() => setDel(c)} />}
           </Card>
         ))}</div>
-      ))}
+      ))}</IconText>
       <Modal open={open} onClose={() => setOpen(false)} title="کمپین پیامکی جدید" size="lg" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button loading={busy} onClick={send}>{f.when === "now" ? "ارسال اکنون" : "زمان‌بندی"}</Button></>}>
         <div className="space-y-4">
           <div>
@@ -226,15 +231,15 @@ function AutoTab({ cfg, templates, saved }: { cfg: SmsCfg; templates: Tpl[]; sav
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <Card className="space-y-4 p-5">
-        <div className="flex items-center justify-between"><div><h3 className="font-bold">🎂 تبریک خودکار تولد</h3><p className="mt-1 text-xs leading-6 text-stone-500">در روز تولد شمسی هر مشتری، پیامک پترن ارسال می‌شود (سالی یک‌بار برای هر مشتری).</p></div><Switch checked={on} onChange={setOn} label="تولد خودکار" /></div>
+        <div className="flex items-center justify-between"><div><h3 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> تبریک خودکار تولد</h3><p className="mt-1 text-xs leading-6 text-stone-500">در روز تولد شمسی هر مشتری، پیامک پترن ارسال می‌شود (سالی یک‌بار برای هر مشتری).</p></div><Switch checked={on} onChange={setOn} label="تولد خودکار" /></div>
         <Field label="قالب تولد"><Select value={tpl} onChange={(e) => setTpl(e.target.value)}><option value="">— انتخاب قالب —</option>{templates.filter((t) => t.purpose === "birthday" || true).map((t) => <option key={t.id} value={t.id}>{PURPOSE[t.purpose]} — {t.title}</option>)}</Select></Field>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="کد تخفیف هدیه"><Input dir="ltr" className="text-left uppercase" value={code} onChange={(e) => setCode(e.target.value)} placeholder="BDAY20" /></Field><Field label="مقدار تخفیف (متن)"><Input value={disc} onChange={(e) => setDisc(e.target.value)} placeholder="۲۰٪" /></Field></div>
         <Button onClick={save} loading={busy === "s"}>ذخیره</Button>
       </Card>
       <Card className="space-y-3 p-5">
-        <h3 className="font-bold">⚙️ اجرای خودکار</h3>
+        <h3 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> اجرای خودکار</h3>
         <p className="text-sm leading-7 text-stone-600">سرور هر ۱۰ دقیقه کمپین‌های زمان‌بندی‌شده و پیامک‌های تولد را بررسی و ارسال می‌کند. برای اجرای بیرونی (Cron) هم می‌توانید آدرس <code dir="ltr" className="rounded bg-stone-100 px-1.5">/api/cron/sms?key=CRON_SECRET</code> را فراخوانی کنید.</p>
-        <Button variant="secondary" onClick={run} loading={busy === "r"}>▶ اجرای فوری</Button>
+        <Button variant="secondary" onClick={run} loading={busy === "r"}><IconText>{<EmojiIcon emoji="" />}</IconText> اجرای فوری</Button>
         <div className="rounded-xl bg-stone-50 p-4 text-xs leading-7 text-stone-600"><b>تاریخ تولد مشتری</b> را در بخش «باشگاه مشتریان» (ماه و روز شمسی) ثبت کنید. مشتریانی که «دریافت پیامک» را خاموش کرده‌اند پیامی دریافت نمی‌کنند.</div>
       </Card>
     </div>
@@ -247,14 +252,14 @@ function LogsTab() {
   useEffect(() => { const load = () => api<NonNullable<typeof d>>("/api/r/smslogs").then(setD).catch((e) => setErr(e.message)); load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
   if (err) return <ErrorState message={err} />;
   if (!d) return <Skeleton className="h-64 rounded-2xl" />;
-  const KIND: Record<string, string> = { campaign: "کمپین", birthday: "تولد", test: "تست" };
+  const KIND: Record<string, string> = { campaign: "کمپین", birthday: "تولد", test: "تست", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو" };
   return (
     <div>
       <div className="mb-4 grid gap-3 sm:grid-cols-3">{[["ارسال موفق", d.stats.sent, "text-emerald-600"], ["ناموفق", d.stats.failed, "text-rose-600"]].map(([l, v, c]) => <Card key={l as string} className="p-4"><p className="text-xs text-stone-500">{l as string}</p><p className={cn("mt-1 text-2xl font-black", c as string)}>{toFa(v as number)}</p></Card>)}</div>
-      {d.items.length === 0 ? <EmptyState emoji="📜" title="هنوز پیامکی ارسال نشده" /> : (
+      <IconText>{d.items.length === 0 ? <EmptyState emoji="" title="هنوز پیامکی ارسال نشده" /> : (
         <Card className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead><tr className="border-b bg-stone-50/70 text-xs text-stone-500"><th className="p-3 text-start">زمان</th><th className="p-3 text-start">نوع</th><th className="p-3 text-start">گیرنده</th><th className="p-3 text-start">وضعیت</th><th className="p-3 text-start">جزئیات</th></tr></thead>
           <tbody className="divide-y divide-stone-100">{d.items.map((l) => <tr key={l.id}><td className="whitespace-nowrap p-3 text-xs text-stone-500">{formatDate(l.createdAt)} {formatTime(l.createdAt)}</td><td className="p-3"><Badge>{KIND[l.kind]}</Badge></td><td className="p-3"><span dir="ltr">{l.phone}</span> <span className="text-xs text-stone-400">{l.customerName}</span></td><td className="p-3"><Badge color={l.status === "sent" ? "emerald" : "rose"}>{l.status === "sent" ? "ارسال شد" : "ناموفق"}</Badge></td><td className="max-w-72 truncate p-3 text-xs text-stone-500" title={l.detail}>{l.detail}</td></tr>)}</tbody></table></Card>
-      )}
+      )}</IconText>
     </div>
   );
 }

@@ -3,8 +3,8 @@ import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  assets, bankAccounts, couriers, customers, deliveryZones, devices, discountCodes, inventoryItems, orders, pagers,
-  printJobs, products, recipes, surveyResponses, surveys, transactions, warehouses, calls, crossSellRules,
+  assets, bankAccounts, categories, couriers, customers, deliveryZones, devices, discountCodes, inventoryItems, orders, pagers,
+  printJobs, products, recipes, stockMovements, surveyResponses, surveys, transactions, warehouses, calls, crossSellRules,
 } from "@/db/schema";
 import { getAuth, HttpError, withAuth } from "@/lib/auth";
 import { postManualTx, unpostManualTx } from "@/lib/accounting";
@@ -28,7 +28,23 @@ const devCrud = (feature: string, kinds: string[]) =>
     order: [asc(devices.id)],
     scope: inArray(devices.kind, kinds),
     defaults: () => ({ kind: kinds[0], code: randomBytes(4).toString("hex") }),
-    spec: { name: str(60, true), kind: { type: "enum", values: kinds }, lastValue: { type: "float", min: 0, max: 100000 } },
+    spec: {
+      name: str(60, true),
+      kind: { type: "enum", values: kinds },
+      lastValue: { type: "float", min: 0, max: 100000 },
+      ...(kinds.includes("printer") ? { printerCategoryIds: { type: "json" as const } } : {}),
+    },
+    validate: async (biz, data) => {
+      if (!("printerCategoryIds" in data)) return;
+      if (!kinds.includes("printer")) throw new HttpError(400, "تنظیم دسته‌بندی فقط برای پرینتر مجاز است");
+      if (!Array.isArray(data.printerCategoryIds) || data.printerCategoryIds.length > 100) throw new HttpError(400, "دسته‌بندی‌های چاپ نامعتبر است");
+      const ids = [...new Set(data.printerCategoryIds.map(Number))];
+      if (ids.some((id) => !Number.isInteger(id) || id < 0)) throw new HttpError(400, "شناسه‌ی دسته‌بندی نامعتبر است");
+      const categoryIds = ids.filter((id) => id > 0);
+      const rows = categoryIds.length ? await db.select({ id: categories.id }).from(categories).where(and(eq(categories.businessId, biz.id), inArray(categories.id, categoryIds))) : [];
+      if (rows.length !== categoryIds.length) throw new HttpError(400, "یکی از دسته‌بندی‌ها متعلق به این رستوران نیست");
+      data.printerCategoryIds = ids;
+    },
   });
 
 const printjobsBase = makeCrud({
@@ -159,12 +175,20 @@ export const registryA: Record<string, any> = {
       name: str(80, true),
       unit: str(20),
       warehouseId: { type: "nullableInt", min: 1 },
-      stock: { type: "float", min: -1e9 },
       minStock: { type: "float" },
       costPerUnit: int(1_000_000_000),
     },
-    validate: async (b, data) => {
+    validate: async (b, data, _auth, creating, id) => {
       if (data.warehouseId) await owns(warehouses, data.warehouseId, b.id, "انبار نامعتبر است");
+      if (!creating && (data.costPerUnit !== undefined || data.unit !== undefined || data.warehouseId !== undefined)) {
+        const [item] = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, id!), eq(inventoryItems.businessId, b.id)));
+        if (item && item.stock !== 0 && ((data.costPerUnit !== undefined && data.costPerUnit !== item.costPerUnit) || (data.unit !== undefined && data.unit !== item.unit) || (data.warehouseId !== undefined && data.warehouseId !== item.warehouseId))) throw new HttpError(400, "واحد، انبار و بهای کالای دارای موجودی قابل تغییر مستقیم نیست؛ ابتدا گردش آن را ثبت کنید");
+      }
+    },
+    beforeDelete: async (b, id) => {
+      const [movement] = await db.select({ id: stockMovements.id }).from(stockMovements).where(and(eq(stockMovements.itemId, id), eq(stockMovements.businessId, b.id))).limit(1);
+      const [item] = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, id), eq(inventoryItems.businessId, b.id)));
+      if (movement || (item && item.stock !== 0)) throw new HttpError(400, "کالای دارای موجودی یا سابقه گردش قابل حذف نیست؛ سوابق انبار باید حفظ شوند");
     },
   }),
 

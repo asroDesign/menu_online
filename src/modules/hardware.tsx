@@ -7,14 +7,14 @@ import { formatPrice, formatTime, timeAgo, toFa } from "@/lib/format";
 import { ResourcePage } from "@/components/resource-page";
 import { DELIVERY_STATUS } from "@/lib/admin-meta";
 import type { Order, Product } from "@/lib/types";
-import { Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 /* ---------- generic device registry ---------- */
-type Device = { id: number; kind: string; name: string; code: string; lastSeenAt: string | null; lastValue: number };
+type Device = { id: number; kind: string; name: string; code: string; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
 const KIND: Record<string, string> = { tablet: "تبلت", pos: "دستگاه پوز", printer: "پرینتر ابری", scale: "ترازو", caller_id: "کالر آیدی", pager: "فرستنده‌ی پیجر" };
 const online = (d: Device) => !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() < 5 * 60_000;
 
-function DevicePanel({ resource, kinds, extra, hint }: { resource: string; kinds: string[]; extra?: (d: Device) => ReactNode; hint?: (d: Device) => string }) {
+function DevicePanel({ resource, kinds, extra, content, hint }: { resource: string; kinds: string[]; extra?: (d: Device) => ReactNode; content?: (d: Device) => ReactNode; hint?: (d: Device) => string }) {
   const col = useCollection<Device>(`/api/r/${resource}`, { poll: 10000 });
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -28,12 +28,12 @@ function DevicePanel({ resource, kinds, extra, hint }: { resource: string; kinds
     try { await col.create({ name: name.trim(), kind }, { name: name.trim(), kind, code: "…", lastSeenAt: null, lastValue: 0 }); setName(""); toast("دستگاه اضافه شد"); } catch (e) { toast((e as Error).message, "error"); }
   }
   async function ping(d: Device) {
-    try { await api(`/api/device/${d.code}/ping`); col.reload(true); toast("ارتباط برقرار است ✅"); } catch (e) { toast((e as Error).message, "error"); }
+    try { await api(`/api/device/${d.code}/ping`); col.reload(true); toast("ارتباط برقرار است "); } catch (e) { toast((e as Error).message, "error"); }
   }
   return (
     <div className="mb-8">
       <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">دستگاه‌های متصل</h2><Button size="sm" onClick={() => { setKind(kinds[0]); setOpen(true); }}><Icon name="plus" className="size-4" /> دستگاه جدید</Button></div>
-      {col.loading ? <Skeleton className="h-28 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="🔌" title="دستگاهی ثبت نشده" description="دستگاه را اضافه کنید و کد اتصال آن را در سخت‌افزار/نرم‌افزار دستگاه وارد کنید." action={<Button onClick={() => setOpen(true)}>افزودن دستگاه</Button>} /> : (
+      <IconText>{col.loading ? <Skeleton className="h-28 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="" title="دستگاهی ثبت نشده" description="دستگاه را اضافه کنید و کد اتصال آن را در سخت‌افزار/نرم‌افزار دستگاه وارد کنید." action={<Button onClick={() => setOpen(true)}>افزودن دستگاه</Button>} /> : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{col.items.map((d) => (
           <Card key={d.id} className={cn("p-4 animate-pop", d.id < 0 && "opacity-60")}>
             <div className="flex items-start justify-between gap-2">
@@ -43,6 +43,7 @@ function DevicePanel({ resource, kinds, extra, hint }: { resource: string; kinds
             <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs"><span className="text-stone-500">کد اتصال: </span><code className="font-bold" dir="ltr">{d.code}</code></div>
             <p className="mt-2 break-all text-[11px] text-stone-400" dir="ltr">{origin}{hint ? hint(d) : `/api/device/${d.code}/ping`}</p>
             <p className="mt-2 text-[11px] text-stone-400">آخرین ارتباط: {d.lastSeenAt ? timeAgo(d.lastSeenAt) : "—"}</p>
+            {content?.(d)}
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">
               <Button size="sm" variant="secondary" onClick={() => ping(d)} disabled={d.id < 0}>تست اتصال</Button>
               {extra?.(d)}
@@ -50,7 +51,7 @@ function DevicePanel({ resource, kinds, extra, hint }: { resource: string; kinds
             </div>
           </Card>
         ))}</div>
-      )}
+      )}</IconText>
       <Modal open={open} onClose={() => setOpen(false)} title="دستگاه جدید" size="sm" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button onClick={add} disabled={!name.trim()}>افزودن</Button></>}>
         <div className="space-y-4"><Field label="نام دستگاه"><Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="مثلاً پرینتر آشپزخانه" /></Field>{kinds.length > 1 && <Field label="نوع"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{kinds.map((k) => <option key={k} value={k}>{KIND[k]}</option>)}</Select></Field>}<p className="text-xs leading-6 text-stone-400">پس از افزودن، یک کد اتصال یکتا ساخته می‌شود.</p></div>
       </Modal>
@@ -80,22 +81,22 @@ function DeliveryBoard() {
   const sorted = (orders ?? []).slice().sort((a, b) => Number(["not_home", "failed"].includes(b.deliveryStatus)) - Number(["not_home", "failed"].includes(a.deliveryStatus)) || Number(a.deliveryStatus !== "none") - Number(b.deliveryStatus !== "none"));
   return (
     <Card className="mt-6 overflow-hidden">
-      <div className="border-b border-stone-100 p-4 font-bold">🛵 سفارش‌های ارسال فعال و سپردن به پیک</div>
-      {err ? <p className="p-6 text-center text-sm text-stone-400">{err}</p> : !orders ? <Skeleton className="m-4 h-24" /> : orders.length === 0 ? <p className="p-8 text-center text-sm text-stone-400">سفارش ارسالی در جریان نیست.</p> : (
+      <div className="border-b border-stone-100 p-4 font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> سفارش‌های ارسال فعال و سپردن به پیک</div>
+      <IconText>{err ? <p className="p-6 text-center text-sm text-stone-400">{err}</p> : !orders ? <Skeleton className="m-4 h-24" /> : orders.length === 0 ? <p className="p-8 text-center text-sm text-stone-400">سفارش ارسالی در جریان نیست.</p> : (
         <ul className="divide-y divide-stone-100">{sorted.map((o) => {
           const locked = o.deliveryStatus === "picked_up" || o.deliveryStatus === "delivered";
           const ds = DELIVERY_STATUS[o.deliveryStatus] ?? DELIVERY_STATUS.none;
           return (
             <li key={o.id} className={cn("flex flex-wrap items-center gap-3 px-4 py-3 text-sm", ["not_home", "failed"].includes(o.deliveryStatus) && "bg-rose-50/60")}>
               <b>#{toFa(o.number)}</b>
-              <span className="min-w-48 flex-1 text-stone-600">📍 {o.address || "—"}{o.lat != null && o.lng != null && <a className="ms-2 text-xs font-bold text-brand-600" target="_blank" href={`https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}`}>🧭 نقشه</a>}<span className="block text-xs text-stone-400">{o.customerName} · {o.customerPhone} · {o.status === "ready" ? "آماده تحویل" : o.status === "served" ? "تحویل‌گرفته‌شده" : "در حال آماده‌سازی"}</span>{o.courierNote && <span className="block text-xs font-semibold text-rose-700">«{o.courierNote}»</span>}</span>
+              <span className="min-w-48 flex-1 text-stone-600">{<EmojiIcon emoji="" />} {o.address || "—"}{o.lat != null && o.lng != null && <a className="ms-2 text-xs font-bold text-brand-600" target="_blank" href={`https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}`}>{<EmojiIcon emoji="" />} نقشه</a>}<span className="block text-xs text-stone-400">{o.customerName} · {o.customerPhone} · {o.status === "ready" ? "آماده تحویل" : o.status === "served" ? "تحویل‌گرفته‌شده" : "در حال آماده‌سازی"}</span>{o.courierNote && <span className="block text-xs font-semibold text-rose-700">«{o.courierNote}»</span>}</span>
               <Badge color={ds[1]}>{ds[0]}</Badge>
               <span className="font-bold">{formatPrice(o.total)}</span>
               <Select className="w-44" disabled={locked} value={o.courierId ?? ""} onChange={(e) => assign(o, e.target.value)}><option value="">— بدون پیک —</option>{cs.items.filter((c) => c.status !== "off" || c.id === o.courierId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
             </li>
           );
         })}</ul>
-      )}
+      )}</IconText>
     </Card>
   );
 }
@@ -105,7 +106,7 @@ export function Couriers() {
       title="مدیریت پیک"
       subtitle="پیک‌ها هر کدام حساب ورود و پنل مخصوص خود را دارند؛ سفارش‌های ارسال را به آن‌ها بسپارید و وضعیت تحویل را زنده ببینید"
       endpoint="/api/r/couriers"
-      emoji="🛵"
+      emoji=""
       poll={8000}
       emptyTitle="هنوز پیکی ثبت نشده"
       emptyDesc="پیک اضافه کنید، برایش ایمیل و رمز ورود بسازید و سفارش‌های ارسال را به او بسپارید."
@@ -119,7 +120,7 @@ export function Couriers() {
         { key: "email", label: "ایمیل ورود به پنل پیک", ltr: true, hint: "برای ساخت حساب ورود" },
         { key: "password", label: "رمز عبور", secret: true, hint: "هنگام ویرایش: خالی = بدون تغییر" },
       ]}
-      header={() => <p className="mb-4 rounded-xl bg-sky-50 p-3 text-xs leading-6 text-sky-900">🔗 پیک با ایمیل و رمز خودش وارد می‌شود و مستقیم به <b>پنل پیک</b> می‌رود: سفارش‌های سپرده‌شده، تلفن و آدرس مشتری، مسیریابی، و دکمه‌های «تحویل گرفتم»، «تحویل داده شد»، «عدم حضور مشتری»، «عدم تحویل».</p>}
+      header={() => <p className="mb-4 rounded-xl bg-sky-50 p-3 text-xs leading-6 text-sky-900"><IconText>{<EmojiIcon emoji="" />}</IconText> پیک با ایمیل و رمز خودش وارد می‌شود و مستقیم به <b>پنل پیک</b> می‌رود: سفارش‌های سپرده‌شده، تلفن و آدرس مشتری، مسیریابی، و دکمه‌های «تحویل گرفتم»، «تحویل داده شد»، «عدم حضور مشتری»، «عدم تحویل».</p>}
       columns={[
         { label: "پیک", render: (r) => <div><p className="font-bold">{r.name}</p><p className="text-xs text-stone-400" dir="ltr" style={{ textAlign: "start" }}>{r.phone}</p></div> },
         { label: "وسیله", render: (r) => r.vehicle },
@@ -140,7 +141,7 @@ export function Zones() {
       title="محدوده و منطقه‌بندی"
       subtitle="محدوده‌های ارسال با هزینه، حداقل سفارش و زمان تحویل مخصوص هر منطقه"
       endpoint="/api/r/zones"
-      emoji="🗺️"
+      emoji=""
       emptyTitle="محدوده‌ای تعریف نشده"
       emptyDesc="مثلاً «محدوده ۱ تا ۳ کیلومتر» با هزینه‌ی ارسال ۲۵ هزار تومان."
       addLabel="محدوده جدید"
@@ -182,7 +183,7 @@ function PosRequests() {
   };
   return (
     <div className="mb-8">
-      <h2 className="mb-3 font-bold">💳 درخواست‌های پرداخت با کارتخوان</h2>
+      <h2 className="mb-3 font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> درخواست‌های پرداخت با کارتخوان</h2>
       {col.loading ? <Skeleton className="h-24 rounded-2xl" /> : col.items.length === 0 ? <p className="rounded-2xl bg-white p-6 text-center text-sm text-stone-400 ring-1 ring-stone-200">درخواستی نیست. از «سفارش‌ها ‹ جزئیات سفارش ‹ کارتخوان» مبلغ را به دستگاه بفرستید.</p> : (
         <Card className="divide-y divide-stone-100">{col.items.slice(0, 12).map((r) => (
           <div key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm"><b>سفارش #{toFa(r.orderNumber)}</b><span>{formatPrice(r.amount)}</span><Badge color={st[r.status]?.[1]}>{st[r.status]?.[0]}</Badge>{r.refNo && <span className="text-xs text-stone-500" dir="ltr">{r.refNo}</span>}{r.detail && r.status !== "approved" && <span className="max-w-72 truncate text-xs text-rose-600" title={r.detail}>{r.detail}</span>}<span className="text-xs text-stone-400">{timeAgo(r.createdAt)}</span>
@@ -218,7 +219,7 @@ function PosSetup({ devices }: { devices: Device[] }) {
   const isNet = proto === "saman-ssp1126" || proto === "raw";
   return (
     <Card className="mb-8 p-5">
-      <h2 className="font-bold">🔧 راه‌اندازی اتصال کارتخوان (RS232 / شبکه)</h2>
+      <h2 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> راه‌اندازی اتصال کارتخوان (RS232 / شبکه)</h2>
       <p className="mt-1 text-xs leading-6 text-stone-500">پروتکل PC-POS هر PSP اختصاصی است و باید ابتدا توسط پشتیبانی همان شرکت (سامان‌کیش، به‌پرداخت، پارسیان، سداد، آسان‌پرداخت…) روی دستگاه فعال شود. سپس تنظیمات زیر را در برنامه‌ی پل روی رایانه‌ی صندوق بگذارید.</p>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="space-y-3">
@@ -234,7 +235,7 @@ function PosSetup({ devices }: { devices: Device[] }) {
         <div>
           <p className="mb-1.5 text-xs font-semibold text-stone-600">فایل <code>bridge.config.json</code></p>
           <pre className="max-h-80 overflow-auto rounded-xl bg-stone-900 p-4 text-left text-[11px] leading-5 text-emerald-300" dir="ltr">{conf}</pre>
-          <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => navigator.clipboard.writeText(conf).then(() => toast("تنظیمات کپی شد"))}><Icon name="copy" className="size-4" /> کپی</Button><a href="/bridge/agent.mjs" download><Button size="sm" variant="secondary">⬇ برنامه‌ی پل (agent.mjs)</Button></a><a href="/bridge/pos-emulator.mjs" download><Button size="sm" variant="ghost">⬇ شبیه‌ساز تست</Button></a></div>
+          <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => navigator.clipboard.writeText(conf).then(() => toast("تنظیمات کپی شد"))}><Icon name="copy" className="size-4" /> کپی</Button><a href="/bridge/agent.mjs" download><Button size="sm" variant="secondary"><IconText>{<EmojiIcon emoji="" />}</IconText> برنامه‌ی پل (agent.mjs)</Button></a><a href="/bridge/pos-emulator.mjs" download><Button size="sm" variant="ghost"><IconText>{<EmojiIcon emoji="" />}</IconText> شبیه‌ساز تست</Button></a></div>
           <p className="mt-3 text-[11px] leading-6 text-stone-500">اجرا: <code dir="ltr">node agent.mjs bridge.config.json</code>{proto === "saman-ssp1126" && <> — پیش‌نیاز: <code dir="ltr">npm i saman-payment-pos{t === "serial" ? " serialport" : ""}</code></>}{proto === "raw" && t === "serial" && <> — پیش‌نیاز: <code dir="ltr">npm i serialport</code></>}</p>
         </div>
       </div>
@@ -254,8 +255,104 @@ export function Devices() {
   );
 }
 
+type PrinterCategory = { id: number; name: string };
+function PrinterCategorySelector({ device }: { device: Device }) {
+  const categories = useCollection<PrinterCategory>("/api/categories");
+  const toast = useToast();
+  const assignedKey = (device.printerCategoryIds ?? []).join(",");
+  const [selected, setSelected] = useState<number[]>(device.printerCategoryIds ?? []);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setSelected(device.printerCategoryIds ?? []), [device.id, assignedKey]);
+  async function save(next: number[]) {
+    setSaving(true);
+    try {
+      await api(`/api/r/dev_printer/${device.id}`, { method: "PATCH", body: { printerCategoryIds: next } });
+      setSelected(next);
+      toast(next.length ? "دسته‌های چاپ ذخیره شد" : "این پرینتر همه‌ی دسته‌ها را چاپ می‌کند");
+    } catch (e) { toast((e as Error).message, "error"); }
+    finally { setSaving(false); }
+  }
+  return <div className="mt-3 rounded-xl bg-stone-50 p-3">
+    <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold">دسته‌های قابل چاپ</p>{selected.length > 0 && <button className="text-[11px] font-semibold text-brand-700 underline" disabled={saving} onClick={() => save([])}>چاپ همه‌ی دسته‌ها</button>}</div>
+    <p className="mt-1 text-[11px] leading-5 text-stone-500">اگر چیزی انتخاب نشود، همه‌ی آیتم‌ها چاپ می‌شوند. «بدون دسته» را هم می‌توانید جداگانه به یک پرینتر بسپارید.</p>
+    {categories.loading ? <Skeleton className="mt-2 h-8" /> : <div className="mt-2 flex flex-wrap gap-2">
+      {[{ id: 0, name: "بدون دسته‌بندی" }, ...categories.items].map((c) => <label key={c.id} className="flex items-center gap-1.5 rounded-lg bg-white px-2 py-1.5 text-xs ring-1 ring-stone-200">
+        <input type="checkbox" className="accent-brand-600" checked={selected.includes(c.id)} disabled={saving} onChange={() => save(selected.includes(c.id) ? selected.filter((id) => id !== c.id) : [...selected, c.id])} />{c.name}
+      </label>)}
+    </div>}
+  </div>;
+}
+
+type LocalDeviceConfig = { transport: "tcp" | "serial" | "usb"; host: string; port: string; path: string; baud: string; vendorId: string; productId: string; printerName: string; encoding: string; request: string; responseEnd: string; weightRegex: string; weightUnit: "kg" | "g"; factor: string };
+const BRIDGE_CONFIG_KEY = "digital-menu.bridge.devices.v1";
+function defaultBridgeConfig(kind: string): LocalDeviceConfig {
+  return { transport: kind === "scale" ? "serial" : "tcp", host: "192.168.1.50", port: kind === "scale" ? "4001" : "9100", path: "COM3", baud: "9600", vendorId: "", productId: "", printerName: "", encoding: "CP1256", request: "", responseEnd: "\\r\\n", weightRegex: "([+-]?\\d+(?:[.,]\\d+)?)", weightUnit: "kg", factor: "1" };
+}
+function BridgeSetup() {
+  const printers = useCollection<Device>("/api/r/dev_printer", { poll: 10000 });
+  const scales = useCollection<Device>("/api/r/dev_scale", { poll: 10000 });
+  const devices = [...printers.items, ...scales.items];
+  const [origin, setOrigin] = useState("");
+  const [ready, setReady] = useState(false);
+  const [configs, setConfigs] = useState<Record<string, LocalDeviceConfig>>({});
+  const toast = useToast();
+  useEffect(() => {
+    // Hydrate browser-only bridge settings after mount so the server and first client render match.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOrigin(location.origin);
+    try { setConfigs(JSON.parse(localStorage.getItem(BRIDGE_CONFIG_KEY) ?? "{}")); } catch { setConfigs({}); }
+    setReady(true);
+  }, []);
+  useEffect(() => { if (ready) localStorage.setItem(BRIDGE_CONFIG_KEY, JSON.stringify(configs)); }, [configs, ready]);
+  const configFor = (d: Device) => configs[d.code] ?? defaultBridgeConfig(d.kind);
+  const updateConfig = (d: Device, patch: Partial<LocalDeviceConfig>) => setConfigs((prev) => ({ ...prev, [d.code]: { ...(prev[d.code] ?? defaultBridgeConfig(d.kind)), ...patch } }));
+  const deviceConfig = (d: Device) => {
+    const c = configFor(d);
+    if (c.transport === "usb") return {
+      code: d.code, name: d.name, kind: d.kind, transport: "usb",
+      ...(c.vendorId ? { vendorId: Number(c.vendorId) } : {}), ...(c.productId ? { productId: Number(c.productId) } : {}),
+      ...(d.kind === "scale" ? { request: c.request, responseEnd: c.responseEnd, weightRegex: c.weightRegex, weightUnit: c.weightUnit, factor: Number(c.factor) || 1 } : { printerName: c.printerName, encoding: c.encoding }),
+    };
+    if (d.kind === "scale") return {
+      code: d.code, name: d.name, kind: d.kind, transport: c.transport,
+      ...(c.transport === "tcp" ? { host: c.host, port: Number(c.port) } : { path: c.path, baud: Number(c.baud) }),
+      request: c.request, responseEnd: c.responseEnd, weightRegex: c.weightRegex, weightUnit: c.weightUnit, factor: Number(c.factor) || 1,
+    };
+    return { code: d.code, name: d.name, kind: d.kind, transport: c.transport, ...(c.transport === "tcp" ? { host: c.host, port: Number(c.port) } : { path: c.path, baud: Number(c.baud) }), encoding: c.encoding };
+  };
+  const configText = JSON.stringify({ server: origin || "https://your-domain.ir", pollSeconds: 2, devices: devices.map(deviceConfig) }, null, 2);
+  async function copy() { try { await navigator.clipboard.writeText(configText); toast("تنظیمات پل کپی شد"); } catch (e) { toast((e as Error).message, "error"); } }
+  function downloadConfig() {
+    const url = URL.createObjectURL(new Blob([configText], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "bridge.config.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  return <Card className="mb-6 space-y-4 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر و ترازو</h2><p className="mt-1 text-xs leading-6 text-stone-500">اپ ویندوزی چند پرینتر و ترازو را هم‌زمان به صف ابری متصل می‌کند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml" target="_blank" rel="noreferrer"><Button size="sm" variant="secondary"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</Button></a><Button size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
+    {devices.length === 0 ? <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-500">ابتدا پرینتر یا ترازو را در همین صفحه اضافه کنید تا تنظیمات نمونه ساخته شود.</p> : <div className="grid gap-3 lg:grid-cols-2">{devices.map((d) => {
+      const c = configFor(d);
+      const set = (key: keyof LocalDeviceConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => updateConfig(d, { [key]: e.target.value } as Partial<LocalDeviceConfig>);
+      return <div key={d.code} className="space-y-3 rounded-xl bg-stone-50 p-3">
+        <div className="flex items-center justify-between gap-2"><p className="font-semibold">{d.name}</p><code className="text-xs" dir="ltr">{d.code}</code></div>
+        <Field label="روش اتصال"><Select value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option><option value="usb">{d.kind === "printer" ? "USB از طریق صف چاپ Windows" : "USB مستقیم HID"}</option></Select></Field>
+        {c.transport === "tcp" && <div className="grid grid-cols-2 gap-2"><Field label="IP دستگاه"><Input dir="ltr" value={c.host} onChange={set("host")} /></Field><Field label="درگاه"><Input dir="ltr" inputMode="numeric" value={c.port} onChange={set("port")} /></Field></div>}
+        {c.transport === "serial" && <div className="grid grid-cols-2 gap-2"><Field label="پورت USB-سریال (مثلاً COM3)"><Input dir="ltr" value={c.path} onChange={set("path")} /></Field><Field label="سرعت"><Input dir="ltr" inputMode="numeric" value={c.baud} onChange={set("baud")} /></Field></div>}
+        {c.transport === "usb" && d.kind === "scale" && <div className="grid grid-cols-2 gap-2"><Field label="Vendor ID"><Input dir="ltr" value={c.vendorId} onChange={set("vendorId")} placeholder="0x04b8" /></Field><Field label="Product ID"><Input dir="ltr" value={c.productId} onChange={set("productId")} placeholder="0x0e15" /></Field></div>}
+        {d.kind === "printer" && c.transport === "usb" && <Field label="نام صف پرینتر نصب‌شده در Windows"><Input dir="ltr" value={c.printerName} onChange={set("printerName")} placeholder="مثلاً POS-80" /></Field>}
+        {d.kind === "printer" && c.transport !== "usb" && <Field label="کدگذاری چاپ فارسی"><Input dir="ltr" value={c.encoding} onChange={set("encoding")} placeholder="CP1256" /></Field>}
+        {d.kind === "scale" && <div className="space-y-2"><Field label={c.transport === "usb" ? "بایت درخواست HID (در صورت نیاز)" : "درخواست خواندن (در صورت نیاز) / متن فرستاده‌شده"}><Input dir="ltr" value={c.request} onChange={set("request")} placeholder={c.transport === "usb" ? "مثلاً \\x00\\x01" : "خالی = خواندن خروجی پیوسته"} /></Field>{c.transport === "usb" && <p className="text-[10px] text-stone-500">در درخواست HID، بایت اول شناسه‌ی گزارش است؛ قالب داده به مدل ترازو وابسته است.</p>}<Field label="پایان پاسخ"><Input dir="ltr" value={c.responseEnd} onChange={set("responseEnd")} placeholder="\\r\\n" /></Field><Field label="عبارت استخراج وزن"><Input dir="ltr" value={c.weightRegex} onChange={set("weightRegex")} /></Field><div className="grid grid-cols-2 gap-2"><Field label="واحد خروجی"><Select value={c.weightUnit} onChange={set("weightUnit")}><option value="kg">کیلوگرم</option><option value="g">گرم</option></Select></Field><Field label="ضریب کالیبراسیون"><Input dir="ltr" inputMode="decimal" value={c.factor} onChange={set("factor")} /></Field></div></div>}
+      </div>;
+    })}</div>}
+    <pre dir="ltr" className="max-h-56 overflow-auto rounded-xl bg-stone-900 p-3 text-[11px] leading-5 text-emerald-100">{configText}</pre>
+    <p className="text-[11px] leading-6 text-stone-500">نصب‌گر از workflow ویندوزی GitHub ساخته می‌شود؛ از آخرین اجرای موفق، فایل Setup را دریافت و نصب کنید. سپس فایل JSON همین صفحه را داخل اپ وارد و اتصال را شروع کنید. پرینتر USB باید در Windows نصب شده باشد؛ نام صف چاپ را در تنظیم دستگاه وارد کنید. پورت‌های USB-سریال نیز از COM قابل انتخاب‌اند.</p>
+  </Card>;
+}
+
 /* ---------- cloud printers ---------- */
-type Job = { id: number; orderId: number | null; deviceName: string; status: string; content: string; createdAt: string; printedAt: string | null };
+type Job = { id: number; orderId: number | null; deviceName: string; status: string; content: string; detail?: string; createdAt: string; printedAt: string | null };
 export function Printers() {
   const jobs = useCollection<Job>("/api/r/printjobs", { poll: 6000 });
   const toast = useToast();
@@ -265,19 +362,21 @@ export function Printers() {
   }
   return (
     <div className="animate-fade-in">
-      <PageHeader title="اتوماسیون پرینتر ابری" subtitle="هر سفارش جدید به‌صورت خودکار در صف چاپ پرینترهای متصل قرار می‌گیرد" actions={<Button variant="secondary" onClick={test}>🖨️ چاپ آزمایشی</Button>} />
-      <DevicePanel resource="dev_printer" kinds={["printer"]} hint={(d) => `/api/device/${d.code}/jobs`} />
+      <PageHeader title="اتوماسیون پرینتر ابری" subtitle="هر سفارش جدید به‌صورت خودکار در صف چاپ پرینترهای متصل قرار می‌گیرد" actions={<Button variant="secondary" onClick={test}><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ آزمایشی</Button>} />
+      <DevicePanel resource="dev_printer" kinds={["printer"]} content={(d) => <PrinterCategorySelector device={d} />} hint={(d) => `/api/device/${d.code}/jobs`} />
+      <BridgeSetup />
       <h2 className="mb-3 font-bold">صف و تاریخچه‌ی چاپ</h2>
-      {jobs.loading ? <Skeleton className="h-40 rounded-2xl" /> : jobs.items.length === 0 ? <EmptyState emoji="🖨️" title="کار چاپی وجود ندارد" description="پس از افزودن پرینتر، هر سفارش جدید خودکار اینجا صف می‌شود." /> : (
+      <IconText>{jobs.loading ? <Skeleton className="h-40 rounded-2xl" /> : jobs.items.length === 0 ? <EmptyState emoji="" title="کار چاپی وجود ندارد" description="پس از افزودن پرینتر، هر سفارش جدید خودکار اینجا صف می‌شود." /> : (
         <Card className="divide-y divide-stone-100">{jobs.items.slice(0, 30).map((j) => (
           <div key={j.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
-            <Badge color={j.status === "printed" ? "emerald" : j.status === "failed" ? "rose" : "amber"}>{j.status === "printed" ? "چاپ شد" : j.status === "failed" ? "خطا" : "در صف"}</Badge>
+            <Badge color={j.status === "printed" ? "emerald" : j.status === "failed" ? "rose" : "amber"}>{j.status === "printed" ? "چاپ شد" : j.status === "failed" ? "خطا" : j.status === "printing" ? "در حال چاپ" : "در صف"}</Badge>
             <span className="font-semibold">{j.orderId ? `سفارش #${toFa(j.orderId)}` : "چاپ آزمایشی"}</span><span className="text-xs text-stone-500">{j.deviceName}</span>
             <span className="text-xs text-stone-400">{timeAgo(j.createdAt)}</span>
+            {j.status === "failed" && j.detail && <span className="w-full text-xs text-rose-700">{j.detail}</span>}
             <span className="ms-auto flex gap-1"><Button size="sm" variant="ghost" onClick={() => setView(j)}>مشاهده رسید</Button><Button size="sm" variant="secondary" onClick={() => jobs.update(j.id, { status: "pending" }).then(() => toast("دوباره در صف قرار گرفت")).catch((e) => toast(e.message, "error"))}>چاپ مجدد</Button><IconButton icon="trash" label="حذف" onClick={() => jobs.remove(j.id).catch((e) => toast(e.message, "error"))} /></span>
           </div>
         ))}</Card>
-      )}
+      )}</IconText>
       <Modal open={!!view} onClose={() => setView(null)} title="پیش‌نمایش رسید" size="sm">{view && <pre className="whitespace-pre-wrap rounded-xl bg-stone-50 p-4 text-center font-mono text-xs leading-7">{view.content}</pre>}</Modal>
     </div>
   );
@@ -297,19 +396,19 @@ export function CallerId() {
     <div className="animate-fade-in">
       <PageHeader title="کالر آیدی" subtitle="با هر تماس ورودی، شماره و مشخصات مشتری نمایش داده می‌شود و سفارش با یک کلیک ثبت می‌شود" />
       <DevicePanel resource="dev_caller" kinds={["caller_id"]} hint={(d) => `/api/device/${d.code}/call  (POST {"phone":"0912…"})`} />
-      <Card className="mb-5 flex flex-wrap items-end gap-3 p-4"><Field label="ثبت دستی تماس (وقتی دستگاه کالر آیدی متصل نیست)" className="min-w-56 flex-1"><Input dir="ltr" className="text-left" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09121234567" onKeyDown={(e) => e.key === "Enter" && simulate()} /></Field><Button onClick={simulate} disabled={!phone.trim()}>☎️ ثبت تماس</Button></Card>
+      <Card className="mb-5 flex flex-wrap items-end gap-3 p-4"><Field label="ثبت دستی تماس (وقتی دستگاه کالر آیدی متصل نیست)" className="min-w-56 flex-1"><Input dir="ltr" className="text-left" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09121234567" onKeyDown={(e) => e.key === "Enter" && simulate()} /></Field><Button onClick={simulate} disabled={!phone.trim()}><IconText>{<EmojiIcon emoji="" />}</IconText> ثبت تماس</Button></Card>
       <h2 className="mb-3 font-bold">تماس‌های اخیر</h2>
-      {calls.loading ? <Skeleton className="h-40 rounded-2xl" /> : calls.items.length === 0 ? <EmptyState emoji="☎️" title="تماسی ثبت نشده" description="تماس‌های ورودی دستگاه کالر آیدی اینجا نمایش داده می‌شوند." /> : (
+      <IconText>{calls.loading ? <Skeleton className="h-40 rounded-2xl" /> : calls.items.length === 0 ? <EmptyState emoji="" title="تماسی ثبت نشده" description="تماس‌های ورودی دستگاه کالر آیدی اینجا نمایش داده می‌شوند." /> : (
         <div className="space-y-2.5">{calls.items.map((c) => (
           <Card key={c.id} className={cn("flex flex-wrap items-center gap-3 p-4 animate-pop", !c.handled && "ring-2 ring-brand-300")}>
-            <span className={cn("flex size-11 items-center justify-center rounded-full text-lg", c.handled ? "bg-stone-100" : "animate-pulse bg-brand-100")}>☎️</span>
-            <div className="min-w-48 flex-1"><p className="font-bold" dir="ltr" style={{ textAlign: "start" }}>{c.phone}</p>{c.customer ? <p className="text-xs text-emerald-700">💎 {c.customer.name} · {toFa(c.customer.ordersCount)} سفارش · {toFa(c.customer.points)} امتیاز · مجموع {formatPrice(c.customer.totalSpent)}</p> : <p className="text-xs text-stone-400">مشتری جدید / ناشناس</p>}</div>
+            <span className={cn("flex size-11 items-center justify-center rounded-full text-lg", c.handled ? "bg-stone-100" : "animate-pulse bg-brand-100")}>{<EmojiIcon emoji="" />}</span>
+            <div className="min-w-48 flex-1"><p className="font-bold" dir="ltr" style={{ textAlign: "start" }}>{c.phone}</p>{c.customer ? <p className="text-xs text-emerald-700">{<EmojiIcon emoji="" />} {c.customer.name} · {toFa(c.customer.ordersCount)} سفارش · {toFa(c.customer.points)} امتیاز · مجموع {formatPrice(c.customer.totalSpent)}</p> : <p className="text-xs text-stone-400">مشتری جدید / ناشناس</p>}</div>
             <span className="text-xs text-stone-400">{formatTime(c.createdAt)} · {timeAgo(c.createdAt)}</span>
             <Link href={`/dashboard/cashier?phone=${c.phone}`}><Button size="sm">ثبت سفارش</Button></Link>
             {!c.handled && <Button size="sm" variant="secondary" onClick={() => calls.update(c.id, { handled: true }).catch((e) => toast(e.message, "error"))}>بررسی شد</Button>}
           </Card>
         ))}</div>
-      )}
+      )}</IconText>
     </div>
   );
 }
@@ -332,11 +431,12 @@ export function Scale() {
     <div className="animate-fade-in">
       <PageHeader title="ترازوی دیجیتال" subtitle="وزن به‌صورت زنده از ترازو دریافت و قیمت محصول بر اساس کیلوگرم محاسبه می‌شود" />
       <DevicePanel resource="dev_scale" kinds={["scale"]} hint={(x) => `/api/device/${x.code}/weight  (POST {"value":0.45})`} />
+      <BridgeSetup />
       {d && p && (
         <Card className="grid gap-6 p-5 md:grid-cols-2">
           <div className="space-y-3">
             <Field label="ترازو"><Select value={String(d.id)} onChange={(e) => setDid(e.target.value)}>{dev.items.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select></Field>
-            <Field label="محصول (قیمت محصول = قیمت هر کیلوگرم)"><Select value={String(p.id)} onChange={(e) => setPid(e.target.value)}>{prods.items.map((x) => <option key={x.id} value={x.id}>{x.emoji} {x.name} — {formatPrice(x.price)}</option>)}</Select></Field>
+            <Field label="محصول (قیمت محصول = قیمت هر کیلوگرم)"><Select value={String(p.id)} onChange={(e) => setPid(e.target.value)}>{prods.items.map((x) => <option key={x.id} value={x.id}>{x.name} — {formatPrice(x.price)}</option>)}</Select></Field>
             <div className="flex gap-2"><Input inputMode="decimal" placeholder="ورود دستی وزن (کیلوگرم)" value={sim} onChange={(e) => setSim(e.target.value)} /><Button variant="secondary" onClick={() => { const v = Number(sim.replace(/[۰-۹]/g, (c) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(c)))); if (Number.isFinite(v) && v >= 0) { setWeight(v); setSim(""); } }}>ثبت وزن</Button></div>
           </div>
           <div className="rounded-3xl bg-stone-900 p-6 text-center text-white">
@@ -383,12 +483,12 @@ export function VoicePager() {
     <div className="animate-fade-in">
       <PageHeader title="پیجر صوتی شماره فاکتور" subtitle="وقتی سفارشی «آماده» شود، شماره‌ی آن با صدا اعلام می‌شود" actions={<label className="flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm ring-1 ring-stone-200">اعلام خودکار <Switch checked={auto} onChange={setAuto} label="اعلام خودکار" /></label>} />
       {!voiceOk && <p className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">مرورگر شما از تبدیل متن به گفتار پشتیبانی نمی‌کند.</p>}
-      <Card className="mb-5 flex flex-wrap items-center gap-3 p-4"><span className="text-sm text-stone-600">برای اطمینان از فعال‌بودن صدا (مرورگر نیاز به یک تعامل دارد):</span><Button size="sm" variant="secondary" onClick={() => speak(1234)}>🔊 آزمایش صدا</Button></Card>
-      {!orders ? <Skeleton className="h-40 rounded-2xl" /> : orders.length === 0 ? <EmptyState emoji="📢" title="سفارش آماده‌ای وجود ندارد" description="با تغییر وضعیت سفارش به «آماده سرو»، اینجا نمایش داده و اعلام می‌شود." /> : (
+      <Card className="mb-5 flex flex-wrap items-center gap-3 p-4"><span className="text-sm text-stone-600">برای اطمینان از فعال‌بودن صدا (مرورگر نیاز به یک تعامل دارد):</span><Button size="sm" variant="secondary" onClick={() => speak(1234)}><IconText>{<EmojiIcon emoji="" />}</IconText> آزمایش صدا</Button></Card>
+      <IconText>{!orders ? <Skeleton className="h-40 rounded-2xl" /> : orders.length === 0 ? <EmptyState emoji="" title="سفارش آماده‌ای وجود ندارد" description="با تغییر وضعیت سفارش به «آماده سرو»، اینجا نمایش داده و اعلام می‌شود." /> : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{orders.map((o) => (
-          <Card key={o.id} className="p-5 text-center ring-2 ring-violet-300 animate-pop"><p className="text-xs text-stone-500">شماره سفارش</p><p className="my-2 text-5xl font-black text-violet-600">{toFa(o.number)}</p><p className="text-xs text-stone-500">{o.tableName ?? (o.type === "delivery" ? "ارسال" : "بیرون‌بر")} · {timeAgo(o.updatedAt)}</p><Button className="mt-4 w-full" onClick={() => speak(o.number)}>📢 اعلام صوتی</Button><Button className="mt-2 w-full" variant="secondary" size="sm" onClick={() => api(`/api/orders/${o.id}`, { method: "PATCH", body: { status: "served" } }).then(() => setOrders((x) => x?.filter((y) => y.id !== o.id) ?? x))}>تحویل داده شد</Button></Card>
+          <Card key={o.id} className="p-5 text-center ring-2 ring-violet-300 animate-pop"><p className="text-xs text-stone-500">شماره سفارش</p><p className="my-2 text-5xl font-black text-violet-600">{toFa(o.number)}</p><p className="text-xs text-stone-500">{o.tableName ?? (o.type === "delivery" ? "ارسال" : "بیرون‌بر")} · {timeAgo(o.updatedAt)}</p><Button className="mt-4 w-full" onClick={() => speak(o.number)}>{<EmojiIcon emoji="" />} اعلام صوتی</Button><Button className="mt-2 w-full" variant="secondary" size="sm" onClick={() => api(`/api/orders/${o.id}`, { method: "PATCH", body: { status: "served" } }).then(() => setOrders((x) => x?.filter((y) => y.id !== o.id) ?? x))}>تحویل داده شد</Button></Card>
         ))}</div>
-      )}
+      )}</IconText>
     </div>
   );
 }
@@ -432,7 +532,7 @@ function SerialPagerBridge({ pagers, reload }: { pagers: Pager[]; reload: () => 
   return (
     <Card className="mb-5 p-4">
       <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-56 flex-1"><p className="font-bold">🔌 اتصال فرستنده‌ی پیجر از همین مرورگر (USB / Serial)</p><p className="mt-1 text-xs leading-6 text-stone-500">این صفحه باید روی رایانه‌ی صندوق باز بماند. هر زنگ‌خوردن پیجر، فرمان را مستقیم به فرستنده می‌فرستد.</p></div>
+        <div className="min-w-56 flex-1"><p className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> اتصال فرستنده‌ی پیجر از همین مرورگر (USB / Serial)</p><p className="mt-1 text-xs leading-6 text-stone-500">این صفحه باید روی رایانه‌ی صندوق باز بماند. هر زنگ‌خوردن پیجر، فرمان را مستقیم به فرستنده می‌فرستد.</p></div>
         <Field label="فرمان ارسال" hint="{n} = شماره پیجر، {n:3} = سه رقمی"><Input dir="ltr" className="w-40 text-left" value={fmt} onChange={(e) => setFmt(e.target.value)} disabled={!!port} /></Field>
         <Field label="Baud"><Input dir="ltr" className="w-24 text-left" value={baud} onChange={(e) => setBaud(e.target.value)} disabled={!!port} /></Field>
         {!supported ? <Badge color="rose">مرورگر پشتیبانی نمی‌کند (Chrome/Edge)</Badge> : port ? <><Badge color="emerald">● متصل</Badge><Button size="sm" variant="secondary" onClick={() => write(1).then(() => toast("فرمان آزمایشی برای پیجر ۱ ارسال شد")).catch((e) => toast(e.message, "error"))}>تست پیجر ۱</Button></> : <Button onClick={connect}>اتصال به فرستنده</Button>}
@@ -462,7 +562,7 @@ export function FoodCourtPager() {
       <SerialPagerBridge pagers={pg.items} reload={() => pg.reload(true)} />
       <DevicePanel resource="dev_pager" kinds={["pager"]} hint={(d) => `/api/device/${d.code}/pager`} />
       <div className="mb-4 flex gap-3 text-xs"><Badge color="emerald">آزاد</Badge><Badge color="amber">در اختیار مشتری</Badge><Badge color="rose">در حال زنگ‌خوردن</Badge></div>
-      {pg.loading ? <Skeleton className="h-48 rounded-2xl" /> : pg.items.length === 0 ? <EmptyState emoji="🔔" title="پیجری ثبت نشده" description="شماره‌ی پیجرهای فودکورت را اضافه کنید." /> : (
+      <IconText>{pg.loading ? <Skeleton className="h-48 rounded-2xl" /> : pg.items.length === 0 ? <EmptyState emoji="" title="پیجری ثبت نشده" description="شماره‌ی پیجرهای فودکورت را اضافه کنید." /> : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{pg.items.map((p) => (
           <div key={p.id} className={cn("relative rounded-2xl p-4 text-center ring-1 transition animate-pop", PST[p.status])}>
             <button aria-label="حذف" className="absolute end-2 top-2 text-current opacity-30 hover:opacity-80" onClick={() => pg.remove(p.id).catch(fail)}><Icon name="x" className="size-4" /></button>
@@ -470,12 +570,12 @@ export function FoodCourtPager() {
             <p className="mt-1 h-4 text-[11px]">{p.status === "free" ? "آزاد" : p.orderNumber ? `سفارش #${toFa(p.orderNumber)}` : "مشتری"}</p>
             <div className="mt-3 space-y-1.5">
               {p.status === "free" && <Button size="sm" className="w-full" onClick={() => setAssign(p)}>تخصیص</Button>}
-              {p.status === "busy" && <Button size="sm" className="w-full" variant="secondary" onClick={() => pg.update(p.id, { status: "ringing" }).catch(fail)}>🔔 زنگ بزن</Button>}
+              {p.status === "busy" && <Button size="sm" className="w-full" variant="secondary" onClick={() => pg.update(p.id, { status: "ringing" }).catch(fail)}>{<EmojiIcon emoji="" />} زنگ بزن</Button>}
               {p.status !== "free" && <Button size="sm" className="w-full" variant="ghost" onClick={() => pg.update(p.id, { status: "free", orderId: null }).catch(fail)}>تحویل شد / آزاد</Button>}
             </div>
           </div>
         ))}</div>
-      )}
+      )}</IconText>
       <Modal open={!!assign} onClose={() => setAssign(null)} title={assign ? `تخصیص پیجر ${toFa(assign.number)} به سفارش` : ""} size="sm">
         {orders.filter((o) => !used.has(o.id)).length === 0 ? <p className="py-8 text-center text-sm text-stone-400">سفارش فعالِ بدون پیجر وجود ندارد.</p> : (
           <ul className="space-y-2">{orders.filter((o) => !used.has(o.id)).map((o) => (

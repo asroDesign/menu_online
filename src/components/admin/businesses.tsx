@@ -6,7 +6,7 @@ import { formatCompact, formatDate, formatNumber, formatPrice, timeAgo, toFa } f
 import { fmtJ } from "@/lib/jalali";
 import { JalaliInput } from "@/components/jalali-input";
 import { FEATURES, GROUPS, PLANS, planName, resolveFeatures, type Level } from "@/lib/plans";
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, Input, Modal, Select, Skeleton, Textarea, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, Input, Modal, Select, Skeleton, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { PLAN_COLOR, useGet, type Me } from "@/components/admin/common";
 
 const FILTERS: [string, string][] = [["all", "همه"], ["active", "فعال"], ["suspended", "مسدود"], ["upgrade", "درخواست ارتقا"], ["expiring", "رو به پایان"], ["expired", "منقضی"], ["inactive", "بدون سفارش ۳۰ روز اخیر"]];
@@ -57,7 +57,7 @@ export function Businesses({ me, params }: { me: Me; params: Record<string, stri
         <Select className="w-40" value={plan} onChange={(e) => setPlan(e.target.value)}><option value="all">همه پلن‌ها</option>{PLANS.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}</Select>
         <div className="no-scrollbar flex gap-1.5 overflow-x-auto">{FILTERS.map(([k, l]) => <button key={k} onClick={() => setFilter(k)} className={cn("shrink-0 rounded-xl px-3 py-2 text-xs font-semibold", filter === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</div>
       </div>
-      {error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-72 rounded-2xl" /> : rows.length === 0 ? <EmptyState emoji="🏪" title="کسب‌وکاری پیدا نشد" description="فیلتر یا عبارت جستجو را تغییر دهید." /> : (
+      <IconText>{error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-72 rounded-2xl" /> : rows.length === 0 ? <EmptyState emoji="" title="کسب‌وکاری پیدا نشد" description="فیلتر یا عبارت جستجو را تغییر دهید." /> : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-sm">
             <thead><tr className="border-b bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">کسب‌وکار</th><th className="p-3 text-start">مالک</th><th className="p-3 text-start">پلن و اشتراک</th><th className="p-3 text-start">سفارش</th><th className="p-3 text-start">فروش ۳۰ روز</th><th className="p-3 text-start">وضعیت</th><th className="p-3" /></tr></thead>
@@ -86,7 +86,7 @@ export function Businesses({ me, params }: { me: Me; params: Record<string, stri
             })}</tbody>
           </table>
         </Card>
-      )}
+      )}</IconText>
       <p className="mt-3 text-xs text-stone-400">{toFa(rows.length)} مورد از {toFa((data?.items ?? []).filter((b) => !b.isAdmin).length)}</p>
       <Detail id={sel} onClose={() => setSel(null)} me={me} changed={() => reload(true)} />
       <Create open={creating} onClose={() => setCreating(false)} done={() => { setCreating(false); reload(true); }} />
@@ -144,11 +144,11 @@ function Detail({ id, onClose, me, changed }: { id: number | null; onClose: () =
   const base = b ? resolveFeatures(b.plan, {}, matrix ?? {}) : {};
   return (
     <Modal open={!!id} onClose={onClose} size="lg" title={b ? `${b.name}` : "…"}>
-      {loading && !d ? <Skeleton className="h-72" /> : !d ? null : (
+      <IconText>{loading && !d ? <Skeleton className="h-72" /> : !d ? null : (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2 text-xs"><Badge color={PLAN_COLOR[b.plan]}>{planName(b.plan)}</Badge>{b.effectivePlan !== b.plan && <Badge color="rose">در عمل: {planName(b.effectivePlan)} (اشتراک منقضی)</Badge>}{b.isSuspended ? <Badge color="rose">مسدود</Badge> : <Badge color="emerald">فعال</Badge>}<span className="text-stone-500">ثبت‌نام {formatDate(b.createdAt)}</span><a className="font-bold text-brand-600" target="_blank" href={`/m/${b.slug}`} dir="ltr">/m/{b.slug}</a></div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Card className="space-y-1 bg-stone-50 p-4 text-sm shadow-none"><p className="text-xs font-bold text-stone-500">مالک</p><p className="font-bold">{d.owner.name}</p><p className="text-xs" dir="ltr" style={{ textAlign: "start" }}>{d.owner.email}</p>{write && <Button size="sm" variant="secondary" className="mt-2" onClick={async () => { try { const r = await api<{ password: string }>(`/api/admin/businesses/${id}/reset-password`, { method: "POST", body: {} }); setPwd(r.password); } catch (e) { toast((e as Error).message, "error"); } }}>🔑 بازنشانی رمز</Button>}{pwd && <p className="mt-2 rounded-lg bg-stone-900 p-3 text-left text-sm text-emerald-300" dir="ltr">New password: <b>{pwd}</b></p>}</Card>
+            <Card className="space-y-1 bg-stone-50 p-4 text-sm shadow-none"><p className="text-xs font-bold text-stone-500">مالک</p><p className="font-bold">{d.owner.name}</p><p className="text-xs" dir="ltr" style={{ textAlign: "start" }}>{d.owner.email}</p>{write && <Button size="sm" variant="secondary" className="mt-2" onClick={async () => { try { const r = await api<{ password: string }>(`/api/admin/businesses/${id}/reset-password`, { method: "POST", body: {} }); setPwd(r.password); } catch (e) { toast((e as Error).message, "error"); } }}>{<EmojiIcon emoji="" />} بازنشانی رمز</Button>}{pwd && <p className="mt-2 rounded-lg bg-stone-900 p-3 text-left text-sm text-emerald-300" dir="ltr">New password: <b>{pwd}</b></p>}</Card>
             <Card className="grid grid-cols-3 gap-2 bg-stone-50 p-4 text-center shadow-none">{([["محصول", d.usage.products], ["میز", d.usage.tables], ["کارمند", d.usage.staff], ["مشتری", d.usage.customers], ["سفارش", d.usage.orders], ["دسته", d.usage.categories]] as [string, number][]).map(([l, v]) => <div key={l}><p className="text-lg font-black">{toFa(v)}</p><p className="text-[10px] text-stone-500">{l}</p></div>)}<p className="col-span-3 mt-1 text-xs text-stone-500">فروش کل پرداخت‌شده: <b className="text-stone-800">{formatPrice(d.usage.gmv)}</b></p></Card>
           </div>
 
@@ -168,7 +168,7 @@ function Detail({ id, onClose, me, changed }: { id: number | null; onClose: () =
             {showOv && (
               <div className="space-y-4">
                 {Object.entries(GROUPS).map(([g, meta]) => (
-                  <Fragment key={g}><p className="text-xs font-extrabold text-stone-600">{meta.emoji} {meta.title}</p>
+                  <Fragment key={g}><p className="text-xs font-extrabold text-stone-600">{<EmojiIcon emoji={meta.emoji} /> } {meta.title}</p>
                     <div className="space-y-1.5">{FEATURES.filter((f) => f.group === g).map((f) => { const v = ov[f.key]; const st = v === true ? "on" : v === false ? "off" : "default"; return (
                       <div key={f.key} className="flex flex-wrap items-center gap-3 rounded-xl bg-stone-50 px-3 py-2"><span className="min-w-52 flex-1 text-sm">{f.label}</span><Badge color={eff[f.key] === "no" ? "rose" : "emerald"}>{eff[f.key] === "no" ? "قفل" : "فعال"}</Badge>
                         <div className="flex overflow-hidden rounded-lg text-xs font-semibold ring-1 ring-stone-200">{([["default", `پیش‌فرض (${base[f.key] === "no" ? "قفل" : "فعال"})`], ["on", "فعال"], ["off", "غیرفعال"]] as const).map(([k, l]) => <button key={k} disabled={!write} onClick={() => setOv((o) => { const n = { ...o }; if (k === "default") delete n[f.key]; else n[f.key] = k === "on"; return n; })} className={cn("px-2.5 py-1.5", st === k ? (k === "off" ? "bg-rose-500 text-white" : k === "on" ? "bg-emerald-500 text-white" : "bg-stone-800 text-white") : "bg-white hover:bg-stone-50")}>{l}</button>)}</div></div>); })}</div></Fragment>
@@ -184,7 +184,7 @@ function Detail({ id, onClose, me, changed }: { id: number | null; onClose: () =
           {d.tickets.length > 0 && <div><p className="mb-1.5 text-xs font-bold text-stone-500">آخرین تیکت‌ها</p><ul className="space-y-1">{d.tickets.map((t: any) => <li key={t.id} className="flex items-center gap-2 text-xs"><Badge color={t.status === "open" ? "amber" : t.status === "answered" ? "emerald" : "stone"}>{t.status === "open" ? "باز" : t.status === "answered" ? "پاسخ داده شد" : "بسته"}</Badge>{t.subject}</li>)}</ul></div>}
 
           <div className="flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
-            {me.perms.includes("impersonate") && !d.owner.isAdmin && <Button variant="secondary" onClick={async () => { try { await api(`/api/admin/businesses/${id}/impersonate`, { method: "POST", body: {} }); location.href = "/dashboard"; } catch (e) { toast((e as Error).message, "error"); } }}>👤 ورود به حساب مالک</Button>}
+            {me.perms.includes("impersonate") && !d.owner.isAdmin && <Button variant="secondary" onClick={async () => { try { await api(`/api/admin/businesses/${id}/impersonate`, { method: "POST", body: {} }); location.href = "/dashboard"; } catch (e) { toast((e as Error).message, "error"); } }}>{<EmojiIcon emoji="" />} ورود به حساب مالک</Button>}
             {write && b.id !== me.businessId && <Button variant="ghost" className={b.isSuspended ? "text-emerald-600" : "text-rose-600"} onClick={() => patch({ isSuspended: !b.isSuspended }, b.isSuspended ? "حساب فعال شد" : "حساب مسدود شد")}>{b.isSuspended ? "رفع مسدودی" : "مسدودکردن حساب"}</Button>}
             {me.dept === "super" && b.id !== me.businessId && <Button variant="ghost" className="ms-auto text-rose-600" onClick={() => { setConfirm(""); setDel(true); }}><Icon name="trash" className="size-4" /> حذف کامل</Button>}
           </div>
@@ -193,7 +193,7 @@ function Detail({ id, onClose, me, changed }: { id: number | null; onClose: () =
             <Field label={`برای تأیید، «${b.slug}» را بنویسید`}><Input dir="ltr" className="text-left" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
           </Modal>
         </div>
-      )}
+      )}</IconText>
       <ConfirmDialog open={false} title="" message="" onConfirm={() => {}} onClose={() => {}} />
     </Modal>
   );

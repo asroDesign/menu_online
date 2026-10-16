@@ -107,6 +107,31 @@ export async function sendTest(biz: Biz, tplId: number, phone: string) {
   return r;
 }
 
+/** Send only the approved static status pattern to the phone supplied with the reservation. */
+export async function sendReservationStatusSms(biz: Biz, phone: string, status: "confirmed" | "cancelled") {
+  if (!hasAny(await featuresOf(biz), "sms")) return { status: "skipped" as const, detail: "قابلیت پیامک در تعرفه فعال نیست" };
+  const cfg = smsCfgOf(biz);
+  if (!cfg.apiKey) return { status: "skipped" as const, detail: "کلید API پنل پیامک تنظیم نشده است" };
+
+  const purpose = status === "confirmed" ? "reservation_confirmed" : "reservation_rejected";
+  const [tpl] = await db.select().from(smsTemplates)
+    .where(and(eq(smsTemplates.businessId, biz.id), eq(smsTemplates.purpose, purpose), eq(smsTemplates.isActive, true)))
+    .orderBy(desc(smsTemplates.id)).limit(1);
+  if (!tpl) return { status: "skipped" as const, detail: `قالب «${status === "confirmed" ? "تأیید رزرو" : "رد رزرو"}» تعریف نشده است` };
+
+  const digits = phone.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
+  const receptor = digits.startsWith("98") ? `0${digits.slice(2)}` : digits.length === 10 && digits.startsWith("9") ? `0${digits}` : digits;
+  if (!/^09\d{9}$/.test(receptor)) return { status: "skipped" as const, detail: "شماره موبایل مشتری معتبر نیست" };
+
+  const result = await sendPattern(cfg, tpl, receptor, {});
+  try {
+    await db.insert(smsLogs).values({ businessId: biz.id, campaignId: null, customerId: null, kind: purpose, phone: receptor, provider: cfg.provider, status: result.status, detail: result.detail.slice(0, 300) });
+  } catch (error) {
+    console.error("reservation SMS log failed", error);
+  }
+  return result;
+}
+
 let running = false;
 /** Scheduled campaigns + birthday messages. Safe to call often (idempotent). */
 export async function runAutomations() {

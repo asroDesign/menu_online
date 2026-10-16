@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { formatPrice, toFa } from "@/lib/format";
 import type { PublicMenu } from "@/lib/public-menu";
-import { cn, ProductThumb } from "@/components/ui";
+import { cn, ProductThumb, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 type Prod = PublicMenu["products"][number];
 type Step = "welcome" | "type" | "menu" | "review" | "pospay" | "done";
@@ -148,7 +148,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   const gridTile = (p: Prod) => (
     <div key={p.id} onClick={() => p.isAvailable && add(p.id)} className={cn("relative flex cursor-pointer flex-col overflow-hidden rounded-3xl shadow-sm active:scale-[0.98]", card, (cart[p.id] ?? 0) > 0 && "ring-4")} style={(cart[p.id] ?? 0) > 0 ? { ["--tw-ring-color" as string]: accent } : undefined}>
       {unavail(p)}
-      <ProductThumb imageUrl={p.imageUrl} emoji={p.emoji} className="h-40 w-full text-6xl" />
+      <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="h-40 w-full text-6xl" />
       <div className="flex flex-1 flex-col p-4">
         <h3 className="text-xl font-extrabold leading-8">{p.name}</h3>
         <div className="mt-auto flex items-center justify-between gap-2 pt-3"><b className="text-xl" style={{ color: dark ? "#fff" : accent }}>{formatPrice(p.price)}</b>{stepper(p)}</div>
@@ -158,7 +158,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   const photoTile = (p: Prod) => (
     <div key={p.id} onClick={() => p.isAvailable && add(p.id)} className="relative h-72 cursor-pointer overflow-hidden rounded-3xl shadow-md active:scale-[0.98]">
       {unavail(p)}
-      <ProductThumb imageUrl={p.imageUrl} emoji={p.emoji} className="absolute inset-0 size-full text-8xl" />
+      <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="absolute inset-0 size-full text-8xl" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
       {(cart[p.id] ?? 0) > 0 && <span style={{ background: accent }} className="absolute start-3 top-3 flex size-12 items-center justify-center rounded-full text-2xl font-black text-white shadow-lg">{toFa(cart[p.id])}</span>}
       <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4 text-white"><div><h3 className="text-2xl font-black leading-9">{p.name}</h3><b className="text-xl">{formatPrice(p.price)}</b></div>{stepper(p, true)}</div>
@@ -167,7 +167,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   const rowTile = (p: Prod) => (
     <div key={p.id} className="relative flex items-center gap-5 rounded-3xl border-2 border-stone-200 bg-white p-4">
       {unavail(p)}
-      <ProductThumb imageUrl={p.imageUrl} emoji={p.emoji} className="size-24 shrink-0 rounded-2xl text-5xl" />
+      <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="size-24 shrink-0 rounded-2xl text-5xl" />
       <div className="min-w-0 flex-1"><h3 className="text-2xl font-black leading-9">{p.name}</h3>{p.description && <p className="line-clamp-1 text-base text-stone-500">{p.description}</p>}<b className="mt-1 block text-2xl" style={{ color: accent }}>{formatPrice(p.price)}</b></div>
       {stepper(p, true)}
     </div>
@@ -175,7 +175,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
 
   const catBtn = (c: (typeof cats)[number], vertical?: boolean) => (
     <button key={c.id} onClick={() => setCat(c.id)} style={cat === c.id ? { background: accent, color: "#fff" } : undefined} className={cn("shrink-0 rounded-2xl font-extrabold transition active:scale-95", vertical ? "flex h-24 w-full flex-col items-center justify-center gap-1 text-xl" : "h-16 px-7 text-xl", cat !== c.id && (dark ? "bg-white/10 text-white" : "bg-white text-stone-700 ring-1 ring-stone-200"))}>
-      <span className={vertical ? "text-3xl" : ""}>{c.emoji}</span>{c.name}
+      <span className={vertical ? "text-3xl" : ""}>{<EmojiIcon emoji={c.emoji} /> }</span>{c.name}
     </button>
   );
 
@@ -212,13 +212,13 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between"><h2 className="text-3xl font-black">{cats[catIdx]?.emoji} {cats[catIdx]?.name}</h2><span className="text-lg font-bold text-stone-500">مرحله {toFa(catIdx + 1)} از {toFa(cats.length)}</span></div>
+          <div className="mb-2 flex items-center justify-between"><h2 className="text-3xl font-black">{<EmojiIcon emoji={cats[catIdx]?.emoji} /> } {cats[catIdx]?.name}</h2><span className="text-lg font-bold text-stone-500">مرحله {toFa(catIdx + 1)} از {toFa(cats.length)}</span></div>
           <div className="flex gap-1.5">{cats.map((c, i) => <button key={c.id} aria-label={c.name} onClick={() => setCat(c.id)} className="h-3 flex-1 rounded-full" style={{ background: i <= catIdx ? accent : "#d6d3d1" }} />)}</div>
         </div>
         <main className="grid flex-1 content-start gap-4 overflow-y-auto p-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">{items.map(photoTile)}</main>
         <div className="flex shrink-0 gap-3 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,.06)]">
-          <button disabled={catIdx <= 0} onClick={() => setCat(cats[catIdx - 1].id)} className="h-20 flex-1 rounded-2xl bg-stone-200 text-2xl font-black text-stone-700 disabled:opacity-30 active:scale-95">▶ دسته قبلی</button>
-          {catIdx < cats.length - 1 ? <button onClick={() => setCat(cats[catIdx + 1].id)} style={{ background: accent }} className="h-20 flex-[2] rounded-2xl text-2xl font-black text-white active:scale-95">دسته بعدی ◀</button> : <button disabled={!count} onClick={() => setStep("review")} style={{ background: accent }} className="h-20 flex-[2] rounded-2xl text-2xl font-black text-white disabled:opacity-40 active:scale-95">مرور و ثبت سفارش ✔</button>}
+          <button disabled={catIdx <= 0} onClick={() => setCat(cats[catIdx - 1].id)} className="h-20 flex-1 rounded-2xl bg-stone-200 text-2xl font-black text-stone-700 disabled:opacity-30 active:scale-95"><IconText>{<EmojiIcon emoji="" />}</IconText> دسته قبلی</button>
+          <IconText>{catIdx < cats.length - 1 ? <button onClick={() => setCat(cats[catIdx + 1].id)} style={{ background: accent }} className="h-20 flex-[2] rounded-2xl text-2xl font-black text-white active:scale-95">دسته بعدی {<EmojiIcon emoji="" />}</button> : <button disabled={!count} onClick={() => setStep("review")} style={{ background: accent }} className="h-20 flex-[2] rounded-2xl text-2xl font-black text-white disabled:opacity-40 active:scale-95">مرور و ثبت سفارش {<EmojiIcon emoji="" />}</button>}</IconText>
         </div>
       </div>
     );
@@ -231,10 +231,10 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
       <div onClick={() => { last.current = Date.now(); setStep("type"); }} className="relative flex h-dvh cursor-pointer select-none flex-col items-center justify-center overflow-hidden text-center text-white" style={{ background: `linear-gradient(160deg, ${accent}, #111)` }}>
         {hero && (tpl === "photo" || tpl === "dark") && <div className="absolute inset-0 bg-cover bg-center opacity-35" style={{ backgroundImage: `url(${hero})` }} />}
         <div className="relative px-8">
-          <div className="mx-auto flex size-40 items-center justify-center rounded-[2.5rem] bg-white text-8xl shadow-2xl">{biz.logoEmoji}</div>
+          <div className="mx-auto flex size-40 items-center justify-center rounded-[2.5rem] bg-white text-8xl shadow-2xl">{<EmojiIcon emoji={biz.logoEmoji} /> }</div>
           <h1 className="mt-8 text-6xl font-black leading-tight">{cfg.welcomeTitle}</h1>
           <p className="mt-4 text-3xl text-white/85">{cfg.welcomeSubtitle}</p>
-          <div className="mx-auto mt-14 w-fit animate-pulse rounded-full bg-white px-14 py-6 text-4xl font-black shadow-2xl" style={{ color: accent }}>👆 شروع سفارش</div>
+          <div className="mx-auto mt-14 w-fit animate-pulse rounded-full bg-white px-14 py-6 text-4xl font-black shadow-2xl" style={{ color: accent }}><IconText>{<EmojiIcon emoji="" />}</IconText> شروع سفارش</div>
         </div>
       </div>
     );
@@ -244,9 +244,9 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
       <div className={cn("flex h-dvh flex-col items-center justify-center gap-8 p-8", bg)}>
         <h2 className="text-5xl font-black">سفارش را کجا میل می‌کنید؟</h2>
         <div className="grid w-full max-w-4xl gap-6 sm:grid-cols-2">
-          {([["dine_in", "🍽️", "صرف در محل", "سالن / میز"], ["takeaway", "🛍️", "همراه می‌برم", "بیرون‌بر"]] as const).map(([k, e, t, s]) => (
+          <IconText>{([["dine_in", "", "صرف در محل", "سالن / میز"], ["takeaway", "", "همراه می‌برم", "بیرون‌بر"]] as const).map(([k, e, t, s]) => (
             <button key={k} onClick={() => { setType(k); setStep("menu"); }} className={cn("flex h-72 flex-col items-center justify-center gap-3 rounded-[2rem] shadow-xl active:scale-95", card)}><span className="text-8xl">{e}</span><b className="text-4xl">{t}</b><span className="text-xl opacity-60">{s}</span></button>
-          ))}
+          ))}</IconText>
         </div>
         <button onClick={reset} className="rounded-2xl px-8 py-4 text-2xl font-bold opacity-60">← بازگشت</button>
       </div>
@@ -255,7 +255,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   if (step === "done" && done)
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-6 p-8 text-center text-white" style={{ background: `linear-gradient(160deg, ${accent}, #111)` }}>
-        <div className="text-9xl">✅</div>
+        <div className="text-9xl"><IconText>{<EmojiIcon emoji="" />}</IconText></div>
         <h2 className="text-5xl font-black">سفارش شما ثبت شد</h2>
         <p className="text-3xl">شماره سفارش شما</p>
         <div className="rounded-[2rem] bg-white px-20 py-8 text-9xl font-black shadow-2xl" style={{ color: accent }}>{toFa(done.number)}</div>
@@ -276,7 +276,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
 
   const header = (title: string, onBack: () => void) => (
     <header className={cn("flex shrink-0 items-center gap-4 p-3 shadow-sm", dark ? "bg-[#17171f]" : "bg-white")}>
-      <button onClick={onBack} className={cn("h-16 rounded-2xl px-6 text-xl font-bold active:scale-95", dark ? "bg-white/10" : "bg-stone-100")}>▶ بازگشت</button>
+      <button onClick={onBack} className={cn("h-16 rounded-2xl px-6 text-xl font-bold active:scale-95", dark ? "bg-white/10" : "bg-stone-100")}><IconText>{<EmojiIcon emoji="" />}</IconText> بازگشت</button>
       <h1 className="flex-1 text-center text-3xl font-black">{title}</h1>
       <button onClick={reset} className="h-16 rounded-2xl bg-rose-50 px-6 text-xl font-bold text-rose-600 active:scale-95">✕ لغو</button>
     </header>
@@ -290,22 +290,22 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
     const mm = posV ? `${toFa(Math.floor(posV.remainingSec / 60))}:${toFa(String(posV.remainingSec % 60).padStart(2, "0"))}` : "";
     return (
       <div className={cn("flex h-dvh flex-col items-center justify-center gap-6 p-8 text-center", bg)}>
-        {failed ? (
+        <IconText>{failed ? (
           <>
-            <div className="text-9xl">⚠️</div>
+            <div className="text-9xl">{<EmojiIcon emoji="" />}</div>
             <h2 className="text-5xl font-black">پرداخت انجام نشد</h2>
             <p className="max-w-3xl text-3xl leading-relaxed opacity-80">{posV?.detail || "تراکنش کامل نشد."}</p>
             {err && <p className="rounded-2xl bg-rose-100 p-4 text-xl font-bold text-rose-700">{err}</p>}
             <div className="mt-4 grid w-full max-w-4xl gap-4 sm:grid-cols-3">
-              <button disabled={posBusy} onClick={() => posAction("retry")} style={{ background: accent }} className="h-28 rounded-3xl text-3xl font-black text-white active:scale-95 disabled:opacity-50">🔁 تلاش دوباره</button>
-              {cfg.allowCounter && <button disabled={posBusy} onClick={() => posAction("cash")} className={cn("h-28 rounded-3xl text-3xl font-black active:scale-95", card)}>💵 پرداخت در صندوق</button>}
+              <button disabled={posBusy} onClick={() => posAction("retry")} style={{ background: accent }} className="h-28 rounded-3xl text-3xl font-black text-white active:scale-95 disabled:opacity-50">{<EmojiIcon emoji="" />} تلاش دوباره</button>
+              {cfg.allowCounter && <button disabled={posBusy} onClick={() => posAction("cash")} className={cn("h-28 rounded-3xl text-3xl font-black active:scale-95", card)}>{<EmojiIcon emoji="" />} پرداخت در صندوق</button>}
               <button disabled={posBusy} onClick={() => posAction("cancel")} className="h-28 rounded-3xl bg-rose-100 text-3xl font-black text-rose-700 active:scale-95">✕ لغو سفارش</button>
             </div>
           </>
         ) : (
           <>
             <div className="relative flex size-44 items-center justify-center rounded-full text-8xl" style={{ background: `${accent}22` }}>
-              <span className="absolute inset-0 animate-ping rounded-full" style={{ background: `${accent}18` }} />💳
+              <span className="absolute inset-0 animate-ping rounded-full" style={{ background: `${accent}18` }} />{<EmojiIcon emoji="" />}
             </div>
             <h2 className="text-5xl font-black">{picked ? "کارت را روی دستگاه وارد کنید" : "در حال ارسال مبلغ به دستگاه…"}</h2>
             <div className="rounded-[2rem] px-14 py-6 text-6xl font-black shadow-xl" style={{ background: accent, color: "#fff" }}>{formatPrice(posJob.total)}</div>
@@ -315,12 +315,12 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
             {err && <p className="rounded-2xl bg-rose-100 p-4 text-xl font-bold text-rose-700">{err}</p>}
             {!picked && (
               <div className="mt-2 flex w-full max-w-3xl gap-4">
-                {cfg.allowCounter && <button disabled={posBusy || !waitingLong} onClick={() => posAction("cash")} className={cn("h-24 flex-1 rounded-3xl text-2xl font-black active:scale-95 disabled:opacity-30", card)}>💵 پرداخت در صندوق</button>}
+                {cfg.allowCounter && <button disabled={posBusy || !waitingLong} onClick={() => posAction("cash")} className={cn("h-24 flex-1 rounded-3xl text-2xl font-black active:scale-95 disabled:opacity-30", card)}>{<EmojiIcon emoji="" />} پرداخت در صندوق</button>}
                 <button disabled={posBusy} onClick={() => posAction("cancel")} className="h-24 flex-1 rounded-3xl bg-rose-100 text-2xl font-black text-rose-700 active:scale-95 disabled:opacity-50">✕ لغو سفارش</button>
               </div>
             )}
           </>
-        )}
+        )}</IconText>
       </div>
     );
   }
@@ -333,7 +333,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
         <main className="flex-1 space-y-5 overflow-y-auto p-5">
           <div className="space-y-3">{lines.map(({ p, qty }) => (
             <div key={p.id} className={cn("flex items-center gap-4 rounded-3xl p-4", card)}>
-              <ProductThumb imageUrl={p.imageUrl} emoji={p.emoji} className="size-20 shrink-0 rounded-2xl text-4xl" />
+              <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="size-20 shrink-0 rounded-2xl text-4xl" />
               <div className="min-w-0 flex-1"><h3 className="text-2xl font-black">{p.name}</h3><p className="text-xl opacity-70">{formatPrice(p.price * qty)}</p></div>
               {stepper(p, true)}
             </div>
@@ -356,17 +356,17 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
               )}
             </section>
           )}
-          {payOpts.length > 1 || (cfg.allowPos && !posAvail) ? (
+          <IconText>{payOpts.length > 1 || (cfg.allowPos && !posAvail) ? (
             <section className="space-y-3">
               <h3 className="text-2xl font-black">روش پرداخت</h3>
               <div className="grid gap-3 sm:grid-cols-3">
-                {([["pos", "💳", "کارتخوان (همین‌جا)"], ["cash", "💵", "پرداخت در صندوق"], ["ipg", "📱", "پرداخت آنلاین"]] as const).filter(([k]) => (k === "pos" ? cfg.allowPos : k === "cash" ? cfg.allowCounter : cfg.allowOnline)).map(([k, e, t]) => {
+                {([["pos", "", "کارتخوان (همین‌جا)"], ["cash", "", "پرداخت در صندوق"], ["ipg", "", "پرداخت آنلاین"]] as const).filter(([k]) => (k === "pos" ? cfg.allowPos : k === "cash" ? cfg.allowCounter : cfg.allowOnline)).map(([k, e, t]) => {
                   const off = k === "pos" && !posAvail;
                   return <button key={k} disabled={off} onClick={() => setPay(k)} style={pay === k && !off ? { background: accent, color: "#fff" } : undefined} className={cn("flex h-28 flex-col items-center justify-center gap-1 rounded-3xl text-2xl font-black active:scale-95", (pay !== k || off) && card, off && "opacity-40")}><span className="text-4xl">{e}</span>{t}{off && <span className="text-sm font-bold">در دسترس نیست</span>}</button>;
                 })}
               </div>
             </section>
-          ) : null}
+          ) : null}</IconText>
           {err && <p className="rounded-2xl bg-rose-100 p-5 text-xl font-bold text-rose-700">{err}</p>}
         </main>
         <footer className={cn("shrink-0 space-y-2 p-4 shadow-[0_-4px_16px_rgba(0,0,0,.08)]", dark ? "bg-[#17171f]" : "bg-white")}>
@@ -374,7 +374,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
           {tax > 0 && <div className="flex justify-between text-xl opacity-70"><span>مالیات</span><span>{formatPrice(tax)}</span></div>}
           {svc > 0 && <div className="flex justify-between text-xl opacity-70"><span>خدمات</span><span>{formatPrice(svc)}</span></div>}
           <button disabled={!count || busy} onClick={() => void submit()} style={{ background: accent }} className="flex h-24 w-full items-center justify-between rounded-3xl px-8 text-3xl font-black text-white disabled:opacity-40 active:scale-[0.98]">
-            <span>{busy ? "در حال ثبت…" : "✔ تأیید و ثبت سفارش"}</span><span>{formatPrice(total)}</span>
+            <span><IconText>{busy ? "در حال ثبت…" : " تأیید و ثبت سفارش"}</IconText></span><span>{formatPrice(total)}</span>
           </button>
         </footer>
         {overlay}
@@ -385,7 +385,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   // menu
   return (
     <div className={cn("flex h-dvh flex-col", bg)}>
-      {header(`${biz.logoEmoji} ${biz.name}`, () => setStep("type"))}
+      {header(biz.name, () => setStep("type"))}
       {cats.length === 0 ? <p className="m-auto text-3xl opacity-60">منو هنوز تکمیل نشده است</p> : menuBody()}
       {tpl !== "wizard" || count > 0 ? (
         <footer className={cn("shrink-0 p-3 shadow-[0_-4px_16px_rgba(0,0,0,.1)]", dark ? "bg-[#17171f]" : "bg-white")}>

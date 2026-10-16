@@ -26,8 +26,7 @@ import {
   Switch,
   Textarea,
   cn,
-  useToast,
-} from "@/components/ui";
+  useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 type Form = {
   name: string;
@@ -49,7 +48,7 @@ const blank: Form = {
   price: "",
   oldPrice: "",
   categoryId: "",
-  emoji: "🍽️",
+  emoji: "",
   imageUrl: "",
   prepMinutes: "10",
   isAvailable: true,
@@ -57,7 +56,7 @@ const blank: Form = {
   arModelUrl: "",
 };
 
-const EMOJIS = ["🍽️", "☕", "🍕", "🍔", "🍟", "🥗", "🍰", "🍝", "🍛", "🍢", "🥪", "🌮", "🍣", "🍹", "🧁", "🍳"];
+const EMOJIS = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
 
 const faToEn = (s: string) => s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "");
 
@@ -114,7 +113,7 @@ export default function ProductsPage() {
       price,
       oldPrice: form.oldPrice ? Number(faToEn(form.oldPrice)) : null,
       categoryId: form.categoryId ? Number(form.categoryId) : null,
-      emoji: form.emoji || "🍽️",
+      emoji: form.emoji || "",
       imageUrl: form.imageUrl.trim(),
       prepMinutes: Number(faToEn(form.prepMinutes)) || 0,
       isAvailable: form.isAvailable,
@@ -176,13 +175,13 @@ export default function ProductsPage() {
         <Select className="sm:w-56" value={cat} onChange={(e) => setCat(e.target.value)}>
           <option value="all">همه دسته‌بندی‌ها</option>
           {categories.items.map((c) => (
-            <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
           <option value="none">بدون دسته‌بندی</option>
         </Select>
       </div>
 
-      {loading ? (
+      <IconText>{loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-72 rounded-2xl" />)}
         </div>
@@ -190,7 +189,7 @@ export default function ProductsPage() {
         <ErrorState message={products.error} onRetry={() => products.reload()} />
       ) : filtered.length === 0 ? (
         <EmptyState
-          emoji={products.items.length ? "🔍" : "🍽️"}
+          emoji={products.items.length ? "" : ""}
           title={products.items.length ? "محصولی پیدا نشد" : "هنوز محصولی اضافه نکرده‌اید"}
           description={products.items.length ? "جستجو یا فیلتر را تغییر دهید." : "اولین محصول منوی خود را با قیمت، توضیحات و تصویر اضافه کنید."}
           action={!products.items.length && <Button onClick={openNew}>افزودن اولین محصول</Button>}
@@ -202,9 +201,9 @@ export default function ProductsPage() {
             return (
               <Card key={p.id} className={cn("group flex flex-col overflow-hidden animate-pop transition hover:shadow-md", p.id < 0 && "opacity-60")}>
                 <div className="relative">
-                  <ProductThumb imageUrl={p.imageUrl} emoji={p.emoji} className={cn("h-40 w-full", !p.isAvailable && "grayscale")} />
+                  <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn("h-40 w-full", !p.isAvailable && "grayscale")} />
                   <div className="absolute start-3 top-3 flex gap-1.5">
-                    {p.isFeatured && <Badge color="amber" className="bg-amber-50/95">⭐ ویژه</Badge>}
+                    {p.isFeatured && <Badge color="amber" className="bg-amber-50/95">{<EmojiIcon emoji="" />} ویژه</Badge>}
                     {!p.isAvailable && <Badge color="rose" className="bg-rose-50/95">ناموجود</Badge>}
                   </div>
                   {p.oldPrice && p.oldPrice > p.price && (
@@ -215,9 +214,9 @@ export default function ProductsPage() {
                 </div>
                 <div className="flex flex-1 flex-col p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-bold leading-6">{p.emoji} {p.name}</h3>
+                    <h3 className="font-bold leading-6">{<EmojiIcon emoji={p.emoji} /> } {p.name}</h3>
                   </div>
-                  <p className="mt-0.5 text-xs text-stone-400">{c ? `${c.emoji} ${c.name}` : "بدون دسته‌بندی"} · {toFa(p.prepMinutes)} دقیقه</p>
+                  <p className="mt-0.5 text-xs text-stone-400">{c ? <><EmojiIcon emoji={c.emoji} /> {c.name}</> : "بدون دسته‌بندی"} · {toFa(p.prepMinutes)} دقیقه</p>
                   <p className="mt-2 line-clamp-2 flex-1 text-sm leading-6 text-stone-500">{p.description || "—"}</p>
                   <div className="mt-3 flex items-baseline gap-2">
                     <span className="text-base font-extrabold text-brand-600">{formatPrice(p.price)}</span>
@@ -239,7 +238,7 @@ export default function ProductsPage() {
             );
           })}
         </div>
-      )}
+      )}</IconText>
 
       <Modal
         open={!!editing}
@@ -260,7 +259,7 @@ export default function ProductsPage() {
           <Field label="دسته‌بندی">
             <Select value={form.categoryId} onChange={(e) => set("categoryId", e.target.value)}>
               <option value="">بدون دسته‌بندی</option>
-              {categories.items.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
+              {categories.items.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
           </Field>
           <Field label="زمان آماده‌سازی (دقیقه)">
@@ -276,7 +275,7 @@ export default function ProductsPage() {
             <Textarea rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="مواد تشکیل‌دهنده، مقدار، نکات…" />
           </Field>
           <div className="sm:col-span-2">
-            <span className="mb-1.5 block text-xs font-semibold text-stone-600">ایموجی</span>
+            <span className="mb-1.5 block text-xs font-semibold text-stone-600">آیکن</span>
             <div className="flex flex-wrap gap-1.5">
               {EMOJIS.map((e) => (
                 <button key={e} type="button" onClick={() => set("emoji", e)} className={cn("flex size-9 items-center justify-center rounded-lg text-lg transition", form.emoji === e ? "bg-brand-100 ring-2 ring-brand-400" : "bg-stone-100 hover:bg-stone-200")}>{e}</button>
@@ -285,7 +284,7 @@ export default function ProductsPage() {
           </div>
           <div className="sm:col-span-2">
             <span className="mb-1.5 block text-xs font-semibold text-stone-600">تصویر محصول</span>
-            <ImageUpload value={form.imageUrl} emoji={form.emoji} onChange={(u) => set("imageUrl", u)} />
+            <ImageUpload value={form.imageUrl} emoji={iconGlyph(form.emoji)} onChange={(u) => set("imageUrl", u)} />
             <details className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs">
               <summary className="cursor-pointer font-semibold text-stone-600">یا از تصاویر آماده یا آدرس اینترنتی استفاده کنید</summary>
               <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -310,7 +309,7 @@ export default function ProductsPage() {
             <Switch checked={form.isAvailable} onChange={(v) => set("isAvailable", v)} label="موجود" />
           </div>
           <div className="flex items-center justify-between rounded-xl bg-stone-50 px-4 py-3">
-            <span className="text-sm font-medium">پیشنهاد ویژه ⭐</span>
+            <span className="text-sm font-medium">پیشنهاد ویژه <IconText>{<EmojiIcon emoji="" />}</IconText></span>
             <Switch checked={form.isFeatured} onChange={(v) => set("isFeatured", v)} label="ویژه" />
           </div>
         </div>

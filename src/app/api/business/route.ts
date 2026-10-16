@@ -4,7 +4,7 @@ import { businesses } from "@/db/schema";
 import { HttpError, readJson, requireFeature, withAuth, type AuthContext } from "@/lib/auth";
 import { LANGS } from "@/lib/plans";
 
-export function publicBiz<T extends { settings: unknown }>(b: T): T {
+function publicBiz<T extends { settings: unknown }>(b: T): T {
   const st = { ...((b.settings ?? {}) as Record<string, unknown>) };
   const sms = st.sms as { apiKey?: string } | undefined;
   if (sms) st.sms = { ...sms, apiKey: "", apiKeySet: !!sms.apiKey };
@@ -23,9 +23,13 @@ const SETTING_FEATURE: Record<string, string> = {
   pointsPerToman: "loyalty",
   cashbackPercent: "cashback",
   ipg: "ipg",
+  cardTransfer: "card_transfer",
   installment: "installment",
   smsSender: "sms",
   kiosk: "kiosk",
+  reservations: "reservations",
+  operatingHours: "operating_hours",
+  scheduledMenus: "scheduled_menus",
   segments: "loyalty",
   sms: "sms",
   cashbackEnabled: "cashback",
@@ -105,6 +109,18 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
         merchantId: s(o.merchantId, 80),
         sandbox: o.sandbox !== false,
       };
+    case "cardTransfer": {
+      const rawCard = s(o.cardNumber, 40);
+      const cardNumber = rawCard
+        .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+        .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+        .replace(/\D/g, "");
+      const enabled = Boolean(o.enabled);
+      const accountHolder = s(o.accountHolder, 80);
+      if (enabled && !/^\d{16}$/.test(cardNumber)) throw new HttpError(400, "برای فعال‌سازی کارت‌به‌کارت، شماره کارت ۱۶ رقمی وارد کنید");
+      if (enabled && accountHolder.length < 2) throw new HttpError(400, "نام صاحب کارت را وارد کنید");
+      return { enabled, cardNumber: cardNumber.slice(0, 16), accountHolder, bankName: s(o.bankName, 60), instructions: s(o.instructions, 200) };
+    }
     case "installment":
       return { snappay: Boolean(o.snappay), digipay: Boolean(o.digipay) };
     case "smsSender":
@@ -112,6 +128,54 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
       return s(v, 40);
     case "crossSellAuto":
       return Boolean(v);
+    case "reservations": {
+      const amount = Math.round(Number(o.depositPerGuest) || 0);
+      const duration = Math.round(Number(o.durationMinutes) || 90);
+      if (amount < 0 || amount > 70_000_000) throw new HttpError(400, "مبلغ پیش‌پرداخت نامعتبر است");
+      if (duration < 30 || duration > 480) throw new HttpError(400, "مدت رزرو باید بین ۳۰ دقیقه تا ۸ ساعت باشد");
+      if (o.requireDeposit && amount < 1000) throw new HttpError(400, "برای دریافت پیش‌پرداخت، مبلغ حداقل ۱۰۰۰ تومان را وارد کنید");
+      return {
+        enabled: o.enabled !== false,
+        requireDeposit: Boolean(o.requireDeposit),
+        depositPerGuest: amount,
+        durationMinutes: duration,
+      };
+    }
+    case "operatingHours": {
+      const days = Array.isArray(o.days) ? o.days.slice(0, 7).map((raw) => {
+        const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+        const time = (x: unknown) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(x)) ? String(x) : "09:00";
+        const day = Math.round(Number(d.day));
+        if (day < 0 || day > 6) throw new HttpError(400, "روز هفته نامعتبر است");
+        const start = time(d.start);
+        const end = time(d.end);
+        if (d.open && start === end) throw new HttpError(400, "ساعت شروع و پایان یک روز کاری نمی‌تواند یکسان باشد");
+        return { day, open: Boolean(d.open), start, end };
+      }) : [];
+      if (new Set(days.map((d) => d.day)).size !== days.length) throw new HttpError(400, "روز تکراری در ساعت کاری وجود دارد");
+      return { enabled: Boolean(o.enabled), days };
+    }
+    case "scheduledMenus": {
+      const menus = Array.isArray(v) ? v.slice(0, 10).map((raw, index) => {
+        const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+        const time = (x: unknown, fallback: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(x)) ? String(x) : fallback;
+        const days = Array.isArray(m.days) ? [...new Set(m.days.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))] : [];
+        const categoryIds = Array.isArray(m.categoryIds) ? [...new Set(m.categoryIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100) : [];
+        const start = time(m.start, "09:00");
+        const end = time(m.end, "12:00");
+        if (m.enabled && start === end && categoryIds.length) throw new HttpError(400, "ساعت شروع و پایان منوی زمان‌دار نمی‌تواند یکسان باشد");
+        return {
+          id: s(m.id, 40) || `menu-${index + 1}`,
+          name: s(m.name, 50) || `منوی ${index + 1}`,
+          enabled: Boolean(m.enabled),
+          start,
+          end,
+          days,
+          categoryIds,
+        };
+      }) : [];
+      return menus;
+    }
   }
   return undefined;
 }

@@ -7,7 +7,7 @@ import { formatPrice, toFa } from "@/lib/format";
 import type { DiningTable } from "@/lib/types";
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Skeleton, cn, useToast,
-} from "@/components/ui";
+ EmojiIcon, IconText} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
 
 export default function TablesPage() {
@@ -83,12 +83,12 @@ export default function TablesPage() {
         actions={<Button onClick={openNew}><Icon name="plus" className="size-4" /> میز جدید</Button>}
       />
 
-      {tables.loading ? (
+      <IconText>{tables.loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}</div>
       ) : tables.error ? (
         <ErrorState message={tables.error} onRetry={() => tables.reload()} />
       ) : tables.items.length === 0 ? (
-        <EmptyState emoji="🪑" title="هنوز میزی تعریف نکرده‌اید" description="میزهای سالن، تراس یا VIP را اضافه کنید و برای هرکدام QR کد چاپ کنید." action={<Button onClick={openNew}>افزودن اولین میز</Button>} />
+        <EmptyState emoji="" title="هنوز میزی تعریف نکرده‌اید" description="میزهای سالن، تراس یا VIP را اضافه کنید و برای هرکدام QR کد چاپ کنید." action={<Button onClick={openNew}>افزودن اولین میز</Button>} />
       ) : (
         <div className="space-y-8">
           {[...new Set(tables.items.map((t) => t.zone))].map((zone) => (
@@ -105,7 +105,7 @@ export default function TablesPage() {
                         <p className="text-lg font-extrabold">{t.name}</p>
                         <p className="mt-0.5 text-xs text-stone-500">ظرفیت {toFa(t.capacity)} نفر</p>
                       </div>
-                      <span className={cn("flex size-11 items-center justify-center rounded-xl text-xl", t.openOrder ? "bg-amber-100" : "bg-emerald-50")}>🪑</span>
+                      <span className={cn("flex size-11 items-center justify-center rounded-xl text-xl", t.openOrder ? "bg-amber-100" : "bg-emerald-50")}>{<EmojiIcon emoji="" />}</span>
                     </div>
                     <div className="mt-3 min-h-14">
                       {t.openOrder ? (
@@ -132,7 +132,7 @@ export default function TablesPage() {
             </section>
           ))}
         </div>
-      )}
+      )}</IconText>
 
       <Modal
         open={!!editing}

@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, inArray, max, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, max, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   bankAccounts,
@@ -44,6 +43,7 @@ export type OrderInput = {
   lat?: number | null;
   lng?: number | null;
   discountCode?: string;
+  manualDiscountAmount?: number;
   useCashback?: boolean;
   payNow?: string | null; // staff: settle immediately with this method
   payment?: string | null; // customer: cash | ipg | snappay | digipay
@@ -76,17 +76,25 @@ export function computeTotals(
 
 export function parseOrderInput(body: Record<string, unknown>): OrderInput {
   const rawItems = Array.isArray(body.items) ? body.items : [];
+  if (rawItems.length > 50) throw new HttpError(400, "هر سفارش حداکثر می‌تواند ۵۰ قلم داشته باشد");
   const items = rawItems
     .map((i) => i as Record<string, unknown>)
-    .map((i) => ({
-      productId: Number(i.productId),
-      quantity: Math.min(50, Math.max(1, Math.floor(Number(i.quantity) || 1))),
-      note: typeof i.note === "string" ? i.note.slice(0, 200) : "",
-    }))
-    .filter((i) => Number.isInteger(i.productId));
+    .map((i) => {
+      const productId = Number(i.productId);
+      const quantity = i.quantity === undefined ? 1 : Number(i.quantity);
+      if (!Number.isInteger(productId) || productId < 1) throw new HttpError(400, "شناسه یکی از کالاهای سفارش نامعتبر است");
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) throw new HttpError(400, "تعداد هر کالا باید بین ۱ تا ۵۰ باشد");
+      // Price and line-total fields from the browser are intentionally ignored; createOrder reloads each product's current price.
+      return { productId, quantity, note: typeof i.note === "string" ? i.note.slice(0, 200) : "" };
+    });
   if (items.length === 0) throw new HttpError(400, "سبد سفارش خالی است");
   const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
   const str = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
+  const manualDiscountAmount = body.manualDiscountAmount === undefined || body.manualDiscountAmount === null || body.manualDiscountAmount === ""
+    ? 0
+    : Number(body.manualDiscountAmount);
+  if (!Number.isSafeInteger(manualDiscountAmount) || manualDiscountAmount < 0 || manualDiscountAmount > 2_147_483_647)
+    throw new HttpError(400, "مبلغ تخفیف صندوق نامعتبر است");
   return {
     items,
     tableId: num(body.tableId),
@@ -102,6 +110,7 @@ export function parseOrderInput(body: Record<string, unknown>): OrderInput {
     lng: Number.isFinite(Number(body.lng)) && body.lng !== null && body.lng !== "" ? Number(body.lng) : null,
     scheduledFor: typeof body.scheduledFor === "string" && body.scheduledFor ? body.scheduledFor : null,
     discountCode: str(body.discountCode, 30).toUpperCase(),
+    manualDiscountAmount,
     useCashback: Boolean(body.useCashback),
     payNow: typeof body.payNow === "string" ? body.payNow : null,
     payment: typeof body.payment === "string" ? body.payment : null,
@@ -155,10 +164,12 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     return { productId: p.id, name: p.name, emoji: p.emoji, price: p.price, quantity: it.quantity, note: it.note ?? "" };
   });
   const addSubtotal = newItems.reduce((s, i) => s + i.price * i.quantity, 0);
+  if (!Number.isSafeInteger(addSubtotal) || addSubtotal > 2_147_483_647) throw new HttpError(400, "مبلغ سفارش از سقف مجاز بیشتر است");
   const type = input.type ?? "dine_in";
 
   // ---------- append to an existing order ----------
   if (input.appendTo) {
+    if (input.manualDiscountAmount) throw new HttpError(400, "تخفیف صندوق را پس از بستن افزودن به سفارش ثبت کنید");
     const [existing] = await db
       .select()
       .from(orders)
@@ -168,7 +179,8 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       throw new HttpError(400, "این سفارش بسته شده است");
     const sub = existing.subtotal + addSubtotal;
     const t = computeTotals(biz, { subtotal: sub, discount: existing.discountAmount, deliveryFee: existing.deliveryFee, type: existing.type });
-    await db.insert(orderItems).values(newItems.map((i) => ({ ...i, orderId: existing.id })));
+    if (t.pre > 2_147_483_647) throw new HttpError(400, "مبلغ سفارش از سقف مجاز بیشتر است");
+    const appendedRows = await db.insert(orderItems).values(newItems.map((i) => ({ ...i, orderId: existing.id }))).returning({ id: orderItems.id });
     await db
       .update(orders)
       .set({
@@ -180,7 +192,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
         updatedAt: new Date(),
       })
       .where(eq(orders.id, existing.id));
-    await queuePrintJobs(biz, existing.id, features, true);
+    await queuePrintJobs(biz, existing.id, features, true, appendedRows.map((r) => r.id));
     return (await listOrders(biz.id, { id: existing.id }))[0];
   }
 
@@ -233,6 +245,14 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
   let discountAmount = 0;
   let discountCode = "";
   let discountId: number | null = null;
+  if (input.manualDiscountAmount) {
+    if (input.discountCode) throw new HttpError(400, "کد تخفیف و تخفیف دستی را هم‌زمان نمی‌توان اعمال کرد");
+    if (source !== "cashier") throw new HttpError(403, "تخفیف دستی فقط از سفارش‌گیر صندوق مجاز است");
+    if (!can("discount")) throw new HttpError(403, "تخفیف در پلن شما فعال نیست");
+    if (input.manualDiscountAmount > addSubtotal) throw new HttpError(400, "تخفیف نمی‌تواند از جمع اقلام بیشتر باشد");
+    discountAmount = input.manualDiscountAmount;
+    discountCode = "تخفیف صندوق";
+  }
   if (input.discountCode) {
     if (!can("discount")) throw new HttpError(403, "کد تخفیف در پلن شما فعال نیست");
     const d = await validateDiscount(biz, input.discountCode, addSubtotal);
@@ -263,6 +283,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
   } else if (input.useCashback) throw new HttpError(400, "باشگاه مشتریان در پلن این رستوران فعال نیست");
 
   const t = computeTotals(biz, { subtotal: addSubtotal, discount: discountAmount, deliveryFee, type });
+  if (t.pre > 2_147_483_647) throw new HttpError(400, "مبلغ سفارش از سقف مجاز بیشتر است");
   let cashbackUsed = 0;
   if (input.useCashback && customerId) {
     const [c] = await db.select({ w: customers.walletBalance }).from(customers).where(eq(customers.id, customerId));
@@ -296,6 +317,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       discountCode,
       discountAmount,
       cashbackUsed,
+      paymentMethod: source === "customer" || source === "kiosk" ? input.payment ?? null : null,
       subtotal: t.subtotal,
       tax: t.tax,
       service: t.service,
@@ -437,7 +459,8 @@ export async function verifyOnlinePayment(biz: Biz, p: typeof payments.$inferSel
 
 export function receiptText(
   biz: { name: string },
-  o: { number: number; type: string; tableName?: string | null; customerName: string; note: string; total: number; address?: string; items: { name: string; quantity: number; price: number }[] },
+  o: { number: number; type: string; tableName?: string | null; customerName: string; note: string; total: number; address?: string; items: { name: string; quantity: number; price: number; productId?: number | null }[] },
+  options: { includeTotal?: boolean; printerName?: string } = {},
 ) {
   const line = "-".repeat(32);
   const kind = o.type === "delivery" ? "ارسال" : o.type === "takeaway" ? "بیرون‌بر" : (o.tableName ?? "سالن");
@@ -445,33 +468,49 @@ export function receiptText(
     biz.name,
     line,
     `سفارش #${o.number}  |  ${kind}`,
+    options.printerName ? `بخش: ${options.printerName}` : "",
     o.customerName ? `مشتری: ${o.customerName}` : "",
     o.address ? `آدرس: ${o.address}` : "",
     line,
     ...o.items.map((i) => `${i.quantity} × ${i.name}   ${(i.price * i.quantity).toLocaleString("fa-IR")}`),
     line,
     o.note ? `توضیحات: ${o.note}` : "",
-    `مبلغ نهایی: ${o.total.toLocaleString("fa-IR")} تومان`,
+    options.includeTotal === false ? "" : `مبلغ نهایی: ${o.total.toLocaleString("fa-IR")} تومان`,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-export async function queuePrintJobs(biz: Biz, orderId: number, features: FeatureMap, isAppend: boolean) {
+export async function queuePrintJobs(biz: Biz, orderId: number, features: FeatureMap, isAppend: boolean, onlyItemIds?: number[]) {
   if (!hasAny(features, "cloud_printer")) return;
   const printers = await db.select().from(devices).where(and(eq(devices.businessId, biz.id), eq(devices.kind, "printer")));
   if (!printers.length) return;
   const [o] = await listOrders(biz.id, { id: orderId });
   if (!o) return;
-  const content = (isAppend ? "** افزودن به سفارش **\n" : "") + receiptText(biz, o);
-  await db.insert(printJobs).values(printers.map((p) => ({ businessId: biz.id, orderId, deviceId: p.id, content })));
+  const ticketItems = onlyItemIds ? o.items.filter((i) => onlyItemIds.includes(i.id)) : o.items;
+  const productIds = [...new Set(ticketItems.map((i) => i.productId).filter((id): id is number => typeof id === "number"))];
+  const productCategories = productIds.length
+    ? await db.select({ id: products.id, categoryId: products.categoryId }).from(products).where(and(eq(products.businessId, biz.id), inArray(products.id, productIds)))
+    : [];
+  const categoryByProduct = new Map(productCategories.map((p) => [p.id, p.categoryId]));
+  const jobs = printers.flatMap((p) => {
+    const assigned = Array.isArray(p.printerCategoryIds) ? p.printerCategoryIds : [];
+    const items = assigned.length
+      ? ticketItems.filter((i) => assigned.includes(i.productId ? categoryByProduct.get(i.productId) ?? 0 : 0))
+      : ticketItems;
+    if (!items.length) return [];
+    const partial = assigned.length > 0;
+    const content = `${isAppend ? "** افزودن به سفارش **\n" : ""}${receiptText(biz, { ...o, items }, { includeTotal: !partial, printerName: partial ? p.name : undefined })}`;
+    return [{ businessId: biz.id, orderId, deviceId: p.id, content }];
+  });
+  if (jobs.length) await db.insert(printJobs).values(jobs);
 }
 
 export async function listOrders(
   businessId: number,
-  opts: { id?: number; limit?: number; statuses?: string[]; where?: SQL } = {},
+  opts: { id?: number; limit?: number; statuses?: string[]; where?: SQL; deleted?: boolean } = {},
 ) {
-  const conds = [eq(orders.businessId, businessId)];
+  const conds = [eq(orders.businessId, businessId), opts.deleted ? isNotNull(orders.deletedAt) : isNull(orders.deletedAt)];
   if (opts.where) conds.push(opts.where);
   if (opts.id) conds.push(eq(orders.id, opts.id));
   if (opts.statuses?.length) conds.push(inArray(orders.status, opts.statuses));

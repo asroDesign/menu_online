@@ -1,3 +1,4 @@
+import { EmojiIcon , IconText} from "@/components/ui";
 import { and, eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/db";
@@ -46,9 +47,9 @@ export default async function Receipt({ params }: { params: Promise<{ id: string
         {o.cashbackUsed > 0 && row("اعتبار کش‌بک", `-${formatNumber(o.cashbackUsed)}`)}
         <hr className="my-2 border-stone-700" />
         {row("مبلغ قابل پرداخت", `${formatNumber(o.total)} تومان`, true)}
-        {o.paymentStatus === "paid" && <p className="mt-1 text-center font-bold">✔ پرداخت شد ({o.paymentMethod})</p>}
+        <IconText>{o.paymentStatus === "paid" && <p className="mt-1 text-center font-bold">{<EmojiIcon emoji="" />} پرداخت شد ({o.paymentMethod})</p>}</IconText>
         {o.note && <p className="mt-2">توضیحات: {o.note}</p>}
-        <p className="mt-3 text-center text-[11px]">از خرید شما سپاسگزاریم 🌸</p>
+        <p className="mt-3 text-center text-[11px]">از خرید شما سپاسگزاریم <IconText>{<EmojiIcon emoji="" />}</IconText></p>
       </div>
     </div>
   );

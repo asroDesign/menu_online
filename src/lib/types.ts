@@ -65,6 +65,8 @@ export type Order = {
   assignedAt: string | null;
   pickedUpAt: string | null;
   deliveryFinishedAt: string | null;
+  deletedAt: string | null;
+  deletedBy: string | null;
   deliveryFee: number;
   discountAmount: number;
   discountCode: string;

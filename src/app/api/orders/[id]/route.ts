@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { couriers, orders, pagers } from "@/db/schema";
 import { can, HttpError, readJson, requireFeature, withAuth } from "@/lib/auth";
 import { listOrders, queuePrintJobs, refundCashback, settleOrder } from "@/lib/orders";
+import { isManagerRole } from "@/lib/roles";
 
 const STATUSES = ["awaiting_payment", "pending", "preparing", "ready", "served", "paid", "canceled"];
 
@@ -13,6 +14,13 @@ export const PATCH = withAuth<{ id: string }>(
     const oid = Number(id);
     const [existing] = await db.select().from(orders).where(and(eq(orders.id, oid), eq(orders.businessId, business.id)));
     if (!existing) throw new HttpError(404, "سفارش پیدا نشد");
+    if (b.restore === true) {
+      if (!isManagerRole(auth.role)) throw new HttpError(403, "بازگردانی سفارش فقط برای مدیر رستوران مجاز است");
+      await db.update(orders).set({ deletedAt: null, deletedBy: null, updatedAt: new Date() }).where(eq(orders.id, oid));
+      const [item] = await listOrders(business.id, { id: oid });
+      return Response.json({ item });
+    }
+    if (existing.deletedAt) throw new HttpError(404, "سفارش پیدا نشد");
     const set: Record<string, unknown> = { updatedAt: new Date() };
     if (typeof b.status === "string") {
       if (!STATUSES.includes(b.status)) throw new HttpError(400, "وضعیت نامعتبر است");
@@ -60,8 +68,11 @@ export const PATCH = withAuth<{ id: string }>(
 );
 
 export const DELETE = withAuth<{ id: string }>(
-  async (_req, { business }, { id }) => {
-    const [row] = await db.delete(orders).where(and(eq(orders.id, Number(id)), eq(orders.businessId, business.id))).returning({ id: orders.id });
+  async (_req, auth, { id }) => {
+    const [row] = await db.update(orders)
+      .set({ deletedAt: new Date(), deletedBy: auth.user.name, updatedAt: new Date() })
+      .where(and(eq(orders.id, Number(id)), eq(orders.businessId, auth.business.id), isNull(orders.deletedAt)))
+      .returning({ id: orders.id });
     if (!row) throw new HttpError(404, "سفارش پیدا نشد");
     return Response.json({ ok: true });
   },

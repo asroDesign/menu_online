@@ -6,7 +6,7 @@ import { formatCompact, formatDate, formatNumber, formatPrice, toFa } from "@/li
 import { fmtJ, JMONTHS, toJ } from "@/lib/jalali";
 import { JalaliInput } from "@/components/jalali-input";
 import { PLANS, planName } from "@/lib/plans";
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, Select, Skeleton, Textarea, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, Select, Skeleton, Textarea, cn, useToast , IconText} from "@/components/ui";
 import { Bars, METHOD, PLAN_COLOR, Stat, useGet, type Me } from "@/components/admin/common";
 
 const toEn = (s: string) => Number(s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "")) || 0;
@@ -17,7 +17,7 @@ export function AdminAccounting({ me, params }: { me: Me; params: Record<string,
   return (
     <div className="animate-fade-in">
       <div className="mb-5"><h1 className="text-xl font-extrabold sm:text-2xl">اشتراک‌ها و حسابداری سامانه</h1><p className="mt-1 text-sm text-stone-500">فاکتور فروش اشتراک، دریافت‌ها، هزینه‌ها و گزارش مالی (تاریخ شمسی)</p></div>
-      <div className="mb-5 flex gap-2">{([["summary", "📊 گزارش مالی"], ["invoices", "🧾 فاکتورهای اشتراک"], ["expenses", "💸 هزینه‌های سامانه"]] as const).map(([k, l]) => <button key={k} onClick={() => setSub(k)} className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold", sub === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</div>
+      <div className="mb-5 flex gap-2"><IconText>{([["summary", " گزارش مالی"], ["invoices", " فاکتورهای اشتراک"], ["expenses", " هزینه‌های سامانه"]] as const).map(([k, l]) => <button key={k} onClick={() => setSub(k)} className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold", sub === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</IconText></div>
       {sub === "summary" && <Summary />}
       {sub === "invoices" && <Invoices params={params} />}
       {sub === "expenses" && <Expenses />}
@@ -33,13 +33,13 @@ function Summary() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2"><span className="text-sm font-semibold">سال مالی:</span><Select className="w-32" value={year} onChange={(e) => setYear(Number(e.target.value))}>{[0, 1, 2].map((i) => { const y = toJ(new Date()).jy - i; return <option key={y} value={y}>{toFa(y)}</option>; })}</Select></div>
-      {!d ? <Skeleton className="h-80 rounded-2xl" /> : (
+      <IconText>{!d ? <Skeleton className="h-80 rounded-2xl" /> : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat icon="💰" label="درآمد اشتراک‌ها" value={formatPrice(d.revenue)} tone="text-emerald-600" />
-            <Stat icon="💸" label="هزینه‌های سامانه" value={formatPrice(d.expenses)} tone="text-rose-600" />
-            <Stat icon="📈" label="سود خالص" value={formatPrice(d.net)} tone={d.net >= 0 ? "text-emerald-600" : "text-rose-600"} />
-            <Stat icon="⏳" label="مطالبات (پرداخت‌نشده)" value={formatPrice(d.unpaidTotal)} tone="text-amber-600" sub={`${toFa(d.unpaid.length)} فاکتور`} />
+            <Stat icon="" label="درآمد اشتراک‌ها" value={formatPrice(d.revenue)} tone="text-emerald-600" />
+            <Stat icon="" label="هزینه‌های سامانه" value={formatPrice(d.expenses)} tone="text-rose-600" />
+            <Stat icon="" label="سود خالص" value={formatPrice(d.net)} tone={d.net >= 0 ? "text-emerald-600" : "text-rose-600"} />
+            <Stat icon="" label="مطالبات (پرداخت‌نشده)" value={formatPrice(d.unpaidTotal)} tone="text-amber-600" sub={`${toFa(d.unpaid.length)} فاکتور`} />
           </div>
           <Card className="p-5"><h3 className="mb-4 font-bold">درآمد ماهانه</h3><Bars data={d.months.map((m: any) => ({ label: JMONTHS[m.month - 1].slice(0, 3), value: m.revenue }))} fmt={formatPrice} /></Card>
           <Card className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">ماه</th><th className="p-3 text-end">فاکتور پرداخت‌شده</th><th className="p-3 text-end">درآمد</th><th className="p-3 text-end">هزینه</th><th className="p-3 text-end">سود</th></tr></thead>
@@ -52,7 +52,7 @@ function Summary() {
           </div>
           {d.unpaid.length > 0 && <Card className="overflow-hidden"><div className="border-b p-4 font-bold">مطالبات باز</div><ul className="divide-y divide-stone-100 text-sm">{d.unpaid.map((u: any) => <li key={u.id} className="flex flex-wrap items-center gap-3 px-4 py-3"><b>#{toFa(u.number)}</b><span className="min-w-40 flex-1">{u.businessName}</span><Badge color={PLAN_COLOR[u.plan]}>{planName(u.plan)}</Badge><b>{formatPrice(u.amount)}</b><span className="text-xs text-stone-400">{fmtJ(u.createdAt)}</span></li>)}</ul></Card>}
         </>
-      )}
+      )}</IconText>
     </div>
   );
 }
@@ -83,7 +83,7 @@ function Invoices({ params }: { params: Record<string, string> }) {
         <div className="relative w-56"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder="نام یا شماره فاکتور…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <Button className="ms-auto" onClick={() => setCreate({ businessId: tenants[0]?.id ?? "", plan: "premium", months: 12, method: "transfer" })}><Icon name="plus" className="size-4" /> فاکتور جدید</Button>
       </div>
-      {error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-64 rounded-2xl" /> : !data?.items.length ? <EmptyState emoji="🧾" title="فاکتوری وجود ندارد" description="برای فروش یا تمدید اشتراک، فاکتور صادر کنید؛ با ثبت پرداخت، پلن و تاریخ اشتراک خودکار اعمال می‌شود." action={<Button onClick={() => setCreate({ businessId: tenants[0]?.id ?? "", plan: "premium", months: 12, method: "transfer" })}>صدور فاکتور</Button>} /> : (
+      <IconText>{error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-64 rounded-2xl" /> : !data?.items.length ? <EmptyState emoji="" title="فاکتوری وجود ندارد" description="برای فروش یا تمدید اشتراک، فاکتور صادر کنید؛ با ثبت پرداخت، پلن و تاریخ اشتراک خودکار اعمال می‌شود." action={<Button onClick={() => setCreate({ businessId: tenants[0]?.id ?? "", plan: "premium", months: 12, method: "transfer" })}>صدور فاکتور</Button>} /> : (
         <Card className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">شماره</th><th className="p-3 text-start">کسب‌وکار</th><th className="p-3 text-start">پلن</th><th className="p-3 text-start">دوره</th><th className="p-3 text-end">مبلغ</th><th className="p-3 text-start">وضعیت</th><th className="p-3" /></tr></thead>
           <tbody className="divide-y divide-stone-100">{data.items.map((i) => (
             <tr key={i.id} className="hover:bg-stone-50/70"><td className="p-3 font-extrabold">#{toFa(i.number)}</td><td className="p-3 font-semibold">{i.businessName}<p className="text-[11px] font-normal text-stone-400">صدور: {fmtJ(i.createdAt)} · {i.createdBy}</p></td>
@@ -94,7 +94,7 @@ function Invoices({ params }: { params: Record<string, string> }) {
               <td className="p-2"><div className="flex justify-end gap-1">{i.status === "unpaid" && <><Button size="sm" onClick={() => setPay({ id: i.id, number: i.number, amount: i.amount, method: "transfer", refNo: "", paidAt: new Date().toISOString() })}>ثبت پرداخت</Button><IconButton icon="x" label="ابطال" className="hover:text-rose-600" onClick={() => setVoidId(i)} /></>}<a href={`/print/invoice/${i.id}`} target="_blank" aria-label="چاپ"><IconButton icon="print" label="چاپ فاکتور" /></a></div></td></tr>
           ))}</tbody>
           <tfoot><tr className="border-t bg-stone-50 text-xs font-bold"><td colSpan={4} className="p-3">{toFa(data.items.length)} فاکتور</td><td className="p-3 text-end">پرداخت‌شده: {formatNumber(total)}</td><td colSpan={2} /></tr></tfoot></table></Card>
-      )}
+      )}</IconText>
       <Modal open={!!create} onClose={() => setCreate(null)} title="صدور فاکتور اشتراک" footer={<><Button variant="ghost" onClick={() => setCreate(null)}>انصراف</Button><Button onClick={save} disabled={!create?.businessId}>{create?.markPaid ? "صدور و ثبت پرداخت" : "صدور فاکتور"}</Button></>}>
         {create && <div className="space-y-4">
           <Field label="کسب‌وکار"><Select value={create.businessId} onChange={(e) => setCreate({ ...create, businessId: e.target.value })}><option value="">انتخاب…</option>{tenants.map((b) => <option key={b.id} value={b.id}>{b.name} — {planName(b.plan)}</option>)}</Select></Field>
@@ -130,10 +130,10 @@ function Expenses() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between"><p className="text-sm text-stone-500">جمع هزینه‌های ثبت‌شده: <b className="text-rose-600">{formatPrice(total)}</b></p><Button onClick={() => setF({ category: CATS[0], amount: "", date: new Date().toISOString(), description: "" })}><Icon name="plus" className="size-4" /> هزینه جدید</Button></div>
-      {error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-48 rounded-2xl" /> : !data?.items.length ? <EmptyState emoji="💸" title="هزینه‌ای ثبت نشده" description="هزینه‌های سرور، پیامک، دامنه و… را ثبت کنید تا سود خالص دقیق محاسبه شود." action={<Button onClick={() => setF({ category: CATS[0], amount: "", date: new Date().toISOString(), description: "" })}>ثبت هزینه</Button>} /> : (
+      <IconText>{error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-48 rounded-2xl" /> : !data?.items.length ? <EmptyState emoji="" title="هزینه‌ای ثبت نشده" description="هزینه‌های سرور، پیامک، دامنه و… را ثبت کنید تا سود خالص دقیق محاسبه شود." action={<Button onClick={() => setF({ category: CATS[0], amount: "", date: new Date().toISOString(), description: "" })}>ثبت هزینه</Button>} /> : (
         <Card className="overflow-x-auto"><table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">تاریخ</th><th className="p-3 text-start">دسته</th><th className="p-3 text-start">شرح</th><th className="p-3 text-end">مبلغ</th><th className="p-3" /></tr></thead>
           <tbody className="divide-y divide-stone-100">{data.items.map((e) => <tr key={e.id}><td className="whitespace-nowrap p-3 text-xs">{fmtJ(e.date)}</td><td className="p-3"><Badge>{e.category}</Badge></td><td className="p-3 text-xs text-stone-600">{e.description}</td><td className="p-3 text-end font-bold text-rose-600">{formatNumber(e.amount)}</td><td className="p-2"><div className="flex justify-end"><IconButton icon="edit" label="ویرایش" onClick={() => setF({ ...e, amount: String(e.amount) })} /><IconButton icon="trash" label="حذف" className="hover:text-rose-600" onClick={() => setDel(e)} /></div></td></tr>)}</tbody></table></Card>
-      )}
+      )}</IconText>
       <Modal open={!!f} onClose={() => setF(null)} size="sm" title={f?.id ? "ویرایش هزینه" : "هزینه جدید"} footer={<><Button variant="ghost" onClick={() => setF(null)}>انصراف</Button><Button onClick={save}>ذخیره</Button></>}>
         {f && <div className="space-y-4"><Field label="دسته"><Input list="exp-cats" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /><datalist id="exp-cats">{CATS.map((c) => <option key={c} value={c} />)}</datalist></Field><Field label="مبلغ (تومان)"><Input inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field><Field label="تاریخ (شمسی)"><JalaliInput value={f.date} onChange={(v) => v && setF({ ...f, date: v })} /></Field><Field label="شرح"><Textarea rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field></div>}
       </Modal>

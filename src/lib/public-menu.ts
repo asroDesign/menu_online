@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { businesses, categories, deliveryZones, diningTables, products, translations } from "@/db/schema";
 import { featuresOf } from "@/lib/entitlements";
 import { hasAny, type Settings } from "@/lib/plans";
+import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
 
 export async function getPublicMenu(slug: string) {
   const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
@@ -14,6 +15,8 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   const features = await featuresOf(biz);
   const can = (k: string) => hasAny(features, k);
   const st = (biz.settings ?? {}) as Settings;
+  const cardTransfer = st.cardTransfer;
+  const cardTransferEnabled = can("card_transfer") && !!cardTransfer?.enabled && /^\d{16}$/.test(cardTransfer.cardNumber) && !!cardTransfer.accountHolder?.trim();
   const [cats, prods, tbls, zones, trs] = await Promise.all([
     db.select().from(categories).where(and(eq(categories.businessId, biz.id), eq(categories.isActive, true))).orderBy(asc(categories.sortOrder), asc(categories.id)),
     db.select().from(products).where(eq(products.businessId, biz.id)).orderBy(asc(products.id)),
@@ -27,22 +30,40 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       ? db.select().from(translations).where(eq(translations.businessId, biz.id))
       : Promise.resolve([]),
   ]);
-  const catIds = new Set(cats.map((c) => c.id));
+  const scheduled = activeScheduledCategoryIds(st);
+  const visibleCategories = scheduled
+    ? cats.filter((c) => !scheduled.assigned.has(c.id) || scheduled.active.has(c.id))
+    : cats;
+  const catIds = new Set(visibleCategories.map((c) => c.id));
   const arOn = can("ar");
   return {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
       instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, acceptOrders: biz.acceptOrders,
       taxPercent: biz.taxPercent, servicePercent: biz.servicePercent,
+      isOpen: isOpenAt(st, new Date()),
+      operatingHours: st.operatingHours ?? null,
+      reservationsEnabled: can("reservations") && st.reservations?.enabled !== false,
+      reservationSettings: can("reservations") && st.reservations?.enabled !== false
+        ? { requireDeposit: !!st.reservations?.requireDeposit, depositPerGuest: st.reservations?.depositPerGuest ?? 0, durationMinutes: st.reservations?.durationMinutes ?? 90 }
+        : null,
+      cardTransfer: cardTransferEnabled ? {
+        cardNumber: cardTransfer!.cardNumber,
+        accountHolder: cardTransfer!.accountHolder,
+        bankName: cardTransfer!.bankName,
+        instructions: cardTransfer!.instructions,
+      } : null,
     },
     caps: {
       selfOrder: can("self_order"),
+      reservations: can("reservations") && st.reservations?.enabled !== false,
       delivery: can("delivery_order"),
       preorder: can("preorder"),
       discount: can("discount"),
       cashback: can("cashback") && can("loyalty") && (st.cashbackEnabled ?? (st.cashbackPercent ?? 0) > 0),
       cashbackMax: st.cashbackMaxRedeemPercent ?? 100,
       ipg: can("ipg") && !!st.ipg?.merchantId,
+      cardTransfer: cardTransferEnabled,
       snappay: false, // installment gateways need a signed merchant contract + credentials; not connected
       digipay: false,
       kiosk: can("kiosk"),
@@ -51,7 +72,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       miniSite: can("mini_site"),
     },
     languages: can("translation") ? (st.languages?.length ? st.languages : ["fa"]) : ["fa"],
-    categories: cats,
+    categories: visibleCategories,
     products: prods
       .filter((p) => p.categoryId === null || catIds.has(p.categoryId))
       .map((p) => ({ ...p, arModelUrl: arOn ? p.arModelUrl : "" })),

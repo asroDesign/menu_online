@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toFa } from "@/lib/format";
-import { Button, EmptyState, Field, Input, Modal, Select, useToast } from "@/components/ui";
+import { Button, EmptyState, Field, Input, Modal, Select, useToast , IconText} from "@/components/ui";
 
 type Tpl = { id: number; purpose: string; title: string; isActive: boolean; sampleText: string };
 const PURPOSE: Record<string, string> = { birthday: "تولد", occasion: "مناسبتی", promo: "تبلیغاتی", service: "خدماتی" };
@@ -31,8 +31,8 @@ export function SmsSendModal({ open, onClose, audience, numbers, count, title }:
   }
   return (
     <Modal open={open} onClose={onClose} title={`ارسال پیامک — ${title}`} size="md" footer={<><Button variant="ghost" onClick={onClose}>انصراف</Button><Button onClick={send} loading={busy} disabled={!cur || count === 0}>ارسال به {toFa(count)} نفر</Button></>}>
-      {!tpls ? <div className="skeleton h-32" /> : tpls.length === 0 ? (
-        <EmptyState emoji="🧩" title="هنوز قالب پیامکی ندارید" description="ابتدا در پنل پیامک یک قالب (پترن) بسازید." action={<Link href="/dashboard/sms"><Button size="sm">رفتن به پنل پیامک</Button></Link>} />
+      <IconText>{!tpls ? <div className="skeleton h-32" /> : tpls.length === 0 ? (
+        <EmptyState emoji="" title="هنوز قالب پیامکی ندارید" description="ابتدا در پنل پیامک یک قالب (پترن) بسازید." action={<Link href="/dashboard/sms"><Button size="sm">رفتن به پنل پیامک</Button></Link>} />
       ) : (
         <div className="space-y-4">
           <Field label="قالب پیامک (پترن)"><Select value={String(cur?.id ?? "")} onChange={(e) => setTplId(e.target.value)}>{tpls.map((t) => <option key={t.id} value={t.id}>{PURPOSE[t.purpose]} — {t.title}</option>)}</Select></Field>
@@ -44,7 +44,7 @@ export function SmsSendModal({ open, onClose, audience, numbers, count, title }:
           <Field label="عنوان کمپین"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <p className="text-[11px] leading-6 text-stone-400">فقط مشتریانی که دریافت پیامک را فعال نگه داشته‌اند، پیام می‌گیرند. گزارش ارسال در پنل پیامک موجود است.</p>
         </div>
-      )}
+      )}</IconText>
     </Modal>
   );
 }

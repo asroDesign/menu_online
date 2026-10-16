@@ -7,6 +7,7 @@ import { featuresOf } from "@/lib/entitlements";
 import { hasAny, type FeatureMap } from "@/lib/plans";
 import { isManagerRole, restrictByRole } from "@/lib/roles";
 import { permsOf, type AdminPerm } from "@/lib/admin-meta";
+import { logError } from "@/lib/logger";
 
 const COOKIE = "sid";
 const SESSION_DAYS = 30;
@@ -108,7 +109,7 @@ export async function getAuth(): Promise<AuthContext | null> {
   }
   if (!row.user.role) role = "owner";
   const planFeatures = await featuresOf(row.business);
-  const { active: _a, ...user } = row.user; // eslint-disable-line @typescript-eslint/no-unused-vars
+  const { active: _a, ...user } = row.user;
   return { user, business: row.business, role, planFeatures, features: restrictByRole(planFeatures, role) };
 }
 
@@ -116,6 +117,7 @@ export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    public headers?: HeadersInit,
   ) {
     super(message);
   }
@@ -161,10 +163,10 @@ export function withAuth<P = Record<string, string>>(
 }
 
 export function errorResponse(e: unknown) {
-  if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
+  if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status, headers: e.headers });
   if ((e as { code?: string })?.code === "23505")
     return Response.json({ error: "این مقدار قبلاً ثبت شده است (تکراری)" }, { status: 409 });
-  console.error(e);
+  logError("api.unhandled_error", e);
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });
 }
 

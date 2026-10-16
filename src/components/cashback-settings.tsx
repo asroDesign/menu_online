@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
 import { toFa } from "@/lib/format";
 import type { Settings } from "@/lib/plans";
-import { Button, Card, Field, Input, Skeleton, Switch, useToast } from "@/components/ui";
+import { Button, Card, Field, Input, Skeleton, Switch, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 const n = (s: string) => Number(s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "")) || 0;
 
@@ -25,7 +25,7 @@ export function CashbackSettingsCard() {
     });
   }, []);
   if (!f.has("cashback"))
-    return <Card className="p-5"><h2 className="font-bold">🪙 کش‌بک مشتریان</h2><p className="mt-2 text-sm leading-7 text-stone-500">این امکان در پلن فعلی شما فعال نیست. <Link href="/dashboard/plan?locked=cashback" className="font-bold text-brand-600">مشاهده پلن‌ها</Link></p></Card>;
+    return <Card className="p-5"><h2 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> کش‌بک مشتریان</h2><p className="mt-2 text-sm leading-7 text-stone-500">این امکان در پلن فعلی شما فعال نیست. <Link href="/dashboard/plan?locked=cashback" className="font-bold text-brand-600">مشاهده پلن‌ها</Link></p></Card>;
   if (!st) return <Skeleton className="h-56 rounded-2xl" />;
   async function save() {
     setBusy(true);
@@ -37,7 +37,7 @@ export function CashbackSettingsCard() {
   return (
     <Card className="p-5">
       <div className="flex items-start justify-between gap-4">
-        <div><h2 className="font-bold">🪙 کش‌بک مشتریان</h2><p className="mt-1 text-xs leading-6 text-stone-500">درصدی از مبلغ هر سفارش پرداخت‌شده به کیف پول مشتری (با شماره موبایل) برمی‌گردد و در سفارش بعدی قابل استفاده است. خاموش‌بودن آن هم کسب اعتبار و هم استفاده از اعتبار را متوقف می‌کند.</p></div>
+        <div><h2 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> کش‌بک مشتریان</h2><p className="mt-1 text-xs leading-6 text-stone-500">درصدی از مبلغ هر سفارش پرداخت‌شده به کیف پول مشتری (با شماره موبایل) برمی‌گردد و در سفارش بعدی قابل استفاده است. خاموش‌بودن آن هم کسب اعتبار و هم استفاده از اعتبار را متوقف می‌کند.</p></div>
         <Switch checked={st.on} onChange={(v) => setSt({ ...st, on: v })} label="کش‌بک" />
       </div>
       <div className={`mt-4 grid gap-4 sm:grid-cols-3 transition ${st.on ? "" : "pointer-events-none opacity-40"}`}>

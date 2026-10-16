@@ -12,8 +12,7 @@ import { ResourcePage } from "@/components/resource-page";
 import { SettingCard } from "@/components/setting-card";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
 import {
-  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast,
-} from "@/components/ui";
+  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 type Customer = { id: number; name: string; phone: string; note: string; points: number; walletBalance: number; totalSpent: number; ordersCount: number; birthMonth: number | null; birthDay: number | null; smsOptIn: boolean; lastOrderAt: string | null; segment: string };
 
@@ -25,7 +24,7 @@ function SegmentSettings() {
   const F: [keyof SegCfg, string, string][] = [["vipOrders", "VIP: حداقل تعداد خرید", "بار"], ["vipSpent", "VIP: حداقل مبلغ کل خرید", "تومان"], ["loyalOrders", "وفادار: حداقل تعداد خرید", "بار"], ["loyalSpent", "وفادار: یا حداقل مبلغ خرید", "تومان"], ["atRiskDays", "در خطر ریزش: روز از آخرین خرید", "روز"], ["lostDays", "ازدست‌رفته: روز از آخرین خرید", "روز"]];
   return (
     <>
-      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>⚙️ قوانین طبقه‌بندی</Button>
+      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}><IconText>{<EmojiIcon emoji="" />}</IconText> قوانین طبقه‌بندی</Button>
       <Modal open={open} onClose={() => setOpen(false)} title="قوانین طبقه‌بندی خودکار مشتریان" size="md" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button onClick={async () => { try { await api("/api/business", { method: "PATCH", body: { settings: { segments: Object.fromEntries(Object.entries(v ?? {}).map(([k, x]) => [k, Number(x.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, ""))])) } } }); toast("قوانین ذخیره شد؛ طبقه‌بندی به‌روز می‌شود"); setOpen(false); location.reload(); } catch (e) { toast((e as Error).message, "error"); } }}>ذخیره</Button></>}>
         {!v ? <div className="skeleton h-40" /> : <div className="grid gap-4 sm:grid-cols-2">{F.map(([k, l, u]) => <Field key={k} label={l} hint={u}><Input inputMode="numeric" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></Field>)}</div>}
         <p className="mt-4 text-xs leading-6 text-stone-500">طبقه‌بندی به‌صورت خودکار و بر اساس سفارش‌های پرداخت‌شده محاسبه می‌شود؛ نیازی به ثبت دستی نیست.</p>
@@ -45,7 +44,7 @@ export function Customers() {
         title="باشگاه مشتریان"
         subtitle="مشتریان به‌صورت خودکار بر اساس تعداد و مبلغ خرید و زمان آخرین خرید طبقه‌بندی می‌شوند"
         endpoint="/api/r/customers"
-        emoji="💎"
+        emoji=""
         emptyTitle="هنوز مشتری ثبت نشده"
         emptyDesc="مشتریان با ثبت شماره موبایل در سفارش‌ها به‌صورت خودکار به باشگاه اضافه می‌شوند؛ می‌توانید دستی هم اضافه کنید."
         addLabel="مشتری جدید"
@@ -66,10 +65,10 @@ export function Customers() {
           <div className="mb-4 space-y-3">
             <SettingCard title="نرخ کسب امتیاز" desc="به ازای هر چند تومان خرید، ۱ امتیاز به مشتری تعلق می‌گیرد." k="pointsPerToman" suffix="تومان = ۱ امتیاز" />
             <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-              {[{ key: "all", label: "همه", emoji: "👥" }, ...SEGMENTS].map((s) => {
+              <IconText>{[{ key: "all", label: "همه", emoji: "" }, ...SEGMENTS].map((s) => {
                 const n = s.key === "all" ? items.length : items.filter((c) => c.segment === s.key).length;
-                return <button key={s.key} onClick={() => setSeg(s.key)} title={"desc" in s ? s.desc : undefined} className={cn("flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition", seg === s.key ? "bg-stone-900 text-white shadow" : "bg-white ring-1 ring-stone-200 hover:bg-stone-50")}><span>{s.emoji}</span>{s.label}<span className={cn("rounded-md px-1.5 text-[11px]", seg === s.key ? "bg-white/20" : "bg-stone-100 text-stone-500")}>{toFa(n)}</span></button>;
-              })}
+                return <button key={s.key} onClick={() => setSeg(s.key)} title={"desc" in s ? s.desc : undefined} className={cn("flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition", seg === s.key ? "bg-stone-900 text-white shadow" : "bg-white ring-1 ring-stone-200 hover:bg-stone-50")}><span>{<EmojiIcon emoji={s.emoji} /> }</span>{s.label}<span className={cn("rounded-md px-1.5 text-[11px]", seg === s.key ? "bg-white/20" : "bg-stone-100 text-stone-500")}>{toFa(n)}</span></button>;
+              })}</IconText>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
               <span>{seg !== "all" ? segMeta(seg).desc : "برای فیلتر، یک گروه را انتخاب کنید"}</span>
@@ -79,7 +78,7 @@ export function Customers() {
         )}
         renderBar={({ filtered, selected, clear }) => canSms && (filtered.length > 0) ? (
           <div className="no-print mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-50 p-3 ring-1 ring-brand-200">
-            <span className="text-sm font-semibold text-brand-900">📣 ارسال پیامک:</span>
+            <span className="text-sm font-semibold text-brand-900"><IconText>{<EmojiIcon emoji="" />}</IconText> ارسال پیامک:</span>
             {seg !== "all" && seg !== "none" && <Button size="sm" onClick={() => setSms({ audience: `seg:${seg}`, count: filtered.filter((c) => c.smsOptIn).length, title: `گروه ${segMeta(seg).label}` })}>به کل گروه «{segMeta(seg).label}» ({toFa(filtered.filter((c) => c.smsOptIn).length)})</Button>}
             <Button size="sm" variant="secondary" disabled={selected.length === 0} onClick={() => setSms({ audience: "manual", numbers: selected.filter((c) => c.smsOptIn).map((c) => c.phone).join(","), count: selected.filter((c) => c.smsOptIn).length, title: "مشتریان انتخاب‌شده" })}>به انتخاب‌شده‌ها ({toFa(selected.length)})</Button>
             {selected.length > 0 && <button className="text-xs text-stone-500 underline" onClick={clear}>لغو انتخاب</button>}
@@ -87,7 +86,7 @@ export function Customers() {
         ) : null}
         columns={[
           { label: "مشتری", render: (r) => <div><p className="font-bold">{r.name}</p><p className="text-xs text-stone-400" dir="ltr">{r.phone}</p></div> },
-          { label: "طبقه", render: (r) => <Badge color={segMeta(r.segment).color}>{segMeta(r.segment).emoji} {segMeta(r.segment).label}</Badge> },
+          { label: "طبقه", render: (r) => <Badge color={segMeta(r.segment).color}><EmojiIcon emoji={segMeta(r.segment).emoji} /> {segMeta(r.segment).label}</Badge> },
           { label: "تعداد خرید", render: (r) => toFa(r.ordersCount) },
           { label: "مجموع خرید", render: (r) => formatPrice(r.totalSpent) },
           { label: "آخرین خرید", render: (r) => (r.lastOrderAt ? <span className="whitespace-nowrap text-xs">{fmtJ(r.lastOrderAt)} <span className="text-stone-400">({toFa(Math.floor((Date.now() - new Date(r.lastOrderAt).getTime()) / 86400_000))} روز پیش)</span></span> : "—") },
@@ -111,7 +110,7 @@ export function Cashback() {
       title="تخفیف کش‌بک"
       subtitle="بخشی از مبلغ هر خرید به‌صورت اعتبار به کیف پول مشتری برمی‌گردد و در خرید بعدی قابل استفاده است"
       endpoint="/api/r/customers"
-      emoji="🪙"
+      emoji=""
       emptyTitle="مشتری‌ای برای کش‌بک وجود ندارد"
       emptyDesc="با ثبت سفارش همراه شماره موبایل، مشتریان ساخته می‌شوند."
       fields={[]}
@@ -164,7 +163,7 @@ export function Discounts() {
       title="کدهای تخفیف"
       subtitle="کد تخفیف درصدی یا مبلغ ثابت برای کمپین‌ها؛ مشتری در منو، گارسون و صندوق می‌توانند آن را اعمال کنند"
       endpoint="/api/r/discounts"
-      emoji="🎟️"
+      emoji=""
       emptyTitle="هنوز کد تخفیفی نساخته‌اید"
       emptyDesc="مثلاً WELCOME10 برای ۱۰٪ تخفیف اولین خرید."
       addLabel="کد جدید"
@@ -237,9 +236,9 @@ export function Surveys() {
   return (
     <div className="animate-fade-in">
       <PageHeader title="نظرسنجی مشتریان" subtitle="فرم بازخورد بسازید، لینک یا QR آن را به اشتراک بگذارید و نتایج را ببینید" actions={<Button onClick={openNew}><Icon name="plus" className="size-4" /> نظرسنجی جدید</Button>} />
-      {sv.loading ? <div className="grid gap-4 md:grid-cols-2">{[0, 1].map((i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}</div>
+      <IconText>{sv.loading ? <div className="grid gap-4 md:grid-cols-2">{[0, 1].map((i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}</div>
         : sv.error ? <ErrorState message={sv.error} onRetry={() => sv.reload()} />
-        : sv.items.length === 0 ? <EmptyState emoji="📝" title="هنوز نظرسنجی‌ای ندارید" description="با چند سؤال ساده از مشتریان بازخورد بگیرید." action={<Button onClick={openNew}>ساخت نظرسنجی</Button>} />
+        : sv.items.length === 0 ? <EmptyState emoji="" title="هنوز نظرسنجی‌ای ندارید" description="با چند سؤال ساده از مشتریان بازخورد بگیرید." action={<Button onClick={openNew}>ساخت نظرسنجی</Button>} />
         : <div className="grid gap-4 md:grid-cols-2">
           {sv.items.map((s) => (
             <Card key={s.id} className={cn("flex flex-col p-5 animate-pop", s.id < 0 && "opacity-60")}>
@@ -249,13 +248,13 @@ export function Surveys() {
               </div>
               <div className="mt-4 flex gap-2 text-xs"><Badge color="brand">{toFa(s.questions.length)} سؤال</Badge><Badge color="emerald">{toFa(s.responseCount)} پاسخ</Badge>{!s.isActive && <Badge>غیرفعال</Badge>}</div>
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
-                <Button size="sm" onClick={() => openResults(s)}>📊 نتایج</Button>
+                <Button size="sm" onClick={() => openResults(s)}>{<EmojiIcon emoji="" />} نتایج</Button>
                 <Button size="sm" variant="secondary" onClick={() => setShare(s)}><Icon name="qr" className="size-4" /> اشتراک‌گذاری</Button>
                 <span className="ms-auto flex"><IconButton icon="edit" label="ویرایش" onClick={() => openEdit(s)} /><IconButton icon="trash" label="حذف" className="hover:bg-rose-50 hover:text-rose-600" onClick={() => setDel(s)} /></span>
               </div>
             </Card>
           ))}
-        </div>}
+        </div>}</IconText>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === "new" ? "نظرسنجی جدید" : "ویرایش نظرسنجی"} size="lg" footer={<><Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button><Button onClick={save}>ذخیره</Button></>}>
         <div className="space-y-4">
@@ -285,7 +284,7 @@ export function Surveys() {
       </Modal>
 
       <Modal open={!!results} onClose={() => setResults(null)} title={results ? `نتایج: ${results.survey.title}` : ""} size="lg">
-        {results && (results.responses.length === 0 ? <p className="py-10 text-center text-sm text-stone-400">هنوز پاسخی ثبت نشده است.</p> : (
+        <IconText>{results && (results.responses.length === 0 ? <p className="py-10 text-center text-sm text-stone-400">هنوز پاسخی ثبت نشده است.</p> : (
           <div className="space-y-6">
             <p className="text-sm text-stone-500">مجموع پاسخ‌ها: <b className="text-stone-800">{toFa(results.responses.length)}</b></p>
             {results.survey.questions.map((q) => {
@@ -295,15 +294,15 @@ export function Surveys() {
                   <p className="mb-2 text-sm font-bold">{q.text} <span className="text-xs font-normal text-stone-400">({toFa(vals.length)} پاسخ)</span></p>
                   {q.type === "rating" && (() => {
                     const nums = vals.map(Number); const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
-                    return <div><p className="mb-2 text-2xl font-extrabold text-brand-600">{toFa(avg.toFixed(1))} <span className="text-sm text-stone-400">از ۵</span></p>{[5, 4, 3, 2, 1].map((n) => { const c = nums.filter((x) => x === n).length; return <div key={n} className="mb-1 flex items-center gap-2 text-xs"><span className="w-6">{toFa(n)}⭐</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-amber-400" style={{ width: `${nums.length ? (c / nums.length) * 100 : 0}%` }} /></div><span className="w-6 text-stone-500">{toFa(c)}</span></div>; })}</div>;
+                    return <div><p className="mb-2 text-2xl font-extrabold text-brand-600">{toFa(avg.toFixed(1))} <span className="text-sm text-stone-400">از ۵</span></p>{[5, 4, 3, 2, 1].map((n) => { const c = nums.filter((x) => x === n).length; return <div key={n} className="mb-1 flex items-center gap-2 text-xs"><span className="w-6">{toFa(n)}{<EmojiIcon emoji="" />}</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-amber-400" style={{ width: `${nums.length ? (c / nums.length) * 100 : 0}%` }} /></div><span className="w-6 text-stone-500">{toFa(c)}</span></div>; })}</div>;
                   })()}
                   {q.type === "choice" && (q.options ?? []).map((o) => { const c = vals.filter((v) => v === o).length; return <div key={o} className="mb-1.5 flex items-center gap-2 text-xs"><span className="w-28 truncate">{o}</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-brand-400" style={{ width: `${vals.length ? (c / vals.length) * 100 : 0}%` }} /></div><span className="w-6 text-stone-500">{toFa(c)}</span></div>; })}
-                  {q.type === "text" && <ul className="space-y-1.5">{vals.slice(0, 12).map((v, i) => <li key={i} className="rounded-lg bg-stone-50 px-3 py-2 text-sm">💬 {String(v)}</li>)}{vals.length === 0 && <li className="text-xs text-stone-400">پاسخی نیست</li>}</ul>}
+                  {q.type === "text" && <ul className="space-y-1.5">{vals.slice(0, 12).map((v, i) => <li key={i} className="rounded-lg bg-stone-50 px-3 py-2 text-sm">{<EmojiIcon emoji="" />} {String(v)}</li>)}{vals.length === 0 && <li className="text-xs text-stone-400">پاسخی نیست</li>}</ul>}
                 </div>
               );
             })}
           </div>
-        ))}
+        ))}</IconText>
       </Modal>
       <ConfirmDialog open={!!del} title="حذف نظرسنجی" message="نظرسنجی و همه‌ی پاسخ‌های آن حذف می‌شود." onConfirm={() => del && sv.remove(del.id).catch((e) => toast(e.message, "error"))} onClose={() => setDel(null)} />
     </div>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>پل سخت‌افزار منو</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-mark">م</div>
+        <div class="brand-copy"><h1>پل سخت‌افزار منو</h1><p>اتصال امن صندوق به چاپگر و ترازو</p></div>
+        <span id="state" class="state offline"><i></i> متوقف</span>
+      </header>
+
+      <section class="card config-card">
+        <div class="section-heading">
+          <div><h2>تنظیم اتصال</h2><p>فایل تنظیمات را از پنل سخت‌افزار دانلود و اینجا وارد کنید.</p></div>
+          <label class="button secondary" for="file">انتخاب فایل JSON</label>
+          <input id="file" type="file" accept=".json,application/json" hidden />
+        </div>
+        <textarea id="config" spellcheck="false" dir="ltr" placeholder="محتوای bridge.config.json را اینجا جای‌گذاری کنید…"></textarea>
+        <div class="actions">
+          <button id="save" class="button secondary">ذخیره‌ی تنظیمات</button>
+          <button id="start" class="button primary">شروع اتصال</button>
+          <button id="stop" class="button danger" disabled>توقف</button>
+          <span id="config-path" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="card devices-card">
+        <div class="section-heading"><div><h2>دستگاه‌ها</h2><p>چاپ خودکار تا زمان روشن‌بودن این برنامه فعال است.</p></div><label class="autostart"><input id="autostart" type="checkbox" /> اجرای خودکار با Windows</label><span id="device-count" class="count">۰ دستگاه</span></div>
+        <div id="devices" class="devices empty">هنوز تنظیماتی وارد نشده است.</div>
+      </section>
+
+      <section class="card logs-card">
+        <div class="section-heading"><div><h2>گزارش ارتباط</h2><p>وضعیت چاپ و خواندن وزن دستگاه‌ها</p></div><button id="clear" class="text-button">پاک‌کردن گزارش</button></div>
+        <div id="logs" class="logs"><p class="muted">گزارشی ثبت نشده است.</p></div>
+      </section>
+
+      <footer>پنجره را باز یا کوچک‌شده نگه دارید. بستن برنامه، چاپ خودکار را متوقف می‌کند.</footer>
+      <div id="toast" role="status" aria-live="polite"></div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

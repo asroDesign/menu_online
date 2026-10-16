@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
-import { Button, Card, EmptyState, ErrorState, Icon, PageHeader, Skeleton } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, Icon, PageHeader, Skeleton, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCompact, formatNumber, formatPrice, formatTime, formatWeekday, ORDER_STATUSES, timeAgo, toFa } from "@/lib/format";
 import type { Order } from "@/lib/types";
@@ -104,10 +104,10 @@ export default function Overview() {
         }
       />
 
-      {!hasData && (
+      <IconText>{!hasData && (
         <div className="mb-6">
           <EmptyState
-            emoji="🚀"
+            emoji=""
             title="شروع کنید: منوی خود را بسازید"
             description="ابتدا چند دسته‌بندی و محصول اضافه کنید، سپس میزها را بسازید و QR کد چاپ کنید."
             action={
@@ -117,7 +117,7 @@ export default function Overview() {
             }
           />
         </div>
-      )}
+      )}</IconText>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="فروش امروز" value={formatPrice(stats.today.revenue)} icon="trend" tone="bg-emerald-50 text-emerald-600" sub={<><Delta v={stats.today.revenueDelta} /> نسبت به دیروز</>} />
@@ -127,7 +127,7 @@ export default function Overview() {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
+        <Card className="min-w-0 p-5 lg:col-span-2">
           <div className="flex items-start justify-between">
             <div>
               <h3 className="font-bold">فروش ۷ روز گذشته</h3>
@@ -161,7 +161,7 @@ export default function Overview() {
           </div>
         </Card>
 
-        <Card className="p-5">
+        <Card className="min-w-0 p-5">
           <h3 className="font-bold">پرفروش‌ترین‌ها</h3>
           <p className="mt-1 text-xs text-stone-500">در ۱۴ روز گذشته</p>
           {stats.top.length === 0 ? (
@@ -173,7 +173,7 @@ export default function Overview() {
                   <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-stone-100 text-[11px] font-bold text-stone-500">{toFa(i + 1)}</span>
-                      <span className="truncate font-medium">{t.emoji} {t.name}</span>
+                      <span className="truncate font-medium">{<EmojiIcon emoji={t.emoji} /> } {t.name}</span>
                     </span>
                     <span className="shrink-0 text-xs font-semibold text-stone-500">{toFa(t.qty)} عدد</span>
                   </div>

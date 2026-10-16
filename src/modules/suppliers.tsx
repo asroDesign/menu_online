@@ -6,7 +6,7 @@ import { useFeatures } from "@/components/features";
 import { JalaliInput } from "@/components/jalali-input";
 import { formatNumber, formatPrice, toFa } from "@/lib/format";
 import { fmtJ } from "@/lib/jalali";
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Textarea, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 export type Supplier = { id: number; name: string; contactPerson: string; phone: string; address: string; taxId: string; bankInfo: string; note: string; isActive: boolean; purchased: number; paid: number; balance: number };
 type Line = { id: number; docId: number; number: number; date: string; description: string; debit: number; credit: number; balance: number };
@@ -54,7 +54,7 @@ export default function Suppliers() {
 
   return (
     <div className="animate-fade-in">
-      <PageHeader title="تأمین‌کنندگان و بدهی‌ها" subtitle="اطلاعات فروشنده، خریدهای نسیه و مانده‌ی بدهی هر نفر؛ هر خرید نسیه خودکار سند حسابداری صادر می‌کند" actions={<><Button variant="secondary" onClick={() => window.print()}>🖨️ چاپ گزارش بدهی</Button><Button onClick={() => open("new")}><Icon name="plus" className="size-4" /> تأمین‌کننده جدید</Button></>} />
+      <PageHeader title="تأمین‌کنندگان و بدهی‌ها" subtitle="اطلاعات فروشنده، خریدهای نسیه و مانده‌ی بدهی هر نفر؛ هر خرید نسیه خودکار سند حسابداری صادر می‌کند" actions={<><Button variant="secondary" onClick={() => window.print()}><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ گزارش بدهی</Button><Button onClick={() => open("new")}><Icon name="plus" className="size-4" /> تأمین‌کننده جدید</Button></>} />
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <Card className="p-4"><p className="text-xs text-stone-500">مجموع بدهی به تأمین‌کنندگان</p><p className={cn("mt-1 text-xl font-extrabold", totalDebt ? "text-rose-600" : "text-emerald-600")}>{formatPrice(totalDebt)}</p></Card>
         <Card className="p-4"><p className="text-xs text-stone-500">تعداد تأمین‌کنندگان</p><p className="mt-1 text-xl font-extrabold">{toFa(col.items.length)}</p></Card>
@@ -64,8 +64,8 @@ export default function Suppliers() {
         <div className="relative w-64"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder="جستجوی نام یا تلفن…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="accent-brand-500" checked={onlyDebt} onChange={(e) => setOnlyDebt(e.target.checked)} /> فقط دارای بدهی</label>
       </div>
-      {col.loading ? <Skeleton className="h-64 rounded-2xl" /> : col.error ? <ErrorState message={col.error} onRetry={() => col.reload()} /> : rows.length === 0 ? (
-        <EmptyState emoji="🏷️" title={col.items.length ? "موردی پیدا نشد" : "هنوز تأمین‌کننده‌ای ثبت نشده"} description="هنگام ثبت «خرید نسیه» در گردش انبار هم می‌توانید فروشنده را ثبت کنید." action={!col.items.length && <Button onClick={() => open("new")}>ثبت اولین تأمین‌کننده</Button>} />
+      <IconText>{col.loading ? <Skeleton className="h-64 rounded-2xl" /> : col.error ? <ErrorState message={col.error} onRetry={() => col.reload()} /> : rows.length === 0 ? (
+        <EmptyState emoji="" title={col.items.length ? "موردی پیدا نشد" : "هنوز تأمین‌کننده‌ای ثبت نشده"} description="هنگام ثبت «خرید نسیه» در گردش انبار هم می‌توانید فروشنده را ثبت کنید." action={!col.items.length && <Button onClick={() => open("new")}>ثبت اولین تأمین‌کننده</Button>} />
       ) : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
@@ -79,7 +79,7 @@ export default function Suppliers() {
                 <td className="p-3 text-end"><b className={cn("tabular-nums", s.balance > 0 ? "text-rose-600" : "text-stone-400")}>{formatNumber(s.balance)}</b>{s.balance < 0 && <Badge color="blue" className="ms-1">بستانکار</Badge>}</td>
                 <td className="no-print p-2"><div className="flex justify-end gap-1">
                   <Button size="sm" variant="secondary" onClick={() => openStmt(s)}>صورت‌حساب</Button>
-                  {canPay && s.balance > 0 && <Button size="sm" onClick={() => { setPay(s); setPayForm({ amount: String(s.balance), from: "cash", date: new Date().toISOString(), note: "" }); }}>💸 پرداخت</Button>}
+                  {canPay && s.balance > 0 && <Button size="sm" onClick={() => { setPay(s); setPayForm({ amount: String(s.balance), from: "cash", date: new Date().toISOString(), note: "" }); }}>{<EmojiIcon emoji="" />} پرداخت</Button>}
                   <IconButton icon="edit" label="ویرایش" onClick={() => open(s)} />
                   <IconButton icon="trash" label="حذف" className="hover:text-rose-600" onClick={() => setDel(s)} />
                 </div></td>
@@ -88,7 +88,7 @@ export default function Suppliers() {
             <tfoot><tr className="border-t bg-stone-50 font-extrabold"><td colSpan={4} className="p-3">جمع کل بدهی</td><td className="p-3 text-end">{formatNumber(totalDebt)}</td><td /></tr></tfoot>
           </table>
         </Card>
-      )}
+      )}</IconText>
 
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit === "new" ? "تأمین‌کننده جدید" : "ویرایش تأمین‌کننده"} size="lg" footer={<><Button variant="ghost" onClick={() => setEdit(null)}>انصراف</Button><Button onClick={save}>ذخیره</Button></>}>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -102,16 +102,16 @@ export default function Suppliers() {
         </div>
       </Modal>
 
-      <Modal open={!!stmt} onClose={() => setStmt(null)} title={stmt ? `صورت‌حساب: ${stmt.s.name}` : ""} size="lg" footer={stmt && <>{canPay && stmt.s.balance > 0 && <Button onClick={() => { setPay(stmt.s); setPayForm({ amount: String(stmt.s.balance), from: "cash", date: new Date().toISOString(), note: "" }); setStmt(null); }}>💸 پرداخت بدهی</Button>}<Button variant="secondary" onClick={() => window.print()}>🖨️ چاپ</Button></>}>
-        {stmt && (
+      <Modal open={!!stmt} onClose={() => setStmt(null)} title={stmt ? `صورت‌حساب: ${stmt.s.name}` : ""} size="lg" footer={stmt && <><IconText>{canPay && stmt.s.balance > 0 && <Button onClick={() => { setPay(stmt.s); setPayForm({ amount: String(stmt.s.balance), from: "cash", date: new Date().toISOString(), note: "" }); setStmt(null); }}>{<EmojiIcon emoji="" />} پرداخت بدهی</Button>}</IconText><Button variant="secondary" onClick={() => window.print()}><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ</Button></>}>
+        <IconText>{stmt && (
           <div className="space-y-3">
-            <div className="flex flex-wrap gap-4 rounded-xl bg-stone-50 p-3 text-sm"><span>خرید نسیه: <b>{formatNumber(stmt.s.purchased)}</b></span><span>پرداخت‌شده: <b className="text-emerald-700">{formatNumber(stmt.s.paid)}</b></span><span>مانده بدهی: <b className="text-rose-600">{formatNumber(stmt.s.balance)}</b></span>{stmt.s.phone && <span dir="ltr">📞 {stmt.s.phone}</span>}</div>
+            <div className="flex flex-wrap gap-4 rounded-xl bg-stone-50 p-3 text-sm"><span>خرید نسیه: <b>{formatNumber(stmt.s.purchased)}</b></span><span>پرداخت‌شده: <b className="text-emerald-700">{formatNumber(stmt.s.paid)}</b></span><span>مانده بدهی: <b className="text-rose-600">{formatNumber(stmt.s.balance)}</b></span>{stmt.s.phone && <span dir="ltr">{<EmojiIcon emoji="" />} {stmt.s.phone}</span>}</div>
             {stmt.lines.length === 0 ? <p className="py-8 text-center text-sm text-stone-400">هنوز گردشی ثبت نشده</p> : (
               <div className="overflow-x-auto rounded-xl ring-1 ring-stone-200"><table className="w-full min-w-[560px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-2.5 text-start">تاریخ</th><th className="p-2.5 text-start">سند</th><th className="p-2.5 text-start">شرح</th><th className="p-2.5 text-end">پرداخت (بد)</th><th className="p-2.5 text-end">خرید (بس)</th><th className="p-2.5 text-end">مانده</th></tr></thead>
                 <tbody className="divide-y divide-stone-100">{stmt.lines.map((l) => <tr key={l.id}><td className="whitespace-nowrap p-2.5 text-xs">{fmtJ(l.date)}</td><td className="p-2.5"><a className="font-bold text-brand-600" href={`/print/doc/${l.docId}`} target="_blank">{toFa(l.number)}</a></td><td className="max-w-64 truncate p-2.5 text-xs text-stone-600" title={l.description}>{l.description}</td><td className="p-2.5 text-end tabular-nums">{l.debit ? formatNumber(l.debit) : "—"}</td><td className="p-2.5 text-end tabular-nums">{l.credit ? formatNumber(l.credit) : "—"}</td><td className="p-2.5 text-end font-bold tabular-nums">{formatNumber(l.balance)}</td></tr>)}</tbody></table></div>
             )}
           </div>
-        )}
+        )}</IconText>
       </Modal>
 
       <Modal open={!!pay} onClose={() => setPay(null)} title={pay ? `پرداخت بدهی به ${pay.name}` : ""} size="sm" footer={<><Button variant="ghost" onClick={() => setPay(null)}>انصراف</Button><Button onClick={doPay} disabled={!payForm.amount}>ثبت پرداخت و صدور سند</Button></>}>

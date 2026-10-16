@@ -31,6 +31,7 @@ export const MODULE_ONLY: Record<string, string[]> = {
   waiter: [...M, "waiter", "cashier"], cashier: [...M, "cashier"],
   kiosk: M, suppliers: [...M, "warehouse", "accountant"],
   staff: M, discounts: M, cashback: M, "cross-sell": M, zones: M, printers: M, plan: M, devices: M, surveys: M, sms: M, bale: M,
+  reservations: M,
   translations: M, ar: M, ai: M, domain: M, "mini-site": M, payments: M, products: M, categories: M, settings: M,
 };
 

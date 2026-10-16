@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 
 import Suppliers from "@/modules/suppliers";
 import Kiosk from "@/modules/kiosk";
+import Reservations from "@/modules/reservations";
 
 const Cashier = () => <Waiter mode="cashier" />;
 
@@ -32,6 +33,7 @@ const MODULES: Record<string, { feature?: string | string[]; C: ComponentType }>
   customers: { feature: "loyalty", C: Customers },
   cashback: { feature: "cashback", C: Cashback },
   discounts: { feature: "discount", C: Discounts },
+  reservations: { feature: "reservations", C: Reservations },
   surveys: { feature: "surveys", C: Surveys },
   "cross-sell": { feature: "cross_sell", C: CrossSell },
   sms: { feature: "sms", C: SmsPanel },

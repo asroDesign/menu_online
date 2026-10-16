@@ -1,0 +1,38 @@
+name: Windows hardware bridge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "windows-bridge/**"
+      - ".github/workflows/windows-bridge.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows-bridge/src-tauri -> target
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build NSIS installer
+        working-directory: windows-bridge/src-tauri
+        run: cargo tauri build --bundles nsis
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: digital-menu-bridge-windows-x64
+          path: windows-bridge/src-tauri/target/**/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30

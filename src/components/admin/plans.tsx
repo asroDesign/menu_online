@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { FEATURES, GROUPS, resolveFeatures, type Level } from "@/lib/plans";
-import { Button, Card, Field, Input, Skeleton, cn, useToast } from "@/components/ui";
+import { Button, Card, Field, Input, Skeleton, cn, useToast, iconGlyph, EmojiIcon} from "@/components/ui";
 import { useGet } from "@/components/admin/common";
 
 const toEn = (s: string) => Number(s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "")) || 0;
@@ -43,7 +43,7 @@ export function PlansTab() {
           <thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">امکان</th>{data.plans.map((p) => <th key={p.key} className="w-40 p-3 text-center">{p.name}</th>)}</tr></thead>
           <tbody>{Object.entries(GROUPS).map(([g, meta]) => (
             <Fragment key={g}>
-              <tr className="bg-stone-50/70"><td colSpan={4} className="p-2.5 text-xs font-extrabold">{meta.emoji} {meta.title}</td></tr>
+              <tr className="bg-stone-50/70"><td colSpan={4} className="p-2.5 text-xs font-extrabold">{<EmojiIcon emoji={meta.emoji} /> } {meta.title}</td></tr>
               {FEATURES.filter((f) => f.group === g).map((f) => (
                 <tr key={f.key} className="border-t border-stone-100"><td className="p-3">{f.label}</td>
                   {data.plans.map((p, i) => { const changed = data.overrides[p.key]?.[f.key] !== undefined && data.overrides[p.key][f.key] !== f.levels[i]; return (

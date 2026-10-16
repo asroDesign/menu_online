@@ -3,10 +3,10 @@ import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   suppliers, campaigns, categories, customers, inventoryItems, orderItems, orders, payments, products, recipes,
-  stockMovements, ticketMessages, tickets, transactions, translations, walletEntries, bankAccounts, crossSellRules,
+  stockMovements, stockReceipts, ticketMessages, tickets, transactions, translations, walletEntries, bankAccounts, crossSellRules,
 } from "@/db/schema";
 import { HttpError, readJson, withAuth, can, type AuthContext } from "@/lib/auth";
-import { postInventoryMovement } from "@/lib/accounting";
+import { saveStockReceipt } from "@/lib/stock-receipts";
 import { TICKET_DEPTS } from "@/lib/admin-meta";
 import { smsRegistry } from "@/lib/registry-sms";
 import { addWalletEntry, normPhone, settingsOf } from "@/lib/orders";
@@ -18,34 +18,10 @@ const since = (days: number) => new Date(Date.now() - days * 86400_000);
 const J = (data: unknown, status = 200) => Response.json(data, { status });
 const strOf = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 
-async function applyMovement(biz: AuthContext["business"], itemId: number, type: string, quantity: number, note: string, opts: { unitCost?: number; payFrom?: string; supplierId?: number; invoiceNo?: string } = {}) {
-  const bizId = biz.id;
-  const [item] = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, itemId), eq(inventoryItems.businessId, bizId)));
-  if (!item) throw new HttpError(404, "ماده اولیه پیدا نشد");
-  if (!Number.isFinite(quantity) || quantity < 0) throw new HttpError(400, "مقدار نامعتبر است");
-  const delta = type === "in" ? quantity : type === "adjust" ? quantity - item.stock : -quantity;
-  if (delta === 0) throw new HttpError(400, "تغییری برای ثبت وجود ندارد");
-  let supplier: typeof suppliers.$inferSelect | undefined;
-  if (type === "in" && opts.supplierId) {
-    [supplier] = await db.select().from(suppliers).where(and(eq(suppliers.id, opts.supplierId), eq(suppliers.businessId, bizId)));
-    if (!supplier) throw new HttpError(400, "تأمین‌کننده نامعتبر است");
-  }
-  if (type === "in" && opts.payFrom === "payable" && !supplier) throw new HttpError(400, "برای خرید نسیه، تأمین‌کننده را انتخاب یا ثبت کنید");
-  let unitCost = item.costPerUnit;
-  const set: Record<string, unknown> = { stock: sql`${inventoryItems.stock} + ${delta}` };
-  if (type === "in" && opts.unitCost && opts.unitCost > 0) {
-    unitCost = Math.round(opts.unitCost);
-    const base = Math.max(0, item.stock);
-    set.costPerUnit = base + quantity > 0 ? Math.round((base * item.costPerUnit + quantity * unitCost) / (base + quantity)) : unitCost; // weighted average cost
-  }
-  const [upd] = await db.update(inventoryItems).set(set).where(eq(inventoryItems.id, itemId)).returning({ stock: inventoryItems.stock });
-  const [row] = await db.insert(stockMovements).values({ businessId: bizId, itemId, type, delta, balanceAfter: upd.stock, note, supplierId: supplier?.id ?? null, unitCost: type === "in" ? unitCost : 0, invoiceNo: (opts.invoiceNo ?? "").slice(0, 40) }).returning();
-  try {
-    await postInventoryMovement(biz, { id: row.id, type, delta, amount: Math.round(Math.abs(delta) * unitCost), note: `${item.name}${supplier ? ` — ${supplier.name}` : ""}${opts.invoiceNo ? ` — فاکتور ${opts.invoiceNo}` : ""}${note ? ` — ${note}` : ""}`, payFrom: opts.payFrom, supplierAccountId: supplier?.accountId ?? undefined });
-  } catch (e) { console.error("accounting post failed", e); }
-  return row;
+async function applyMovement(biz: AuthContext["business"], itemId: number, type: string, quantity: number, note: string) {
+  const result = await saveStockReceipt(biz, { itemId, type, quantity, note });
+  return result.items[0];
 }
-
 function messaging(channel: "sms" | "bale") {
   return {
     list: withAuth(
@@ -192,25 +168,26 @@ const stock = {
   list: withAuth(
     async (_req, { business }) => {
       const rows = await db
-        .select({ m: stockMovements, itemName: inventoryItems.name, unit: inventoryItems.unit, supplierName: suppliers.name })
+        .select({ m: stockMovements, itemName: inventoryItems.name, unit: inventoryItems.unit, supplierName: suppliers.name, documentId: stockReceipts.documentId, receiptTotal: stockReceipts.total })
         .from(stockMovements)
         .innerJoin(inventoryItems, eq(inventoryItems.id, stockMovements.itemId))
         .leftJoin(suppliers, eq(suppliers.id, stockMovements.supplierId))
+        .leftJoin(stockReceipts, eq(stockReceipts.id, stockMovements.receiptId))
         .where(eq(stockMovements.businessId, business.id))
         .orderBy(desc(stockMovements.id))
         .limit(300);
-      return J({ items: rows.map((r) => ({ ...r.m, itemName: r.itemName, unit: r.unit, supplierName: r.supplierName })) });
+      return J({ items: rows.map((r) => ({ ...r.m, itemName: r.itemName, unit: r.unit, supplierName: r.supplierName, documentId: r.documentId, receiptTotal: r.receiptTotal })) });
     },
     { feature: "stock_movements" },
   ),
   create: withAuth(
-    async (req, { business }) => {
+    async (req, auth) => {
       const b = await readJson(req);
-      const type = ["in", "out", "waste", "adjust"].includes(String(b.type)) ? String(b.type) : "in";
-      const row = await applyMovement(business, Number(b.itemId), type, Number(b.quantity), strOf(b.note, 200), { unitCost: Number(b.unitCost) || 0, payFrom: ["cash", "bank", "payable"].includes(String(b.payFrom)) ? String(b.payFrom) : "cash", supplierId: Number(b.supplierId) || undefined, invoiceNo: strOf(b.invoiceNo, 40) });
-      return J({ item: row }, 201);
+      if (Array.isArray(b.lines) && b.lines.some((l: { newItem?: unknown }) => l?.newItem) && !can(auth, "inventory")) throw new HttpError(403, "دسترسی تعریف کالای جدید ندارید");
+      const result = await saveStockReceipt(auth.business, b, auth.user.name);
+      return J({ item: result.items[0], ...result }, result.replay ? 200 : 201);
     },
-    { feature: "stock_movements" },
+    { feature: "stock_movements", manager: true, roles: ["warehouse", "accountant"] },
   ),
 };
 

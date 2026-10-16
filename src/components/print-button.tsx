@@ -1,5 +1,5 @@
 "use client";
-import { Button } from "@/components/ui";
+import { Button , EmojiIcon, IconText} from "@/components/ui";
 export function PrintButton() {
-  return <Button onClick={() => window.print()}>🖨️ چاپ روکش سند</Button>;
+  return <Button onClick={() => window.print()}><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ روکش سند</Button>;
 }

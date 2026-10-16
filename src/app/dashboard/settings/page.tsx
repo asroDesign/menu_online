@@ -1,35 +1,57 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
+import { useFeatures } from "@/components/features";
+import Link from "next/link";
+import type { Settings } from "@/lib/plans";
 import { toFa } from "@/lib/format";
 import { MapPicker } from "@/components/map-picker";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
-import { Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast } from "@/components/ui";
+import { Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 type Biz = {
   name: string; slug: string; type: string; description: string; phone: string; address: string; instagram: string;
   accentColor: string; logoEmoji: string; lat: number | null; lng: number | null; taxPercent: number; servicePercent: number; acceptOrders: boolean;
+  settings: Settings;
 };
 
+type Category = { id: number; name: string; isActive: boolean };
+const WEEK = [
+  { day: 6, label: "شنبه" }, { day: 0, label: "یکشنبه" }, { day: 1, label: "دوشنبه" },
+  { day: 2, label: "سه‌شنبه" }, { day: 3, label: "چهارشنبه" }, { day: 4, label: "پنجشنبه" }, { day: 5, label: "جمعه" },
+];
+const DEFAULT_HOURS = WEEK.map(({ day }) => ({ day, open: true, start: "09:00", end: "22:00" }));
+const DEFAULT_MENUS = [
+  { id: "breakfast", name: "صبحانه", enabled: false, start: "07:00", end: "11:00", days: [], categoryIds: [] },
+  { id: "lunch", name: "ناهار", enabled: false, start: "11:00", end: "16:00", days: [], categoryIds: [] },
+  { id: "dinner", name: "شام", enabled: false, start: "16:00", end: "23:00", days: [], categoryIds: [] },
+];
+const subscribeNoop = () => () => {};
+const getOrigin = () => window.location.origin;
+const getServerOrigin = () => "";
+
 const COLORS = ["#f97316", "#ef4444", "#e11d48", "#8b5cf6", "#3b82f6", "#0d9488", "#16a34a", "#44403c"];
-const LOGOS = ["☕", "🍕", "🍔", "🌸", "🍰", "🥗", "🍣", "🍽️", "🧁", "🥐"];
+const LOGOS = ["", "", "", "", "", "", "", "", "", ""];
 const TYPES: Record<string, string> = { cafe: "کافه", restaurant: "رستوران", fastfood: "فست‌فود", bakery: "نان و شیرینی", shop: "فروشگاه / کاتالوگ" };
 
 export default function SettingsPage() {
+  const features = useFeatures();
   const toast = useToast();
   const [biz, setBiz] = useState<Biz | null>(null);
   const [saved, setSaved] = useState<Biz | null>(null);
   const [saving, setSaving] = useState(false);
-  const [origin, setOrigin] = useState("");
+  const origin = useSyncExternalStore(subscribeNoop, getOrigin, getServerOrigin);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   useEffect(() => {
-    setOrigin(location.origin);  
     api<{ item: Biz }>("/api/business").then((r) => {
-      setBiz(r.item);
-      setSaved(r.item);
+      const item = { ...r.item, settings: r.item.settings ?? {} };
+      setBiz(item);
+      setSaved(item);
     });
+    api<{ items: Category[] }>("/api/categories").then((r) => setCategories(r.items)).catch(() => {});
   }, []);
 
   if (!biz || !saved)
@@ -42,6 +64,12 @@ export default function SettingsPage() {
     );
 
   const set = <K extends keyof Biz>(k: K, v: Biz[K]) => setBiz({ ...biz, [k]: v });
+  const setSettings = (patch: Partial<Settings>) => setBiz({ ...biz, settings: { ...biz.settings, ...patch } });
+  const hours = biz.settings.operatingHours ?? { enabled: false, days: DEFAULT_HOURS };
+  const hourDays = hours.days?.length ? hours.days : DEFAULT_HOURS;
+  const menus = biz.settings.scheduledMenus?.length ? biz.settings.scheduledMenus : DEFAULT_MENUS;
+  const reservation = { enabled: true, requireDeposit: false, depositPerGuest: 0, durationMinutes: 90, ...biz.settings.reservations };
+  const cardTransfer = { enabled: false, cardNumber: "", accountHolder: "", bankName: "", instructions: "", ...biz.settings.cardTransfer };
   const dirty = JSON.stringify(biz) !== JSON.stringify(saved);
   const url = `${origin}/m/${biz.slug}`;
 
@@ -83,6 +111,49 @@ export default function SettingsPage() {
           </Card>
 
           <Card className="p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="font-bold">ساعت کاری</h2><p className="mt-1 text-xs leading-6 text-stone-500">سفارش آنلاین فقط در این بازه پذیرفته می‌شود؛ پیش‌سفارش برای زمان باز بودن هم بررسی خواهد شد.</p></div>
+              <Switch checked={!!hours.enabled} onChange={(enabled) => setSettings({ operatingHours: { enabled, days: hourDays } })} label="اعمال ساعت کاری" />
+            </div>
+            {hours.enabled && <div className="space-y-2">
+              {WEEK.map(({ day, label }) => {
+                const row = hourDays.find((x) => x.day === day) ?? { day, open: false, start: "09:00", end: "22:00" };
+                return <div key={day} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 rounded-xl bg-stone-50 p-2.5 text-sm">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={row.open} onChange={(e) => setSettings({ operatingHours: { ...hours, days: hourDays.map((x) => x.day === day ? { ...x, open: e.target.checked } : x) } })} /><span className="font-semibold">{label}</span></label>
+                  <Input type="time" aria-label={`شروع ${label}`} disabled={!row.open} className="h-9 w-28 px-2" value={row.start} onChange={(e) => setSettings({ operatingHours: { ...hours, days: hourDays.map((x) => x.day === day ? { ...x, start: e.target.value } : x) } })} />
+                  <span className="text-xs text-stone-400">تا</span>
+                  <Input type="time" aria-label={`پایان ${label}`} disabled={!row.open} className="h-9 w-28 px-2" value={row.end} onChange={(e) => setSettings({ operatingHours: { ...hours, days: hourDays.map((x) => x.day === day ? { ...x, end: e.target.value } : x) } })} />
+                </div>;
+              })}
+              <p className="text-[11px] leading-5 text-stone-400">منطقه زمانی محاسبه: تهران. برای ساعت کاری شبانه، ساعت پایان را قبل از شروع وارد کنید.</p>
+            </div>}
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-4"><h2 className="font-bold">منوهای زمان‌دار</h2><p className="mt-1 text-xs leading-6 text-stone-500">دسته‌های انتخاب‌شده فقط در ساعت منوی مربوط نمایش داده می‌شوند؛ دسته‌های بدون زمان‌بندی همیشه در منو می‌مانند.</p></div>
+            <div className="space-y-4">
+              {menus.map((menu, index) => <section key={menu.id} className="space-y-3 rounded-2xl bg-stone-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-bold">{menu.name}</h3><p className="text-[11px] text-stone-500">بازه‌ی نمایش منو</p></div><Switch checked={menu.enabled} onChange={(enabled) => setSettings({ scheduledMenus: menus.map((m, i) => i === index ? { ...m, enabled } : m) })} label={`فعال‌سازی ${menu.name}`} /></div>
+                <div className="grid gap-3 sm:grid-cols-2"><Field label="از"><Input type="time" value={menu.start} onChange={(e) => setSettings({ scheduledMenus: menus.map((m, i) => i === index ? { ...m, start: e.target.value } : m) })} /></Field><Field label="تا"><Input type="time" value={menu.end} onChange={(e) => setSettings({ scheduledMenus: menus.map((m, i) => i === index ? { ...m, end: e.target.value } : m) })} /></Field></div>
+                {categories.length === 0 ? <p className="text-xs text-stone-500">برای زمان‌بندی، ابتدا دسته‌بندی منو بسازید.</p> : <div className="flex flex-wrap gap-2">{categories.filter((c) => c.isActive).map((category) => {
+                  const checked = menu.categoryIds.includes(category.id);
+                  return <label key={category.id} className={cn("flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs ring-1", checked ? "bg-brand-50 text-brand-800 ring-brand-300" : "bg-white ring-stone-200")}><input type="checkbox" checked={checked} onChange={() => setSettings({ scheduledMenus: menus.map((m, i) => i === index ? { ...m, categoryIds: checked ? m.categoryIds.filter((id) => id !== category.id) : [...m.categoryIds, category.id] } : m) })} />{category.name}</label>;
+                })}</div>}
+              </section>)}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold">رزرو میز</h2><p className="mt-1 text-xs leading-6 text-stone-500">ماژول رزرو در پلن پایه فعال نیست و به‌صورت مستقل در تعرفه‌ها ارائه می‌شود.</p></div>{!features.has("reservations") && <Link href="/dashboard/plan?locked=reservations" className="text-xs font-bold text-brand-700 underline">مشاهده تعرفه‌ها</Link>}</div>
+            {features.has("reservations") ? <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">پذیرش رزرو آنلاین</p><p className="text-xs text-stone-500">پیوند رزرو در منوی مشتری نمایش داده می‌شود.</p></div><Switch checked={reservation.enabled} onChange={(enabled) => setSettings({ reservations: { ...reservation, enabled } })} label="رزرو میز" /></div>
+              <div className="flex items-center justify-between gap-4 rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">دریافت پیش‌پرداخت</p><p className="text-xs text-stone-500">در صورت فعال‌بودن، رزرو تا ثبت دریافت مبلغ در انتظار می‌ماند.</p></div><Switch checked={reservation.requireDeposit} disabled={!reservation.enabled} onChange={(requireDeposit) => setSettings({ reservations: { ...reservation, requireDeposit } })} label="پیش‌پرداخت رزرو" /></div>
+              {reservation.requireDeposit && <Field label="پیش‌پرداخت به‌ازای هر نفر (تومان)"><Input inputMode="numeric" value={String(reservation.depositPerGuest)} onChange={(e) => setSettings({ reservations: { ...reservation, depositPerGuest: Number(e.target.value.replace(/\D/g, "")) || 0 } })} /></Field>}
+              <Field label="مدت هر رزرو (دقیقه)" hint="برای محاسبه‌ی ظرفیت میزها استفاده می‌شود."><Input inputMode="numeric" value={String(reservation.durationMinutes)} onChange={(e) => setSettings({ reservations: { ...reservation, durationMinutes: Number(e.target.value.replace(/\D/g, "")) || 90 } })} /></Field>
+            </div> : <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-800">دسترسی این ماژول را مدیر سامانه از تنظیم تعرفه‌ها فعال می‌کند.</p>}
+          </Card>
+
+          <Card className="p-5">
             <h2 className="mb-4 font-bold">ظاهر منوی دیجیتال</h2>
             <div className="space-y-5">
               <div>
@@ -94,7 +165,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <span className="mb-2 block text-xs font-semibold text-stone-600">لوگو (ایموجی)</span>
+                <span className="mb-2 block text-xs font-semibold text-stone-600">لوگو (آیکن)</span>
                 <div className="flex flex-wrap gap-2">
                   {LOGOS.map((e) => (
                     <button key={e} type="button" onClick={() => set("logoEmoji", e)} className={cn("flex size-11 items-center justify-center rounded-xl text-2xl transition", biz.logoEmoji === e ? "bg-brand-100 ring-2 ring-brand-400" : "bg-stone-100 hover:bg-stone-200")}>{e}</button>
@@ -119,8 +190,21 @@ export default function SettingsPage() {
             </div>
           </Card>
 
+          <Card className="space-y-4 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="font-bold">پرداخت کارت‌به‌کارت</h2><p className="mt-1 text-xs leading-6 text-stone-500">اطلاعات کارت پس از ثبت سفارش به مشتری نمایش داده می‌شود؛ سفارش تا تأیید دریافت وجه در پنل در انتظار پرداخت می‌ماند.</p></div>
+              <Switch checked={cardTransfer.enabled} onChange={(enabled) => setSettings({ cardTransfer: { ...cardTransfer, enabled } })} label="فعال‌سازی کارت‌به‌کارت" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="شماره کارت ۱۶ رقمی"><Input inputMode="numeric" dir="ltr" className="text-left" value={cardTransfer.cardNumber} onChange={(e) => setSettings({ cardTransfer: { ...cardTransfer, cardNumber: e.target.value } })} placeholder="0000 0000 0000 0000" /></Field>
+              <Field label="نام صاحب کارت"><Input value={cardTransfer.accountHolder} onChange={(e) => setSettings({ cardTransfer: { ...cardTransfer, accountHolder: e.target.value } })} placeholder="نام و نام خانوادگی" /></Field>
+              <Field label="نام بانک (اختیاری)"><Input value={cardTransfer.bankName} onChange={(e) => setSettings({ cardTransfer: { ...cardTransfer, bankName: e.target.value } })} placeholder="مثلاً ملت" /></Field>
+              <Field label="توضیح برای مشتری (اختیاری)"><Input value={cardTransfer.instructions} onChange={(e) => setSettings({ cardTransfer: { ...cardTransfer, instructions: e.target.value } })} placeholder="شماره سفارش را در توضیحات انتقال بنویسید" /></Field>
+            </div>
+          </Card>
+
           <Card className="p-5">
-            <div className="mb-3 flex items-start justify-between gap-3"><div><h2 className="font-bold">📍 موقعیت رستوران روی نقشه</h2><p className="mt-1 text-xs leading-6 text-stone-500">برای محاسبه‌ی فاصله و تعیین خودکار محدوده‌ی ارسال دلیوری لازم است.</p></div>{biz.lat != null && <Button size="sm" variant="ghost" onClick={() => setBiz({ ...biz, lat: null, lng: null })}>حذف</Button>}</div>
+            <div className="mb-3 flex items-start justify-between gap-3"><div><h2 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> موقعیت رستوران روی نقشه</h2><p className="mt-1 text-xs leading-6 text-stone-500">برای محاسبه‌ی فاصله و تعیین خودکار محدوده‌ی ارسال دلیوری لازم است.</p></div>{biz.lat != null && <Button size="sm" variant="ghost" onClick={() => setBiz({ ...biz, lat: null, lng: null })}>حذف</Button>}</div>
             <MapPicker height={300} value={biz.lat != null && biz.lng != null ? { lat: biz.lat, lng: biz.lng } : null} onChange={(lat, lng) => setBiz((b) => (b ? { ...b, lat, lng } : b))} />
           </Card>
 

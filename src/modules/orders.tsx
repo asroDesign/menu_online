@@ -29,8 +29,7 @@ import {
   Select,
   Skeleton,
   cn,
-  useToast,
-} from "@/components/ui";
+  useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
 import { DELIVERY_STATUS } from "@/lib/admin-meta";
 import { MapPicker } from "@/components/map-picker";
@@ -53,29 +52,32 @@ const stripe: Record<string, string> = {
 };
 
 export default function OrdersPage() {
-  const orders = useCollection<Order>("/api/orders?limit=300", { poll: 8000 });
+  const feat = useFeatures();
+  const [tab, setTab] = useState("active");
+  const archiveActive = tab === "deleted";
+  const orders = useCollection<Order>(archiveActive ? "/api/orders?deleted=true&limit=300" : "/api/orders?limit=300", { poll: 8000 });
   const staff = useCollection<StaffMember>("/api/staff");
   const couriers = useCollection<{ id: number; name: string; status: string; activeCount: number; vehicle: string }>("/api/r/couriers");
   const toast = useToast();
-  const feat = useFeatures();
-  const [tab, setTab] = useState("active");
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<Order | null>(null);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: orders.items.length, active: 0 };
+    const c: Record<string, number> = { all: archiveActive ? 0 : orders.items.length, active: 0, deleted: archiveActive ? orders.items.length : 0 };
     for (const o of orders.items) {
       c[o.status] = (c[o.status] ?? 0) + 1;
       if (ACTIVE_STATUSES.includes(o.status)) c.active++;
     }
     return c;
-  }, [orders.items]);
+  }, [orders.items, archiveActive]);
+
+  const tabs = feat.isManager ? [...TABS, { key: "deleted", label: "حذف‌شده‌ها" }] : TABS;
 
   const filtered = useMemo(() => {
     const term = q.trim();
     return orders.items.filter((o) => {
-      if (tab === "active" ? !ACTIVE_STATUSES.includes(o.status) : tab !== "all" && o.status !== tab) return false;
+      if (tab === "deleted" ? !o.deletedAt : tab === "active" ? !ACTIVE_STATUSES.includes(o.status) : tab !== "all" && o.status !== tab) return false;
       if (!term) return true;
       return (
         String(o.number).includes(term.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))) ||
@@ -106,6 +108,17 @@ export default function OrdersPage() {
     }
   }
 
+  async function restore(o: Order) {
+    try {
+      await api(`/api/orders/${o.id}`, { method: "PATCH", body: { restore: true } });
+      setSelectedId(null);
+      orders.reload(true);
+      toast(`سفارش #${toFa(o.number)} بازگردانی شد`);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       <PageHeader
@@ -122,7 +135,7 @@ export default function OrdersPage() {
 
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
@@ -144,6 +157,7 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      <IconText><div className="max-h-[65vh] overflow-y-auto overscroll-contain pe-1 lg:max-h-[calc(100dvh-20rem)]">
       {orders.loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -154,13 +168,9 @@ export default function OrdersPage() {
         <ErrorState message={orders.error} onRetry={() => orders.reload()} />
       ) : filtered.length === 0 ? (
         <EmptyState
-          emoji={orders.items.length === 0 ? "🧾" : "🔍"}
-          title={orders.items.length === 0 ? "هنوز سفارشی ثبت نشده" : "سفارشی با این فیلتر پیدا نشد"}
-          description={
-            orders.items.length === 0
-              ? "با پنل گارسون اولین سفارش را ثبت کنید یا منتظر سفارش مشتریان از طریق QR باشید."
-              : "فیلتر یا عبارت جستجو را تغییر دهید."
-          }
+          icon={archiveActive ? "trash" : "orders"}
+          title={archiveActive ? "سفارشی در بایگانی نیست" : orders.items.length === 0 ? "هنوز سفارشی ثبت نشده" : "سفارشی با این فیلتر پیدا نشد"}
+          description={archiveActive ? "سفارش‌هایی که حذف می‌کنید برای پیگیری و بازگردانی در این بخش می‌مانند." : orders.items.length === 0 ? "با پنل گارسون اولین سفارش را ثبت کنید یا منتظر سفارش مشتریان از طریق QR باشید." : "فیلتر یا عبارت جستجو را تغییر دهید."}
           action={
             orders.items.length === 0 && (
               <Link href="/dashboard/waiter">
@@ -188,23 +198,31 @@ export default function OrdersPage() {
                     <StatusBadge status={o.status} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    <Badge color="brand">{o.type === "takeaway" ? "🛍️ بیرون‌بر" : o.type === "delivery" ? "🛵 ارسال" : `🪑 ${o.tableName ?? "بدون میز"}`}</Badge>
-                    <Badge>{o.source === "customer" ? "📱" : o.source === "kiosk" ? "🖥️" : "🧑‍🍳"} {SOURCES[o.source] ?? o.source}</Badge>
-                    {o.scheduledFor && <Badge color="violet">⏰ پیش‌سفارش {formatTime(o.scheduledFor)}</Badge>}
-                    {o.paymentStatus === "paid" && <Badge color="emerald">💰 پرداخت‌شده</Badge>}
-                    {o.type === "delivery" && o.deliveryStatus !== "none" && <Badge color={DELIVERY_STATUS[o.deliveryStatus]?.[1]}>🛵 {DELIVERY_STATUS[o.deliveryStatus]?.[0]}{o.courierName ? ` · ${o.courierName}` : ""}</Badge>}
-                    {o.type === "delivery" && o.deliveryStatus === "none" && !["paid", "canceled"].includes(o.status) && <Badge color="amber">🛵 پیک تعیین نشده</Badge>}
+                    {o.deletedAt && <Badge color="rose">حذف‌شده</Badge>}
+                    <Badge color="brand">
+                      <Icon name={o.type === "takeaway" ? "cart" : o.type === "delivery" ? "motorcycle" : "table"} className="size-3.5" />
+                      {o.type === "takeaway" ? "بیرون‌بر" : o.type === "delivery" ? "ارسال" : o.tableName ?? "بدون میز"}
+                    </Badge>
+                    <Badge>
+                      <Icon name={o.source === "customer" ? "mobile" : o.source === "kiosk" ? "desktop" : "utensils"} className="size-3.5" />
+                      {SOURCES[o.source] ?? o.source}
+                    </Badge>
+                    {o.scheduledFor && <Badge color="violet">{<EmojiIcon emoji="" />} پیش‌سفارش {formatTime(o.scheduledFor)}</Badge>}
+                    {o.paymentStatus === "paid" && <Badge color="emerald">{<EmojiIcon emoji="" />} پرداخت‌شده</Badge>}
+                    {o.paymentMethod === "card_to_card" && o.paymentStatus !== "paid" && <Badge color="amber"><Icon name="bank" className="size-3.5" />کارت‌به‌کارت · نیازمند بررسی</Badge>}
+                    {o.type === "delivery" && o.deliveryStatus !== "none" && <Badge color={DELIVERY_STATUS[o.deliveryStatus]?.[1]}>{<EmojiIcon emoji="" />} {DELIVERY_STATUS[o.deliveryStatus]?.[0]}{o.courierName ? ` · ${o.courierName}` : ""}</Badge>}
+                    {o.type === "delivery" && o.deliveryStatus === "none" && !["paid", "canceled"].includes(o.status) && <Badge color="amber">{<EmojiIcon emoji="" />} پیک تعیین نشده</Badge>}
                   </div>
                   <ul className="mt-3 flex-1 space-y-1 text-sm text-stone-600">
                     {o.items.slice(0, 3).map((i) => (
                       <li key={i.id} className="flex justify-between gap-2">
-                        <span className="truncate">{i.emoji} {i.name}</span>
+                        <span className="truncate">{<EmojiIcon emoji={i.emoji} /> } {i.name}</span>
                         <span className="shrink-0 text-stone-400">×{toFa(i.quantity)}</span>
                       </li>
                     ))}
                     {o.items.length > 3 && <li className="text-xs text-stone-400">+{toFa(o.items.length - 3)} مورد دیگر</li>}
                   </ul>
-                  {o.note && <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">📝 {o.note}</p>}
+                  {o.note && <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{<EmojiIcon emoji="" />} {o.note}</p>}
                   <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3">
                     <span className="text-xs text-stone-500">{o.waiterName ? `گارسون: ${o.waiterName}` : o.customerName || "—"}</span>
                     <span className="font-extrabold">{formatPrice(o.total)}</span>
@@ -221,7 +239,7 @@ export default function OrdersPage() {
             );
           })}
         </div>
-      )}
+      )}</div></IconText>
 
       {/* Detail modal */}
       <Modal
@@ -231,13 +249,16 @@ export default function OrdersPage() {
         size="md"
         footer={
           selected && (
-            <>
-              <Button variant="ghost" className="me-auto text-rose-600 hover:bg-rose-50" onClick={() => setDeleting(selected)}>
+            selected.deletedAt ? <Button className="me-auto" onClick={() => restore(selected)}>بازگردانی سفارش</Button> : <>
+              {feat.isManager && <Button variant="ghost" className="me-auto text-rose-600 hover:bg-rose-50" onClick={() => setDeleting(selected)}>
                 <Icon name="trash" className="size-4" /> حذف
-              </Button>
-              <a href={`/print/receipt/${selected.id}`} target="_blank"><Button variant="secondary">🖨️ رسید</Button></a>
-              {feat.has("tablet_pos") && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
-                <Button variant="secondary" onClick={() => api("/api/r/posrequests", { method: "POST", body: { orderId: selected.id } }).then(() => toast("مبلغ برای کارتخوان ارسال شد")).catch((e) => toast(e.message, "error"))}>💳 کارتخوان</Button>
+              </Button>}
+              <a href={`/print/receipt/${selected.id}`} target="_blank"><Button variant="secondary"><IconText>{<EmojiIcon emoji="" />}</IconText> رسید</Button></a>
+              <IconText>{feat.has("tablet_pos") && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
+                <Button variant="secondary" onClick={() => api("/api/r/posrequests", { method: "POST", body: { orderId: selected.id } }).then(() => toast("مبلغ برای کارتخوان ارسال شد")).catch((e) => toast(e.message, "error"))}>{<EmojiIcon emoji="" />} کارتخوان</Button>
+              )}</IconText>
+              {selected.paymentMethod === "card_to_card" && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
+                <Button onClick={() => setStatus(selected, "paid")}><Icon name="check" className="size-4" />تأیید دریافت کارت‌به‌کارت</Button>
               )}
               {selected.status !== "canceled" && selected.status !== "paid" && (
                 <Button variant="secondary" onClick={() => setStatus(selected, "canceled")}>
@@ -251,22 +272,24 @@ export default function OrdersPage() {
           )
         }
       >
-        {selected && (
+        <IconText>{selected && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={selected.status} />
+              {selected.deletedAt && <Badge color="rose">حذف‌شده</Badge>}
               <Badge color="brand">{selected.type === "takeaway" ? "بیرون‌بر" : selected.type === "delivery" ? "ارسال" : selected.tableName ?? "بدون میز"}</Badge>
               {selected.paymentStatus === "paid" && <Badge color="emerald">پرداخت‌شده ({selected.paymentMethod})</Badge>}
               <span className="text-xs text-stone-500">
                 {formatDate(selected.createdAt)} · {formatTime(selected.createdAt)}
               </span>
+              {selected.deletedAt && <span className="w-full rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">حذف‌شده در {formatDate(selected.deletedAt)}، ساعت {formatTime(selected.deletedAt)}{selected.deletedBy ? ` توسط ${selected.deletedBy}` : ""}</span>}
             </div>
 
             <div className="overflow-hidden rounded-xl ring-1 ring-stone-200">
               {selected.items.map((i) => (
                 <div key={i.id} className="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-3 text-sm last:border-0">
                   <span className="min-w-0 truncate">
-                    {i.emoji} {i.name} <span className="text-stone-400">×{toFa(i.quantity)}</span>
+                    {<EmojiIcon emoji={i.emoji} /> } {i.name} <span className="text-stone-400">×{toFa(i.quantity)}</span>
                   </span>
                   <span className="shrink-0 font-semibold">{formatPrice(i.price * i.quantity)}</span>
                 </div>
@@ -285,17 +308,17 @@ export default function OrdersPage() {
               </div>
             </div>
 
-            {selected.note && <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">📝 {selected.note}</p>}
-            {selected.address && <p className="rounded-xl bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">📍 {selected.address}{selected.customerPhone && <span className="mt-1 block text-xs" dir="ltr" style={{ textAlign: "start" }}>{selected.customerPhone}</span>}{selected.courierName && <span className="mt-1 block text-xs">🛵 پیک: {selected.courierName}</span>}</p>}
-            {selected.lat != null && selected.lng != null && <div className="space-y-2"><MapPicker readOnly height={190} value={{ lat: selected.lat, lng: selected.lng }} /><a className="inline-flex items-center gap-1 text-xs font-bold text-brand-600" target="_blank" href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`}>🧭 مسیریابی تا مقصد</a></div>}
-            {selected.type === "delivery" && selected.status !== "canceled" && (
+            {selected.note && <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">{<EmojiIcon emoji="" />} {selected.note}</p>}
+            {selected.address && <p className="rounded-xl bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">{<EmojiIcon emoji="" />} {selected.address}{selected.customerPhone && <span className="mt-1 block text-xs" dir="ltr" style={{ textAlign: "start" }}>{selected.customerPhone}</span>}{selected.courierName && <span className="mt-1 block text-xs">{<EmojiIcon emoji="" />} پیک: {selected.courierName}</span>}</p>}
+            {selected.lat != null && selected.lng != null && <div className="space-y-2"><MapPicker readOnly height={190} value={{ lat: selected.lat, lng: selected.lng }} /><a className="inline-flex items-center gap-1 text-xs font-bold text-brand-600" target="_blank" href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`}>{<EmojiIcon emoji="" />} مسیریابی تا مقصد</a></div>}
+            {!selected.deletedAt && selected.type === "delivery" && selected.status !== "canceled" && (
               <div className="space-y-3 rounded-2xl bg-sky-50/70 p-4 ring-1 ring-sky-200">
-                <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-extrabold">🛵 ارسال با پیک</p><Badge color={DELIVERY_STATUS[selected.deliveryStatus]?.[1]}>{DELIVERY_STATUS[selected.deliveryStatus]?.[0]}</Badge></div>
+                <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-extrabold">{<EmojiIcon emoji="" />} ارسال با پیک</p><Badge color={DELIVERY_STATUS[selected.deliveryStatus]?.[1]}>{DELIVERY_STATUS[selected.deliveryStatus]?.[0]}</Badge></div>
                 {(selected.deliveryStatus === "not_home" || selected.deliveryStatus === "failed") && <p className="rounded-xl bg-rose-100 p-3 text-sm font-semibold text-rose-800">{selected.deliveryStatus === "not_home" ? "پیک گزارش داد مشتری در محل حاضر نبود." : "پیک گزارش داد سفارش تحویل داده نشد."}{selected.courierNote && <span className="mt-1 block font-normal">«{selected.courierNote}»</span>} می‌توانید سفارش را به پیک دیگری بسپارید یا لغو کنید.</p>}
                 {selected.deliveryStatus === "delivered" ? (
-                  <p className="text-sm text-emerald-800">✅ تحویل توسط <b>{selected.courierName}</b>{selected.deliveryFinishedAt && ` در ساعت ${formatTime(selected.deliveryFinishedAt)}`}.</p>
+                  <p className="text-sm text-emerald-800">{<EmojiIcon emoji="" />} تحویل توسط <b>{selected.courierName}</b>{selected.deliveryFinishedAt && ` در ساعت ${formatTime(selected.deliveryFinishedAt)}`}.</p>
                 ) : selected.deliveryStatus === "picked_up" ? (
-                  <p className="text-sm text-amber-800">🛵 سفارش در دست <b>{selected.courierName}</b> و در مسیر مشتری است.</p>
+                  <p className="text-sm text-amber-800">{<EmojiIcon emoji="" />} سفارش در دست <b>{selected.courierName}</b> و در مسیر مشتری است.</p>
                 ) : !feat.has("courier") ? <p className="text-xs text-stone-500">قابلیت مدیریت پیک در پلن شما فعال نیست.</p> : couriers.items.length === 0 ? (
                   <p className="text-sm text-stone-600">هنوز پیکی تعریف نشده است. <Link href="/dashboard/couriers" className="font-bold text-brand-600 underline">افزودن پیک</Link></p>
                 ) : (
@@ -308,10 +331,10 @@ export default function OrdersPage() {
                 {selected.deliveryStatus === "assigned" && selected.status !== "ready" && selected.status !== "served" && <p className="text-xs text-stone-500">پیک می‌تواند پس از «آماده سرو» شدن سفارش، آن را تحویل بگیرد.</p>}
               </div>
             )}
-            {selected.scheduledFor && <p className="rounded-xl bg-violet-50 px-3.5 py-2.5 text-sm text-violet-900">⏰ پیش‌سفارش برای {formatDate(selected.scheduledFor)} ساعت {formatTime(selected.scheduledFor)}</p>}
+            {selected.scheduledFor && <p className="rounded-xl bg-violet-50 px-3.5 py-2.5 text-sm text-violet-900">{<EmojiIcon emoji="" />} پیش‌سفارش برای {formatDate(selected.scheduledFor)} ساعت {formatTime(selected.scheduledFor)}</p>}
             {selected.customerName && <p className="text-sm text-stone-600">مشتری: <b>{selected.customerName}</b></p>}
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            {!selected.deletedAt && <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-stone-600">گارسون</span>
                 <Select
@@ -336,15 +359,15 @@ export default function OrdersPage() {
                   ))}
                 </Select>
               </label>
-            </div>
+            </div>}
           </div>
-        )}
+        )}</IconText>
       </Modal>
 
       <ConfirmDialog
         open={!!deleting}
         title="حذف سفارش"
-        message={deleting ? `سفارش #${toFa(deleting.number)} برای همیشه حذف می‌شود. این عمل قابل بازگشت نیست.` : ""}
+        message={deleting ? `سفارش #${toFa(deleting.number)} از فهرست جاری خارج می‌شود و برای پیگیری یا بازگردانی در بخش «حذف‌شده‌ها» نگه داشته می‌شود.` : ""}
         onConfirm={() => deleting && del(deleting)}
         onClose={() => setDeleting(null)}
       />

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Bridge agent — runs on a PC in the restaurant (Windows/Linux/Mac, Node.js 18+) and connects local hardware
- * (printers, food-court pager transmitter, card terminals) to the web software over HTTPS.
+ * (printers, scales, food-court pager transmitter, card terminals) to the web software over HTTPS.
  * The server can't reach devices on your LAN; this program calls the server every few seconds instead.
  *
  *   node agent.mjs bridge.config.json
@@ -12,6 +12,9 @@
  *   "pollSeconds": 2,
  *   "devices": [
  *     { "code": "printer01", "kind": "printer", "transport": "tcp", "host": "192.168.1.50", "port": 9100, "encoding": "cp1256" },
+ *     { "code": "usbPrinter", "kind": "printer", "transport": "usb", "vendorId": 1208, "productId": 4096, "encoding": "CP1256" },
+ *     { "code": "scale01", "kind": "scale", "transport": "serial", "path": "COM4", "baud": 9600,
+ *       "request": "", "responseEnd": "\\r\\n", "weightRegex": "([+-]?\\d+(?:[.,]\\d+)?)", "weightUnit": "kg", "factor": 1 },
  *     { "code": "pager01",   "kind": "pager",   "transport": "serial", "path": "COM3", "baud": 9600, "format": "R{n}\r\n" },
  *     { "code": "pos01",     "kind": "pos",     "protocol": "saman-ssp1126", "transport": "tcp", "host": "192.168.1.70", "port": 1197 }
  *   ]
@@ -30,7 +33,10 @@
  *                    "responseEnd":"\\x03", "successRegex":"RC=00", "refRegex":"RRN=(\\d+)", "timeoutSeconds":120 }
  * Placeholders: {amountRial} {amountToman} {order}   — {amountRial:12} = zero-padded to 12 digits.
  *
- * Optional packages (install next to this file only if you need them):  npm i serialport iconv-lite saman-payment-pos
+ * Optional packages (install next to this file only if you need them):
+ *   npm i serialport iconv-lite saman-payment-pos
+ *   npm i @node-escpos/core @node-escpos/usb-adapter   # direct USB ESC/POS printers
+ *   npm i node-hid                                  # direct USB HID scales (model / OS permitting)
  */
 import net from "node:net";
 import { exec } from "node:child_process";
@@ -111,8 +117,58 @@ async function encode(text, enc) {
 
 /* ---------------------------------------------------------------- printers & pagers */
 async function printJob(d, content) {
+  if (d.transport === "usb") {
+    let USB, Printer;
+    try {
+      [{ default: USB }, { Printer }] = await Promise.all([import("@node-escpos/usb-adapter"), import("@node-escpos/core")]);
+    } catch { throw new Error("بسته‌های چاپ USB نصب نیستند (npm i @node-escpos/core @node-escpos/usb-adapter)"); }
+    const adapter = d.vendorId && d.productId ? new USB(Number(d.vendorId), Number(d.productId)) : new USB();
+    await new Promise((resolve, reject) => adapter.open((err) => err ? reject(err) : resolve()));
+    const printer = new Printer(adapter, { encoding: d.encoding ?? "CP1256" });
+    await printer.text(content + "\n").feed(4).cut().close();
+    return;
+  }
   const body = await encode(content + "\n", d.encoding);
   await send(d, Buffer.concat([Buffer.from([0x1b, 0x40]), body, Buffer.from([0x0a, 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00])]));
+}
+async function usbHidRead(d) {
+  if (!d.vendorId || !d.productId) throw new Error("برای ترازوی USB، Vendor ID و Product ID را وارد کنید");
+  let hid;
+  try { hid = await import("node-hid"); }
+  catch { throw new Error("بسته‌ی node-hid نصب نیست (npm i node-hid)"); }
+  const HID = hid.HID ?? hid.default?.HID;
+  if (!HID) throw new Error("رابط HID در بسته‌ی node-hid پیدا نشد");
+  const device = new HID(Number(d.vendorId), Number(d.productId));
+  try {
+    return await new Promise((resolve, reject) => {
+      const chunks = [];
+      let settled = false;
+      let timer, idle;
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer); clearTimeout(idle);
+        device.off("data", onData);
+        device.off("error", onError);
+        err ? reject(err) : resolve(Buffer.concat(chunks));
+      };
+      const onData = (data) => {
+        chunks.push(Buffer.from(data));
+        const all = Buffer.concat(chunks);
+        const end = d.responseEnd ? Buffer.from(unescape(d.responseEnd), "latin1") : null;
+        if (!end?.length || all.includes(end)) finish();
+        else { clearTimeout(idle); idle = setTimeout(() => finish(), 100); }
+      };
+      const onError = (err) => finish(err);
+      device.on("data", onData);
+      device.on("error", onError);
+      timer = setTimeout(() => chunks.length ? finish() : finish(new Error("پاسخی از ترازوی USB دریافت نشد")), (d.timeoutSeconds ?? 5) * 1000);
+      if (d.request) {
+        try { device.write([...Buffer.from(unescape(d.request), "latin1")]); }
+        catch (err) { finish(err); }
+      }
+    });
+  } finally { try { device.close(); } catch { /* ignore */ } }
 }
 const unescape = (s) => s.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
 const fillTpl = (tpl, v) => tpl.replace(/\{(amountRial|amountToman|order|n)(?::(\d+))?\}/g, (_, k, w) => String(v[k]).padStart(Number(w ?? 0), "0"));
@@ -163,8 +219,36 @@ const posProtocols = {
 
 const handlers = {
   async printer(d) {
-    const { jobs } = await api(d.code, "jobs"); // server marks fetched jobs as printed
-    for (const j of jobs) { await printJob(d, j.content); log(`[${d.code}] printed job ${j.id}`); }
+    const { jobs } = await api(d.code, "jobs");
+    for (const j of jobs) {
+      try {
+        await printJob(d, j.content);
+        await api(d.code, "jobs", { jobId: j.id, status: "printed" });
+        log(`[${d.code}] printed job ${j.id}`);
+      } catch (e) {
+        const detail = String(e?.message ?? e).slice(0, 300);
+        try { await api(d.code, "jobs", { jobId: j.id, status: "failed", detail }); }
+        catch (ackError) { log(`[${d.code}] could not acknowledge job ${j.id}: ${ackError.message}`); }
+        log(`[${d.code}] print failed for job ${j.id}: ${detail}`);
+      }
+    }
+  },
+  async scale(d) {
+    const request = d.request ? Buffer.from(unescape(d.request), "latin1") : Buffer.alloc(0);
+    const responseEnd = d.responseEnd ? Buffer.from(unescape(d.responseEnd), "latin1") : null;
+    const response = d.transport === "usb"
+      ? await usbHidRead(d)
+      : await exchange(d, request, { end: responseEnd, timeoutMs: (d.timeoutSeconds ?? 5) * 1000, idleMs: 500 });
+    const text = response.toString(d.responseEncoding ?? "utf8");
+    const match = text.match(new RegExp(d.weightRegex ?? "([+-]?\\d+(?:[.,]\\d+)?)"));
+    if (!match) throw new Error(`وزن از پاسخ ترازو خوانده نشد: ${text.replace(/[^\x20-\x7e]/g, " ").trim().slice(0, 80)}`);
+    let weight = Number((match[1] ?? match[0]).replace(",", "."));
+    if (!Number.isFinite(weight) || weight < 0) throw new Error("مقدار وزن ترازو نامعتبر است");
+    if (d.weightUnit === "g") weight /= 1000;
+    weight *= Number(d.factor ?? 1);
+    if (!Number.isFinite(weight) || weight < 0) throw new Error("وزن پس از کالیبراسیون نامعتبر است");
+    await api(d.code, "weight", { value: weight });
+    log(`[${d.code}] scale ${weight.toFixed(3)} kg`);
   },
   async pager(d) {
     const { rings } = await api(d.code, "pager");

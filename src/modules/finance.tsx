@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatCompact, formatDate, formatNumber, formatPrice, formatShortDate, toFa } from "@/lib/format";
 import { ResourcePage } from "@/components/resource-page";
-import { Badge, Card, ErrorState, PageHeader, Skeleton, cn } from "@/components/ui";
+import { Badge, Card, ErrorState, PageHeader, Skeleton, cn, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 const bankField = { key: "bankAccountId", label: "حساب", remote: { url: "/api/r/bank", label: (r: { name: string }) => r.name, none: "صندوق (نقدی)" } } as const;
 
@@ -51,8 +51,8 @@ function LedgerPage({ endpoint, title, subtitle, emoji }: { endpoint: string; ti
     />
   );
 }
-export const Accounting = () => <LedgerPage endpoint="/api/r/ledger" emoji="📒" title="حسابداری فروش" subtitle="دفتر روزنامه: فروش هر سفارش پرداخت‌شده خودکار ثبت می‌شود؛ ردیف دستی هم می‌توانید اضافه کنید" />;
-export const IncomeExpense = () => <LedgerPage endpoint="/api/r/incomeexpense" emoji="💸" title="درآمد و هزینه" subtitle="ثبت هزینه‌های جاری (اجاره، حقوق، قبوض، خرید) و درآمدهای متفرقه" />;
+export const Accounting = () => <LedgerPage endpoint="/api/r/ledger" emoji="" title="حسابداری فروش" subtitle="دفتر روزنامه: فروش هر سفارش پرداخت‌شده خودکار ثبت می‌شود؛ ردیف دستی هم می‌توانید اضافه کنید" />;
+export const IncomeExpense = () => <LedgerPage endpoint="/api/r/incomeexpense" emoji="" title="درآمد و هزینه" subtitle="ثبت هزینه‌های جاری (اجاره، حقوق، قبوض، خرید) و درآمدهای متفرقه" />;
 
 /* ---------- shared bits ---------- */
 function Range({ days, setDays }: { days: number; setDays: (d: number) => void }) {
@@ -111,7 +111,7 @@ export function Reports() {
           <Card className="p-5"><h3 className="mb-4 font-bold">فروش روزانه</h3><Bars data={d.series.map((s) => ({ label: toFa(formatShortDate(s.date).replace(/\D+/g, " ").trim().split(" ").pop() ?? ""), value: s.revenue }))} label={formatPrice} /><p className="mt-2 text-[11px] text-stone-400">آخرین روز: امروز · ارتفاع ستون‌ها نسبت به بیشترین فروش روزانه ({formatCompact(Math.max(...d.series.map((s) => s.revenue)))} تومان)</p></Card>
           <div className="grid gap-5 lg:grid-cols-2">
             <Card className="p-5"><h3 className="mb-4 font-bold">فروش به تفکیک دسته‌بندی</h3>{d.byCategory.length ? <HBar rows={d.byCategory.map((c) => ({ name: c.name, value: c.revenue }))} fmt={formatPrice} /> : <p className="text-sm text-stone-400">داده‌ای نیست</p>}</Card>
-            <Card className="p-5"><h3 className="mb-4 font-bold">۱۰ محصول پرفروش (بر اساس درآمد)</h3>{d.byProduct.length ? <HBar rows={d.byProduct.map((c) => ({ name: `${c.emoji} ${c.name}`, value: c.revenue }))} fmt={formatPrice} /> : <p className="text-sm text-stone-400">داده‌ای نیست</p>}</Card>
+            <Card className="p-5"><h3 className="mb-4 font-bold">۱۰ محصول پرفروش (بر اساس درآمد)</h3>{d.byProduct.length ? <HBar rows={d.byProduct.map((c) => ({ name: c.name, value: c.revenue }))} fmt={formatPrice} /> : <p className="text-sm text-stone-400">داده‌ای نیست</p>}</Card>
             <Card className="p-5"><h3 className="mb-4 font-bold">ساعات پرفروش</h3><Bars data={d.hours.slice(6).map((h) => ({ label: toFa(h.hour), value: h.orders }))} color="bg-sky-400" /></Card>
             <Card className="space-y-5 p-5">
               <div><h3 className="mb-3 font-bold">روش پرداخت</h3><HBar rows={d.methods.map((m) => ({ name: `${METHODS[m.method] ?? m.method} (${toFa(m.count)})`, value: m.amount }))} fmt={formatPrice} /></div>
@@ -159,15 +159,15 @@ function BankReport() {
   return (
     <div className="mb-8 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">گزارش تجمیعی</h2><Range days={days} setDays={setDays} /></div>
-      {err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-48 rounded-2xl" /> : (
+      <IconText>{err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-48 rounded-2xl" /> : (
         <>
           <Card className="bg-gradient-to-l from-stone-900 to-stone-700 p-5 text-white"><p className="text-xs text-white/70">موجودی کل (صندوق + حساب‌های بانکی)</p><p className="mt-1 text-3xl font-black">{formatPrice(d.total)}</p></Card>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{d.accounts.map((a) => (
-            <Card key={a.id ?? "cash"} className="p-4"><div className="flex items-start justify-between"><div><p className="font-bold">{a.id ? "🏛️" : "💵"} {a.name}</p><p className="text-[11px] text-stone-400">{a.bank} {a.accountNumber && `· ${toFa(a.accountNumber)}`}</p></div></div><p className="mt-3 text-xl font-extrabold">{formatPrice(a.balance)}</p><div className="mt-2 flex justify-between text-xs"><span className="text-emerald-600">ورودی: {formatCompact(a.income)}</span><span className="text-rose-600">خروجی: {formatCompact(a.expense)}</span></div></Card>
+            <Card key={a.id ?? "cash"} className="p-4"><div className="flex items-start justify-between"><div><p className="font-bold">{a.id ? "" : ""} {a.name}</p><p className="text-[11px] text-stone-400">{a.bank} {a.accountNumber && `· ${toFa(a.accountNumber)}`}</p></div></div><p className="mt-3 text-xl font-extrabold">{formatPrice(a.balance)}</p><div className="mt-2 flex justify-between text-xs"><span className="text-emerald-600">ورودی: {formatCompact(a.income)}</span><span className="text-rose-600">خروجی: {formatCompact(a.expense)}</span></div></Card>
           ))}</div>
           <Card className="overflow-hidden"><div className="border-b border-stone-100 p-4 font-bold">آخرین تراکنش‌ها</div><ul className="divide-y divide-stone-100">{d.recent.slice(0, 12).map((t) => <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 text-sm"><Badge color={t.kind === "income" ? "emerald" : "rose"}>{t.kind === "income" ? "ورودی" : "خروجی"}</Badge><span className="min-w-0 flex-1 truncate">{t.category || t.description} <span className="text-xs text-stone-400">· {t.accountName}</span></span><b className={t.kind === "income" ? "text-emerald-600" : "text-rose-600"}>{formatNumber(t.amount)}</b><span className="hidden text-xs text-stone-400 sm:block">{formatDate(t.date)}</span></li>)}</ul></Card>
         </>
-      )}
+      )}</IconText>
       <h2 className="pt-4 font-bold">مدیریت حساب‌ها</h2>
     </div>
   );
@@ -179,7 +179,7 @@ export function Bank() {
       title="گزارش تجمیعی بانک"
       subtitle="گردش حساب‌ها و موجودی بانکی؛ فروش‌های پوز و آنلاین به حساب اصلی واریز ثبت می‌شود"
       endpoint="/api/r/bank"
-      emoji="🏛️"
+      emoji=""
       emptyTitle="حساب بانکی تعریف نشده"
       emptyDesc="حساب‌های بانکی خود را اضافه کنید تا گردش مالی هر حساب مشخص شود."
       addLabel="حساب جدید"
@@ -214,7 +214,7 @@ export function Assets() {
       title="مدیریت اموال و استهلاک"
       subtitle="ثبت دارایی‌ها و محاسبه‌ی استهلاک به روش خط مستقیم"
       endpoint="/api/r/assets"
-      emoji="🏗️"
+      emoji=""
       emptyTitle="هنوز دارایی‌ای ثبت نشده"
       emptyDesc="تجهیزات و اثاثیه را ثبت کنید تا ارزش دفتری و استهلاک ماهانه محاسبه شود."
       addLabel="دارایی جدید"

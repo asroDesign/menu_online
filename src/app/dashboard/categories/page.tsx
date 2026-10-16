@@ -5,10 +5,9 @@ import { useCollection } from "@/lib/api";
 import { toFa } from "@/lib/format";
 import type { Category, Product } from "@/lib/types";
 import {
-  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Skeleton, Switch, cn, useToast,
-} from "@/components/ui";
+  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Skeleton, Switch, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
-const EMOJIS = ["🍳", "☕", "🧊", "🍕", "🍔", "🍛", "🥗", "🍰", "🍝", "🥪", "🍣", "🥤", "🍞", "🍨", "🌮", "🍽️"];
+const EMOJIS = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
 
 export default function CategoriesPage() {
   const cats = useCollection<Category>("/api/categories");
@@ -16,7 +15,7 @@ export default function CategoriesPage() {
   const toast = useToast();
   const [editing, setEditing] = useState<Category | "new" | null>(null);
   const [name, setName] = useState("");
-  const [emoji, setEmoji] = useState("🍽️");
+  const [emoji, setEmoji] = useState("");
   const [deleting, setDeleting] = useState<Category | null>(null);
 
   const sorted = useMemo(() => [...cats.items].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id), [cats.items]);
@@ -24,7 +23,7 @@ export default function CategoriesPage() {
 
   function openNew() {
     setName("");
-    setEmoji("🍽️");
+    setEmoji("");
     setEditing("new");
   }
   function openEdit(c: Category) {
@@ -80,12 +79,12 @@ export default function CategoriesPage() {
         actions={<Button onClick={openNew}><Icon name="plus" className="size-4" /> دسته‌بندی جدید</Button>}
       />
 
-      {cats.loading ? (
+      <IconText>{cats.loading ? (
         <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[72px] rounded-2xl" />)}</div>
       ) : cats.error ? (
         <ErrorState message={cats.error} onRetry={() => cats.reload()} />
       ) : sorted.length === 0 ? (
-        <EmptyState emoji="🏷️" title="هنوز دسته‌بندی‌ای ندارید" description="محصولات را در دسته‌هایی مثل «قهوه»، «پیتزا» یا «دسر» سازمان‌دهی کنید." action={<Button onClick={openNew}>ساخت اولین دسته‌بندی</Button>} />
+        <EmptyState emoji="" title="هنوز دسته‌بندی‌ای ندارید" description="محصولات را در دسته‌هایی مثل «قهوه»، «پیتزا» یا «دسر» سازمان‌دهی کنید." action={<Button onClick={openNew}>ساخت اولین دسته‌بندی</Button>} />
       ) : (
         <div className="space-y-3">
           {sorted.map((c, i) => (
@@ -94,7 +93,7 @@ export default function CategoriesPage() {
                 <IconButton icon="chevronUp" label="بالا" className="size-6" disabled={i === 0} onClick={() => move(i, -1)} />
                 <IconButton icon="chevronDown" label="پایین" className="size-6" disabled={i === sorted.length - 1} onClick={() => move(i, 1)} />
               </div>
-              <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-2xl", !c.isActive && "grayscale")}>{c.emoji}</span>
+              <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-2xl", !c.isActive && "grayscale")}>{<EmojiIcon emoji={c.emoji} /> }</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-bold">{c.name}</p>
                 <p className="text-xs text-stone-500">{toFa(countOf(c.id))} محصول</p>
@@ -108,7 +107,7 @@ export default function CategoriesPage() {
             </Card>
           ))}
         </div>
-      )}
+      )}</IconText>
 
       <Modal
         open={!!editing}
@@ -122,7 +121,7 @@ export default function CategoriesPage() {
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً نوشیدنی گرم" autoFocus onKeyDown={(e) => e.key === "Enter" && save()} />
           </Field>
           <div>
-            <span className="mb-1.5 block text-xs font-semibold text-stone-600">ایموجی</span>
+            <span className="mb-1.5 block text-xs font-semibold text-stone-600">آیکن</span>
             <div className="flex flex-wrap gap-1.5">
               {EMOJIS.map((e) => (
                 <button key={e} type="button" onClick={() => setEmoji(e)} className={cn("flex size-10 items-center justify-center rounded-xl text-xl transition", emoji === e ? "bg-brand-100 ring-2 ring-brand-400" : "bg-stone-100 hover:bg-stone-200")}>{e}</button>

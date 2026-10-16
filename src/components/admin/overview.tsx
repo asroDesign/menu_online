@@ -1,10 +1,9 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { formatCompact, formatNumber, formatPrice, formatShortDate, toFa } from "@/lib/format";
 import { fmtJ } from "@/lib/jalali";
 import { PLANS, planName } from "@/lib/plans";
 import { TICKET_DEPTS } from "@/lib/admin-meta";
-import { Badge, Button, Card, ErrorState, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ErrorState, Skeleton, EmojiIcon} from "@/components/ui";
 import { Bars, PLAN_COLOR, Stat, useGet, type Nav } from "@/components/admin/common";
 
 export function Overview({ go }: { go: Nav }) {
@@ -28,10 +27,10 @@ export function Overview({ go }: { go: Nav }) {
       {alerts.length > 0 && <div className="grid gap-2.5 md:grid-cols-2">{alerts.map((a, i) => <button key={i} onClick={() => go(a.tab, a.p)} className={`flex items-center justify-between rounded-2xl px-4 py-3 text-start text-sm font-semibold ring-1 transition hover:shadow ${a.tone}`}><span>{a.text}</span><span>←</span></button>)}</div>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat icon="🏪" label="کسب‌وکارها" value={formatNumber(d.tenants.total)} sub={`${toFa(d.tenants.active)} فعال · ${toFa(d.tenants.suspended)} مسدود · ${toFa(d.tenants.newThisMonth)} جدید در این ماه`} />
-        <Stat icon="🧾" label="فروش ثبت‌شده (۳۰ روز)" value={formatPrice(d.orders.gmv30)} tone="text-emerald-600" sub={`${toFa(d.orders.n30)} سفارش پرداخت‌شده · کل: ${formatCompact(d.orders.gmvTotal)}`} />
-        <Stat icon="💰" label="درآمد اشتراک (این ماه)" value={formatPrice(d.revenue.month)} tone="text-brand-600" sub={`از ابتدای سال: ${formatPrice(d.revenue.year)}`} />
-        <Stat icon="🎧" label="تیکت‌های باز" value={formatNumber(openN)} tone={openN ? "text-amber-600" : "text-stone-900"} sub={`${toFa(unassigned)} بدون کارشناس`} />
+        <Stat icon="" label="کسب‌وکارها" value={formatNumber(d.tenants.total)} sub={`${toFa(d.tenants.active)} فعال · ${toFa(d.tenants.suspended)} مسدود · ${toFa(d.tenants.newThisMonth)} جدید در این ماه`} />
+        <Stat icon="" label="فروش ثبت‌شده (۳۰ روز)" value={formatPrice(d.orders.gmv30)} tone="text-emerald-600" sub={`${toFa(d.orders.n30)} سفارش پرداخت‌شده · کل: ${formatCompact(d.orders.gmvTotal)}`} />
+        <Stat icon="" label="درآمد اشتراک (این ماه)" value={formatPrice(d.revenue.month)} tone="text-brand-600" sub={`از ابتدای سال: ${formatPrice(d.revenue.year)}`} />
+        <Stat icon="" label="تیکت‌های باز" value={formatNumber(openN)} tone={openN ? "text-amber-600" : "text-stone-900"} sub={`${toFa(unassigned)} بدون کارشناس`} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -45,12 +44,12 @@ export function Overview({ go }: { go: Nav }) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="p-5"><h3 className="mb-4 font-bold">ثبت‌نام جدید (۳۰ روز)</h3><Bars color="bg-sky-400" data={(d.signups as any[]).map((x, i) => ({ label: i % 5 === 0 ? toFa(formatShortDate(x.d).replace(/\D+/g, " ").trim().split(" ").pop() ?? "") : "", value: x.n }))} /></Card>
-        <Card className="p-5"><h3 className="mb-3 font-bold">پرفروش‌ترین کسب‌وکارها (۳۰ روز)</h3>
+        <Card className="min-w-0 p-5"><h3 className="mb-4 font-bold">ثبت‌نام جدید (۳۰ روز)</h3><Bars color="bg-sky-400" data={(d.signups as any[]).map((x, i) => ({ label: i % 5 === 0 ? toFa(formatShortDate(x.d).replace(/\D+/g, " ").trim().split(" ").pop() ?? "") : "", value: x.n }))} /></Card>
+        <Card className="min-w-0 p-5"><h3 className="mb-3 font-bold">پرفروش‌ترین کسب‌وکارها (۳۰ روز)</h3>
           <ul className="space-y-2.5">{(d.top as any[]).map((t, i) => <li key={t.id} className="flex items-center gap-2.5 text-sm"><span className="flex size-6 items-center justify-center rounded-md bg-stone-100 text-[11px] font-bold">{toFa(i + 1)}</span><span className="min-w-0 flex-1 truncate font-medium">{t.name}</span><Badge color={PLAN_COLOR[t.plan]}>{planName(t.plan)}</Badge><b className="w-24 text-end text-xs">{formatCompact(t.gmv)}</b></li>)}</ul>
         </Card>
-        <Card className="p-5"><h3 className="mb-3 font-bold">تیکت‌های باز به تفکیک بخش</h3>
-          <ul className="space-y-2.5">{Object.entries(TICKET_DEPTS).map(([k, v]) => { const n = openTk.filter((t) => t.dept === k).reduce((s, t) => s + t.n, 0); return <li key={k} className="flex items-center justify-between text-sm"><span>{v.emoji} {v.label}</span><Badge color={n ? "amber" : "stone"}>{toFa(n)}</Badge></li>; })}</ul>
+        <Card className="min-w-0 p-5"><h3 className="mb-3 font-bold">تیکت‌های باز به تفکیک بخش</h3>
+          <ul className="space-y-2.5">{Object.entries(TICKET_DEPTS).map(([k, v]) => { const n = openTk.filter((t) => t.dept === k).reduce((s, t) => s + t.n, 0); return <li key={k} className="flex items-center justify-between text-sm"><span className="flex items-center gap-2"><EmojiIcon emoji={v.emoji} className="size-4" />{v.label}</span><Badge color={n ? "amber" : "stone"}>{toFa(n)}</Badge></li>; })}</ul>
           <Button size="sm" variant="secondary" className="mt-4 w-full" onClick={() => go("tickets")}>مشاهده تیکت‌ها</Button>
         </Card>
       </div>

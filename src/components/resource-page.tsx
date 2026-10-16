@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useCollection } from "@/lib/api";
 import {
-  Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, useToast,
+  Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, PersianDateInput, Select, Skeleton, Switch, Textarea, useToast, IconText,
 } from "@/components/ui";
 
 export type Opt = { value: string; label: string };
@@ -36,6 +36,7 @@ export function ResourcePage<T extends { id: number }>(props: {
   emptyTitle: string;
   emptyDesc: string;
   addLabel?: string;
+  actions?: ReactNode;
   poll?: number;
   rowActions?: (row: T, ctx: RowCtx) => ReactNode;
   header?: (ctx: { items: T[]; reload: () => void }) => ReactNode;
@@ -133,7 +134,7 @@ export function ResourcePage<T extends { id: number }>(props: {
 
   return (
     <div className="animate-fade-in">
-      <PageHeader title={props.title} subtitle={props.subtitle} actions={props.addLabel ? <Button onClick={openNew}><Icon name="plus" className="size-4" /> {props.addLabel}</Button> : undefined} />
+      <PageHeader title={props.title} subtitle={props.subtitle} actions={<>{props.actions}{props.addLabel && <Button variant={props.actions ? "secondary" : "primary"} onClick={openNew}><Icon name="plus" className="size-4" /> {props.addLabel}</Button>}</>} />
       {props.header?.({ items: col.items, reload: () => col.reload(true) })}
       {props.renderBar?.({ items: col.items, filtered, selected: filtered.filter((r) => sel.has(r.id)), clear: () => setSel(new Set()) })}
       {props.search && col.items.length > 0 && (
@@ -142,12 +143,12 @@ export function ResourcePage<T extends { id: number }>(props: {
           <Input className="ps-9" placeholder="جستجو…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       )}
-      {col.loading ? (
+      <IconText>{col.loading ? (
         <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
       ) : col.error ? (
         <ErrorState message={col.error} onRetry={() => col.reload()} />
       ) : filtered.length === 0 ? (
-        <EmptyState emoji={col.items.length ? "🔍" : props.emoji} title={col.items.length ? "موردی پیدا نشد" : props.emptyTitle} description={col.items.length ? "عبارت جستجو را تغییر دهید." : props.emptyDesc} action={!col.items.length && props.addLabel && <Button onClick={openNew}>{props.addLabel}</Button>} />
+        <EmptyState emoji={col.items.length ? "" : props.emoji} title={col.items.length ? "موردی پیدا نشد" : props.emptyTitle} description={col.items.length ? "عبارت جستجو را تغییر دهید." : props.emptyDesc} action={!col.items.length && props.addLabel && <Button onClick={openNew}>{props.addLabel}</Button>} />
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -177,7 +178,7 @@ export function ResourcePage<T extends { id: number }>(props: {
             </table>
           </div>
         </Card>
-      )}
+      )}</IconText>
       {props.footer}
 
       <Modal
@@ -202,8 +203,8 @@ export function ResourcePage<T extends { id: number }>(props: {
                   {f.remote && (remotes[f.key] ?? []).map((r) => <option key={r.id} value={r.id}>{f.remote!.label(r)}</option>)}
                 </Select>
               );
-            else if (f.type === "date") ctl = <Input type="date" value={v} onChange={(e) => set(e.target.value)} />;
-            else if (f.type === "datetime") ctl = <Input type="datetime-local" value={v} onChange={(e) => set(e.target.value)} />;
+            else if (f.type === "date") ctl = <PersianDateInput value={v} onChange={set} />;
+            else if (f.type === "datetime") ctl = <PersianDateInput value={v} onChange={set} withTime />;
             else ctl = <Input type={f.secret ? "password" : "text"} autoComplete={f.secret ? "new-password" : undefined} inputMode={f.type === "number" || f.type === "money" ? "decimal" : undefined} dir={f.ltr ? "ltr" : undefined} className={f.ltr ? "text-left" : ""} value={v} onChange={(e) => set(e.target.value)} placeholder={f.placeholder} />;
             return <Field key={f.key} label={f.label + (f.required ? " *" : "")} hint={f.hint} className={f.span === 2 || f.type === "textarea" ? "sm:col-span-2" : ""}>{ctl}</Field>;
           })}

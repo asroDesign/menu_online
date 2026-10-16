@@ -1,4 +1,5 @@
-import Link from "next/link";
+
+import { IconText } from "@/components/ui";import Link from "next/link";
 import { toFa } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ export default async function PayResult({ searchParams }: { searchParams: Promis
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[#f6f5f3] p-4">
       <div className="w-full max-w-sm rounded-3xl bg-white p-8 text-center shadow-xl ring-1 ring-stone-100">
-        <div className="text-6xl">{ok ? "✅" : "❌"}</div>
+        <div className="text-6xl"><IconText>{ok ? "" : ""}</IconText></div>
         <h1 className="mt-4 text-xl font-extrabold">{ok ? "پرداخت با موفقیت انجام شد" : "پرداخت ناموفق بود"}</h1>
         {q.n && <p className="mt-3 text-sm text-stone-600">شماره سفارش: <b>#{toFa(q.n)}</b></p>}
         {q.ref && <p className="mt-1 text-xs text-stone-500">کد پیگیری: <span dir="ltr">{q.ref}</span></p>}

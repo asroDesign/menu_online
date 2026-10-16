@@ -1,3 +1,4 @@
+import { EmojiIcon , IconText} from "@/components/ui";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
@@ -15,12 +16,12 @@ import { getAuth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 const FEATURES = [
-  { icon: "📱", title: "منوی دیجیتال با QR", text: "برای هر میز یک QR اختصاصی؛ مشتری اسکن می‌کند، منوی تصویری را می‌بیند و سفارش می‌دهد." },
-  { icon: "🧑‍🍳", title: "پنل سفارش‌گیری گارسون", text: "انتخاب میز، لمس محصولات و ارسال لحظه‌ای سفارش به آشپزخانه؛ بدون کاغذ و بدون اشتباه." },
-  { icon: "🗂️", title: "کاتالوگ محصولات", text: "دسته‌بندی، قیمت، تخفیف، ایموجی و تصویر برای هر آیتم. با یک کلیک ناموجود یا ویژه کنید." },
-  { icon: "📊", title: "داشبورد فروش", text: "فروش روزانه، پرفروش‌ترین‌ها، میانگین سفارش و وضعیت میزها را زنده ببینید." },
-  { icon: "🪑", title: "مدیریت میز و سالن", text: "سالن، تراس و VIP تعریف کنید؛ میزهای اشغال و آزاد با رنگ مشخص هستند." },
-  { icon: "🧾", title: "جریان سفارش حرفه‌ای", text: "از «جدید» تا «پرداخت»؛ وضعیت هر سفارش را با یک لمس تغییر دهید." },
+  { icon: "", title: "منوی دیجیتال با QR", text: "برای هر میز یک QR اختصاصی؛ مشتری اسکن می‌کند، منوی تصویری را می‌بیند و سفارش می‌دهد." },
+  { icon: "", title: "پنل سفارش‌گیری گارسون", text: "انتخاب میز، لمس محصولات و ارسال لحظه‌ای سفارش به آشپزخانه؛ بدون کاغذ و بدون اشتباه." },
+  { icon: "", title: "کاتالوگ محصولات", text: "دسته‌بندی، قیمت، تخفیف، آیکن و تصویر برای هر آیتم. با یک کلیک ناموجود یا ویژه کنید." },
+  { icon: "", title: "داشبورد فروش", text: "فروش روزانه، پرفروش‌ترین‌ها، میانگین سفارش و وضعیت میزها را زنده ببینید." },
+  { icon: "", title: "مدیریت میز و سالن", text: "سالن، تراس و VIP تعریف کنید؛ میزهای اشغال و آزاد با رنگ مشخص هستند." },
+  { icon: "", title: "جریان سفارش حرفه‌ای", text: "از «جدید» تا «پرداخت»؛ وضعیت هر سفارش را با یک لمس تغییر دهید." },
 ];
 
 const PLANS = [
@@ -56,10 +57,10 @@ export default async function Home() {
 
   return (
     <div className="bg-white">
-      <nav className="sticky top-0 z-40 border-b border-stone-100 bg-white/85 backdrop-blur">
+      <nav className="navbar sticky top-0 z-40 border-b border-base-300/80 bg-base-100/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-brand-500 text-lg text-white shadow-lg shadow-brand-500/30">🍽️</span>
+            <span className="flex size-9 items-center justify-center rounded-xl bg-brand-500 text-lg text-white shadow-lg shadow-brand-500/30"><IconText>{<EmojiIcon emoji="" />}</IconText></span>
             <span className="text-lg font-extrabold">منوی دیجیتال</span>
           </Link>
           <div className="hidden items-center gap-7 text-sm font-medium text-stone-600 md:flex">
@@ -79,7 +80,7 @@ export default async function Home() {
         <div className="pointer-events-none absolute -start-32 top-10 size-96 rounded-full bg-brand-200/40 blur-3xl" />
         <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-2 lg:py-24">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full bg-brand-100 px-4 py-1.5 text-xs font-bold text-brand-700">✨ کاتالوگ آنلاین · منوی QR · سفارش گارسون</span>
+            <span className="inline-flex items-center gap-2 rounded-full bg-brand-100 px-4 py-1.5 text-xs font-bold text-brand-700"><IconText>{<EmojiIcon emoji="" />}</IconText> کاتالوگ آنلاین · منوی QR · سفارش گارسون</span>
             <h1 className="mt-6 text-4xl leading-[1.35] font-black tracking-tight text-stone-900 sm:text-5xl">
               منوی کافه و رستوران‌تان را <span className="text-brand-500">دیجیتال</span> کنید و سفارش‌گیری را هوشمند
             </h1>
@@ -87,9 +88,9 @@ export default async function Home() {
               مشتری با اسکن QR میز، منوی تصویری شما را می‌بیند و سفارش می‌دهد؛ گارسون و آشپزخانه همان لحظه مطلع می‌شوند و شما همه‌چیز را از یک داشبورد مدیریت می‌کنید.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href={cta.href} className="rounded-2xl bg-brand-500 px-7 py-3.5 font-bold text-white shadow-xl shadow-brand-500/30 transition hover:bg-brand-600">{cta.label}</Link>
-              <Link href="/restaurants" className="rounded-2xl bg-white px-7 py-3.5 font-bold text-stone-800 ring-1 ring-stone-200 transition hover:bg-stone-50">رستوران‌ها 🍴</Link>
-              <Link href={`/m/${DEMO_SLUG}?table=3`} className="rounded-2xl bg-white px-7 py-3.5 font-bold text-stone-800 ring-1 ring-stone-200 transition hover:bg-stone-50">مشاهده منوی نمونه 👀</Link>
+              <Link href={cta.href} className="btn btn-primary rounded-2xl px-7 py-3.5 font-bold text-white shadow-xl shadow-brand-500/30 transition hover:bg-brand-600">{cta.label}</Link>
+              <Link href="/restaurants" className="btn rounded-2xl border-base-300 bg-base-100 px-7 py-3.5 font-bold text-base-content transition hover:bg-base-200">رستوران‌ها <IconText>{<EmojiIcon emoji="" />}</IconText></Link>
+              <Link href={`/m/${DEMO_SLUG}?table=3`} className="btn rounded-2xl border-base-300 bg-base-100 px-7 py-3.5 font-bold text-base-content transition hover:bg-base-200">مشاهده منوی نمونه <IconText>{<EmojiIcon emoji="" />}</IconText></Link>
             </div>
             <div className="mt-10 flex gap-8 text-sm">
               {[["+۱۰ سال", "تجربه سفارشگیر"], ["۹۹٫۹٪", "پایداری سرویس"], ["۲۴/۷", "پشتیبانی"]].map(([a, b]) => (
@@ -113,18 +114,18 @@ export default async function Home() {
             <div className="rounded-[2.5rem] bg-stone-900 p-3 shadow-2xl">
               <div className="overflow-hidden rounded-[2rem] bg-[#f6f5f3]">
                 <div className="bg-gradient-to-br from-brand-500 to-brand-700 px-5 pb-6 pt-8 text-white">
-                  <div className="flex items-center gap-3"><span className="flex size-12 items-center justify-center rounded-xl bg-white text-2xl">🌸</span><div><p className="font-extrabold">کافه رستوران نیلوفر</p><p className="text-[11px] text-white/80">🪑 میز ۳ · سالن اصلی</p></div></div>
+                  <div className="flex items-center gap-3"><span className="flex size-12 items-center justify-center rounded-xl bg-white text-2xl"><IconText>{<EmojiIcon emoji="" />}</IconText></span><div><p className="font-extrabold">کافه رستوران نیلوفر</p><p className="text-[11px] text-white/80"><IconText>{<EmojiIcon emoji="" />}</IconText> میز ۳ · سالن اصلی</p></div></div>
                 </div>
                 <div className="-mt-3 space-y-2.5 rounded-t-3xl bg-[#f6f5f3] p-4">
-                  <div className="flex gap-2 text-xs font-semibold"><span className="rounded-full bg-brand-500 px-3 py-1.5 text-white">☕ قهوه</span><span className="rounded-full bg-white px-3 py-1.5 text-stone-600">🍕 پیتزا</span><span className="rounded-full bg-white px-3 py-1.5 text-stone-600">🍰 دسر</span></div>
-                  {[["☕", "کاپوچینو", "۱۱۵٬۰۰۰", "/food/coffee.jpg"], ["🍕", "پیتزا پپرونی", "۲۹۵٬۰۰۰", "/food/pizza.jpg"], ["🍰", "چیزکیک نیویورکی", "۱۵۵٬۰۰۰", "/food/dessert.jpg"]].map(([e, n, p, img]) => (
+                  <div className="flex gap-2 text-xs font-semibold"><span className="rounded-full bg-brand-500 px-3 py-1.5 text-white"><IconText>{<EmojiIcon emoji="" />}</IconText> قهوه</span><span className="rounded-full bg-white px-3 py-1.5 text-stone-600"><IconText>{<EmojiIcon emoji="" />}</IconText> پیتزا</span><span className="rounded-full bg-white px-3 py-1.5 text-stone-600"><IconText>{<EmojiIcon emoji="" />}</IconText> دسر</span></div>
+                  <IconText>{[["", "کاپوچینو", "۱۱۵٬۰۰۰", "/food/coffee.jpg"], ["", "پیتزا پپرونی", "۲۹۵٬۰۰۰", "/food/pizza.jpg"], ["", "چیزکیک نیویورکی", "۱۵۵٬۰۰۰", "/food/dessert.jpg"]].map(([e, n, p, img]) => (
                     <div key={n} className="flex gap-3 rounded-2xl bg-white p-2.5 shadow-sm">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={img} alt={e} className="size-16 rounded-xl object-cover" />
                       <div className="flex-1"><p className="text-sm font-bold">{n}</p><p className="mt-5 text-xs font-extrabold">{p} تومان</p></div>
                       <span className="flex size-8 items-center justify-center self-end rounded-lg bg-brand-500 text-white">+</span>
                     </div>
-                  ))}
+                  ))}</IconText>
                   <div className="rounded-2xl bg-brand-500 p-3.5 text-center text-sm font-bold text-white">مشاهده و ثبت سفارش · ۵۶۵٬۰۰۰ تومان</div>
                 </div>
               </div>
@@ -141,7 +142,7 @@ export default async function Home() {
         </div>
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
-            <div key={f.title} className="rounded-3xl bg-stone-50 p-6 ring-1 ring-stone-100 transition hover:-translate-y-1 hover:bg-white hover:shadow-xl">
+            <div key={f.title} className="card border border-base-300/70 bg-base-100 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
               <span className="flex size-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm ring-1 ring-stone-100">{f.icon}</span>
               <h3 className="mt-4 text-lg font-extrabold">{f.title}</h3>
               <p className="mt-2 text-sm leading-7 text-stone-500">{f.text}</p>
@@ -173,7 +174,7 @@ export default async function Home() {
         </div>
         <div className="mt-12 grid gap-6 lg:grid-cols-3">
           {PLANS.map((p, pi) => (
-            <div key={p.name} className={`relative rounded-3xl p-7 ring-1 ${p.popular ? "bg-stone-900 text-white shadow-2xl ring-stone-900 lg:-translate-y-3" : "bg-white ring-stone-200"}`}>
+            <div key={p.name} className={`card relative rounded-3xl border p-7 ${p.popular ? "border-neutral bg-neutral text-neutral-content shadow-2xl lg:-translate-y-3" : "border-base-300 bg-base-100 shadow-sm"}`}>
               {p.popular && <span className="absolute -top-3 start-7 rounded-full bg-brand-500 px-3 py-1 text-xs font-bold text-white">محبوب‌ترین</span>}
               <h3 className="text-xl font-black">{p.name}</h3>
               <p className={`mt-1 text-sm ${p.popular ? "text-stone-400" : "text-stone-500"}`}>{p.tag}</p>
@@ -213,7 +214,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <footer className="border-t border-stone-100 py-8 text-center text-sm text-stone-500">© منوی دیجیتال — پلتفرم کاتالوگ، منوی QR و سفارش‌گیری گارسون</footer>
+      <footer className="border-t border-stone-100 py-8 text-center text-sm text-stone-500"><IconText>{<EmojiIcon emoji="" />}</IconText> منوی دیجیتال — پلتفرم کاتالوگ، منوی QR و سفارش‌گیری گارسون</footer>
     </div>
   );
 }
