@@ -1,0 +1,8 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { getSupport } from "@/lib/app-settings";
+import { LeadForm } from "@/components/marketing/lead-form";
+import { SiteFooter } from "@/components/marketing/rich-content";
+export const dynamic="force-dynamic";
+export const metadata:Metadata={title:"تماس با ما | منوی دیجیتال",description:"راه‌های ارتباط با پشتیبانی منوی دیجیتال و ارسال درخواست تماس."};
+export default async function ContactPage(){const support=await getSupport();return <main className="min-h-dvh bg-base-200/40"><header className="bg-neutral px-5 py-12 text-neutral-content"><div className="mx-auto max-w-5xl"><h1 className="text-4xl font-black">تماس با ما</h1><p className="mt-3 leading-8 text-neutral-content/70">پیام خود را ارسال کنید یا از راه‌های ارتباطی پشتیبانی استفاده کنید.</p></div></header><section className="mx-auto grid max-w-5xl gap-6 px-5 py-10 md:grid-cols-[1fr_320px]"><LeadForm kind="contact" title="ارسال پیام"/><aside className="card h-fit bg-base-100 p-6 shadow-sm ring-1 ring-base-300"><h2 className="font-extrabold">پشتیبانی</h2>{support.phone&&<p className="mt-4">تلفن: <a href={`tel:${support.phone}`} dir="ltr" className="font-bold text-primary">{support.phone}</a></p>}{support.email&&<p className="mt-3">ایمیل: <a href={`mailto:${support.email}`} dir="ltr" className="font-bold text-primary">{support.email}</a></p>}<p className="mt-3 text-sm text-base-content/60">ساعات پاسخ‌گویی: {support.hours||"روزهای کاری"}</p><Link href="/demo" className="btn btn-primary mt-6">درخواست مشاوره یا دمو</Link></aside></section><SiteFooter/></main>}

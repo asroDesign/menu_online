@@ -8,6 +8,7 @@ import { hasAny, type Settings } from "@/lib/plans";
 import { buildPublicMenu } from "@/lib/public-menu";
 import { posOnline } from "@/lib/pos";
 import { DEMO_SLUG, ensureDemoData } from "@/lib/seed";
+import { DEMO_ENABLED } from "@/lib/demo-mode";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "سفارش‌گیر کیوسک" };
@@ -16,7 +17,7 @@ export const viewport = { width: "device-width", initialScale: 1, maximumScale: 
 export default async function KioskPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ template?: string }> }) {
   const { slug } = await params;
   const { template } = await searchParams;
-  if (slug === DEMO_SLUG) await ensureDemoData();
+  if (slug === DEMO_SLUG) { if (!DEMO_ENABLED) notFound(); await ensureDemoData(); }
   const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
   if (!biz || biz.isSuspended) notFound();
   if (!hasAny(await featuresOf(biz), "kiosk")) notFound();

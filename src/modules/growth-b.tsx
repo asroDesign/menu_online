@@ -1,4 +1,5 @@
 "use client";
+import { TERM_LABELS, type BillingTerm, type PricedPlan } from "@/lib/plan-pricing";
 
 import { useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -529,7 +530,8 @@ export function PlanPage() {
   const toast = useToast();
   const sp = useSearchParams();
   const locked = sp.get("locked");
-  const [d, setD] = useState<{ plan: string; features: FeatureMap; matrix: Record<string, FeatureMap>; upgradeRequest: string | null; plans: typeof PLANS; endsAt: string | null } | null>(null);
+  const [d, setD] = useState<{ plan: string; features: FeatureMap; matrix: Record<string, FeatureMap>; upgradeRequest: string | null; plans: PricedPlan[]; endsAt: string | null } | null>(null);
+  const [term, setTerm] = useState<BillingTerm>(12);
   const [busy, setBusy] = useState("");
   useEffect(() => { api<NonNullable<typeof d>>("/api/plan").then(setD); }, []);
   const lockedDef = useMemo(() => FEATURES.find((x) => x.key === locked), [locked]);
@@ -544,6 +546,7 @@ export function PlanPage() {
       <PageHeader title="پلن و امکانات" subtitle="امکانات هر پلن و وضعیت دسترسی حساب شما" />
       <IconText>{lockedDef && <div className="mb-5 flex items-start gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200"><span className="text-xl">{<EmojiIcon emoji="" />}</span><p>امکان «<b>{lockedDef.label}</b>» در پلن فعلی شما (<b>{planName(d.plan)}</b>) فعال نیست. برای استفاده، پلن خود را ارتقا دهید.</p></div>}</IconText>
       <IconText>{d.upgradeRequest && <div className="mb-5 rounded-2xl bg-sky-50 p-4 text-sm text-sky-900 ring-1 ring-sky-200">{<EmojiIcon emoji="" />} درخواست ارتقا به پلن <b>{planName(d.upgradeRequest)}</b> در انتظار تأیید است.</div>}</IconText>
+      <div className="mb-5 flex gap-2" role="group" aria-label="دوره تعرفه">{([6,12] as const).map(t=><Button key={t} variant={term===t ? "primary" : "secondary"} aria-pressed={term===t} onClick={()=>setTerm(t)}>{TERM_LABELS[t]}</Button>)}</div>
       <div className="grid gap-4 md:grid-cols-3">
         {d.plans.map((p) => {
           const cur = p.key === d.plan;
@@ -551,8 +554,8 @@ export function PlanPage() {
             <Card key={p.key} className={cn("p-5", cur && "ring-2 ring-brand-500")}>
               <div className="flex items-center justify-between"><h3 className="text-lg font-extrabold">{p.name}</h3>{cur && <Badge color="brand">پلن شما</Badge>}</div>
               <p className="mt-1 text-xs text-stone-500">{p.tag}</p>
-              <p className="mt-4 text-xs text-stone-400 line-through">{formatNumber(p.oldPrice)} تومان</p>
-              <p className="text-2xl font-black">{formatNumber(p.price)} <span className="text-xs font-medium text-stone-500">تومان / سال</span></p>
+              {p.terms[term].base > p.terms[term].total && <p className="mt-4 text-xs text-stone-400 line-through">{formatNumber(p.terms[term].base)} تومان</p>}
+              <p className="text-2xl font-black">{formatNumber(p.terms[term].total)} <span className="text-xs font-medium text-stone-500">تومان / {TERM_LABELS[term]}</span></p>
               <p className="mt-3 text-xs text-stone-500">{toFa(FEATURES.filter((f) => d.matrix[p.key][f.key] !== "no").length)} از {toFa(FEATURES.length)} امکان</p>
               <Button className="mt-4 w-full" variant={cur ? "secondary" : "primary"} disabled={cur || d.upgradeRequest === p.key} loading={busy === p.key} onClick={() => request(p.key)}>{cur ? "پلن فعلی" : d.upgradeRequest === p.key ? "درخواست ثبت شده" : "درخواست تغییر به این پلن"}</Button>
             </Card>

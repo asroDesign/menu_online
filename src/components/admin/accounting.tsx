@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatCompact, formatDate, formatNumber, formatPrice, toFa } from "@/lib/format";
@@ -13,17 +12,23 @@ const toEn = (s: string) => Number(s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳
 const INV_ST: Record<string, [string, string]> = { unpaid: ["پرداخت‌نشده", "amber"], paid: ["پرداخت شد", "emerald"], void: ["باطل", "stone"] };
 
 export function AdminAccounting({ me, params }: { me: Me; params: Record<string, string> }) {
-  const [sub, setSub] = useState<"summary" | "invoices" | "expenses">((params.sub as any) ?? "summary");
+  const [sub, setSub] = useState<"summary" | "invoices" | "expenses" | "documents">((params.sub as any) ?? "summary");
   return (
     <div className="animate-fade-in">
       <div className="mb-5"><h1 className="text-xl font-extrabold sm:text-2xl">اشتراک‌ها و حسابداری سامانه</h1><p className="mt-1 text-sm text-stone-500">فاکتور فروش اشتراک، دریافت‌ها، هزینه‌ها و گزارش مالی (تاریخ شمسی)</p></div>
-      <div className="mb-5 flex gap-2"><IconText>{([["summary", " گزارش مالی"], ["invoices", " فاکتورهای اشتراک"], ["expenses", " هزینه‌های سامانه"]] as const).map(([k, l]) => <button key={k} onClick={() => setSub(k)} className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold", sub === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</IconText></div>
+      <div className="mb-5 flex gap-2 overflow-x-auto"><IconText>{([["summary", " گزارش مالی"], ["invoices", " فاکتورهای اشتراک"], ["expenses", " هزینه‌های سامانه"], ["documents", " اسناد حسابداری"]] as const).map(([k, l]) => <button key={k} onClick={() => setSub(k)} className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold", sub === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</IconText></div>
       {sub === "summary" && <Summary />}
       {sub === "invoices" && <Invoices params={params} />}
       {sub === "expenses" && <Expenses />}
+      {sub === "documents" && <AccountingDocuments />}
       <span className="hidden">{me.id}</span>
     </div>
   );
+}
+
+function AccountingDocuments() {
+  const { data, error, loading, reload } = useGet<{ items: any[] }>("/api/admin/accounting-documents");
+  return <div className="space-y-4"><div><h2 className="text-lg font-extrabold">اسناد خودکار همکاری در فروش</h2><p className="mt-1 text-sm text-stone-500">سند هزینه و بدهی با ثبت پورسانت، و سند تسویه با پرداخت برداشت ثبت می‌شود.</p></div>{error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-56 rounded-2xl" /> : !data?.items.length ? <EmptyState title="سندی ثبت نشده" description="پس از ثبت فروش پورسانتی یا تسویه برداشت، سند اینجا نمایش داده می‌شود." /> : <Card className="overflow-x-auto"><table className="w-full min-w-[780px] text-sm"><thead><tr className="border-b bg-base-200 text-xs text-base-content/60"><th className="p-3 text-start">تاریخ</th><th className="p-3 text-start">شرح</th><th className="p-3 text-start">بدهکار</th><th className="p-3 text-start">بستانکار</th><th className="p-3 text-end">مبلغ (تومان)</th><th className="p-3 text-start">ثبت‌کننده</th></tr></thead><tbody className="divide-y divide-base-200">{data.items.map((x) => <tr key={x.id}><td className="whitespace-nowrap p-3 text-xs">{formatDate(x.date)}</td><td className="p-3">{x.description}</td><td className="p-3"><Badge color="rose">{x.debitAccount}</Badge></td><td className="p-3"><Badge color="emerald">{x.creditAccount}</Badge></td><td className="p-3 text-end font-bold tabular-nums">{formatNumber(x.amount)}</td><td className="p-3 text-xs">{x.createdBy}</td></tr>)}</tbody></table></Card>}</div>;
 }
 
 function Summary() {
@@ -98,8 +103,8 @@ function Invoices({ params }: { params: Record<string, string> }) {
       <Modal open={!!create} onClose={() => setCreate(null)} title="صدور فاکتور اشتراک" footer={<><Button variant="ghost" onClick={() => setCreate(null)}>انصراف</Button><Button onClick={save} disabled={!create?.businessId}>{create?.markPaid ? "صدور و ثبت پرداخت" : "صدور فاکتور"}</Button></>}>
         {create && <div className="space-y-4">
           <Field label="کسب‌وکار"><Select value={create.businessId} onChange={(e) => setCreate({ ...create, businessId: e.target.value })}><option value="">انتخاب…</option>{tenants.map((b) => <option key={b.id} value={b.id}>{b.name} — {planName(b.plan)}</option>)}</Select></Field>
-          <div className="grid gap-3 sm:grid-cols-3"><Field label="پلن"><Select value={create.plan} onChange={(e) => setCreate({ ...create, plan: e.target.value })}>{PLANS.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}</Select></Field><Field label="مدت (ماه)"><Input inputMode="numeric" value={create.months ?? 12} onChange={(e) => setCreate({ ...create, months: e.target.value })} /></Field><Field label="تخفیف (تومان)"><Input inputMode="numeric" value={create.discount ?? ""} onChange={(e) => setCreate({ ...create, discount: e.target.value })} /></Field></div>
-          <Field label="مبلغ نهایی (تومان)" hint="خالی = محاسبه‌ی خودکار از قیمت پلن، مدت و تخفیف"><Input inputMode="numeric" value={create.amount ?? ""} onChange={(e) => setCreate({ ...create, amount: e.target.value })} /></Field>
+          <div className="grid gap-3 sm:grid-cols-3"><Field label="پلن"><Select value={create.plan} onChange={(e) => setCreate({ ...create, plan: e.target.value })}>{PLANS.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}</Select></Field><Field label="دوره اشتراک"><Select value={create.months ?? 12} onChange={(e) => setCreate({ ...create, months: Number(e.target.value) })}><option value={6}>شش‌ماهه</option><option value={12}>سالانه</option></Select></Field><Field label="تخفیف اضافی (تومان)"><Input inputMode="numeric" value={create.discount ?? ""} onChange={(e) => setCreate({ ...create, discount: e.target.value })} /></Field></div>
+          <Field label="مبلغ نهایی (تومان)" hint="خالی = قیمت دوره پس از تخفیف تنظیم‌شده و تخفیف اضافی"><Input inputMode="numeric" value={create.amount ?? ""} onChange={(e) => setCreate({ ...create, amount: e.target.value })} /></Field>
           <Field label="توضیح"><Input value={create.note ?? ""} onChange={(e) => setCreate({ ...create, note: e.target.value })} /></Field>
           <label className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-900"><input type="checkbox" className="accent-emerald-600" checked={!!create.markPaid} onChange={(e) => setCreate({ ...create, markPaid: e.target.checked })} /> مبلغ دریافت شده است (فوراً پلن را فعال کن)</label>
           {create.markPaid && <div className="grid gap-3 sm:grid-cols-2"><Field label="روش دریافت"><Select value={create.method ?? "transfer"} onChange={(e) => setCreate({ ...create, method: e.target.value })}>{Object.entries(METHOD).filter(([k]) => k !== "other").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field><Field label="شماره پیگیری / رسید"><Input value={create.refNo ?? ""} onChange={(e) => setCreate({ ...create, refNo: e.target.value })} /></Field></div>}

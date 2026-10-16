@@ -20,14 +20,14 @@ export const DEPT_TICKETS: Record<string, string[]> = {
   super: Object.keys(TICKET_DEPTS), support: ["support"], tech: ["tech"], finance: ["finance"], sales: ["sales"],
 };
 
-export type AdminPerm = "overview" | "businesses" | "businesses_write" | "impersonate" | "plans" | "accounting" | "tickets" | "users" | "announcements" | "settings" | "audit";
-export const ALL_PERMS: AdminPerm[] = ["overview", "businesses", "businesses_write", "impersonate", "plans", "accounting", "tickets", "users", "announcements", "settings", "audit"];
+export type AdminPerm = "overview" | "businesses" | "businesses_write" | "impersonate" | "plans" | "accounting" | "tickets" | "users" | "announcements" | "settings" | "audit" | "content" | "affiliates";
+export const ALL_PERMS: AdminPerm[] = ["overview", "businesses", "businesses_write", "impersonate", "plans", "accounting", "tickets", "users", "announcements", "settings", "audit", "content", "affiliates"];
 export const ADMIN_PERMS: Record<string, AdminPerm[]> = {
   super: ALL_PERMS,
-  support: ["overview", "businesses", "impersonate", "tickets", "announcements"],
+  support: ["overview", "businesses", "impersonate", "tickets", "announcements", "content"],
   tech: ["overview", "businesses", "impersonate", "tickets"],
-  finance: ["overview", "businesses", "accounting", "tickets"],
-  sales: ["overview", "businesses", "businesses_write", "plans", "accounting", "tickets"],
+  finance: ["overview", "businesses", "accounting", "tickets", "affiliates"],
+  sales: ["overview", "businesses", "businesses_write", "plans", "accounting", "tickets", "content", "affiliates"],
 };
 export const permsOf = (dept: string | null | undefined) => ADMIN_PERMS[dept ?? "super"] ?? [];
 

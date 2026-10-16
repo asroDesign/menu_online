@@ -16,6 +16,7 @@ import { AdminTickets } from "@/components/admin/tickets";
 import { UsersTab } from "@/components/admin/users";
 import { PlansTab } from "@/components/admin/plans";
 import { AnnouncementsTab, AuditTab, SettingsTab } from "@/components/admin/misc";
+import { AffiliatesTab, ContentTab, LeadsTab } from "@/components/admin/marketing";
 
 type Tab = { key: string; label: string; emoji: string; perm: AdminPerm };
 const TABS: Tab[] = [
@@ -23,6 +24,9 @@ const TABS: Tab[] = [
   { key: "businesses", label: "کسب‌وکارها", emoji: "", perm: "businesses" },
   { key: "accounting", label: "اشتراک‌ها و حسابداری", emoji: "", perm: "accounting" },
   { key: "tickets", label: "تیکت‌ها", emoji: "", perm: "tickets" },
+  { key: "leads", label: "درخواست‌های سایت", emoji: "", perm: "tickets" },
+  { key: "content", label: "محتوای سایت و سئو", emoji: "", perm: "content" },
+  { key: "affiliates", label: "همکاری در فروش", emoji: "", perm: "affiliates" },
   { key: "plans", label: "پلن‌ها و قیمت‌ها", emoji: "", perm: "plans" },
   { key: "users", label: "کاربران و تیم", emoji: "", perm: "users" },
   { key: "announcements", label: "اطلاعیه‌ها", emoji: "", perm: "announcements" },
@@ -31,8 +35,8 @@ const TABS: Tab[] = [
 ];
 const ADMIN_GROUPS = [
   { title: "مدیریت", keys: ["overview", "businesses", "users"] },
-  { title: "اشتراک و مالی", keys: ["accounting", "plans"] },
-  { title: "پشتیبانی", keys: ["tickets"] },
+  { title: "اشتراک و مالی", keys: ["accounting", "plans", "affiliates"] },
+  { title: "وب‌سایت و پشتیبانی", keys: ["content", "leads", "tickets"] },
   { title: "سامانه", keys: ["announcements", "settings", "audit"] },
 ];
 
@@ -111,7 +115,7 @@ function Inner({ me }: { me: Me }) {
             <h3 className="px-3.5 pb-1 text-[10px] font-extrabold tracking-wide text-base-content/40">{group.title}</h3>
             {items.map((t) => (
               <button key={t.key} type="button" aria-current={tab === t.key ? "page" : undefined} onClick={() => go(t.key)} className={cn("group flex min-h-11 w-full min-w-0 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-1.5 text-start text-sm font-semibold transition", tab === t.key ? "bg-primary text-primary-content shadow-md shadow-primary/15" : "text-base-content/70 hover:bg-base-200 hover:text-base-content")}>
-                <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-xl transition", tab === t.key ? "bg-white/15" : "bg-base-200/80 group-hover:bg-base-300/70")}><Icon name={t.key === "overview" ? "home" : t.key === "businesses" ? "building" : t.key === "accounting" ? "wallet" : t.key === "tickets" ? "headset" : t.key === "plans" ? "layers" : t.key === "users" ? "users" : t.key === "announcements" ? "bell" : t.key === "settings" ? "settings" : "file"} className="size-4 shrink-0" /></span><span className="min-w-0 flex-1">{t.label}</span>
+                <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-xl transition", tab === t.key ? "bg-white/15" : "bg-base-200/80 group-hover:bg-base-300/70")}><Icon name={t.key === "overview" ? "home" : t.key === "businesses" ? "building" : t.key === "accounting" ? "wallet" : t.key === "tickets" || t.key === "leads" ? "headset" : t.key === "plans" ? "layers" : t.key === "users" || t.key === "affiliates" ? "users" : t.key === "content" ? "book" : t.key === "announcements" ? "bell" : t.key === "settings" ? "settings" : "file"} className="size-4 shrink-0" /></span><span className="min-w-0 flex-1">{t.label}</span>
                 {t.key === "tickets" && !!openTickets && <span className="shrink-0 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-stone-900">{openTickets.toLocaleString("fa-IR")}</span>}
               </button>
             ))}
@@ -147,6 +151,9 @@ function Inner({ me }: { me: Me }) {
           {tab === "businesses" && <Businesses me={me} params={params} />}
           {tab === "accounting" && <AdminAccounting me={me} params={params} />}
           {tab === "tickets" && <AdminTickets me={me} params={params} />}
+          {tab === "leads" && <LeadsTab />}
+          {tab === "content" && <ContentTab />}
+          {tab === "affiliates" && <AffiliatesTab />}
           {tab === "plans" && <PlansTab />}
           {tab === "users" && <UsersTab me={me} />}
           {tab === "announcements" && <AnnouncementsTab />}

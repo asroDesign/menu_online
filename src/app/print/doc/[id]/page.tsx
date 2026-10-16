@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import { db } from "@/db";
 import { accAccounts, accDocuments, accFiscalYears, accLines } from "@/db/schema";
 import { PrintButton } from "@/components/print-button";
@@ -35,7 +36,7 @@ export default async function PrintDoc({ params }: { params: Promise<{ id: strin
   return (
     <div className="min-h-dvh bg-stone-100 p-4 print:bg-white print:p-0">
       <div className="no-print mx-auto mb-4 flex max-w-4xl items-center justify-between">
-        <a href="/dashboard/accounting" className="text-sm font-semibold text-stone-600">← بازگشت به حسابداری</a>
+        <Link href="/dashboard/accounting" className="text-sm font-semibold text-stone-600">← بازگشت به حسابداری</Link>
         <PrintButton />
       </div>
       <div className="mx-auto max-w-4xl rounded-2xl bg-white p-8 shadow print:max-w-none print:rounded-none print:p-4 print:shadow-none" style={{ fontSize: 13 }}>

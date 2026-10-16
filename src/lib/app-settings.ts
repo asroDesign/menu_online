@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { appSettings } from "@/db/schema";
+import { pricePlan, type PriceSettings } from "@/lib/plan-pricing";
 import { PLANS } from "@/lib/plans";
 
 export type SupportInfo = { phone: string; email: string; hours: string };
@@ -15,8 +16,9 @@ export async function setSetting(key: string, value: Record<string, unknown>) {
 }
 
 export async function getPlanList() {
-  const o = await getSetting<Record<string, { price?: number; oldPrice?: number }>>("planPrices", {});
-  return PLANS.map((p) => ({ ...p, price: o[p.key]?.price ?? p.price, oldPrice: o[p.key]?.oldPrice ?? p.oldPrice }));
+  const o = await getSetting<Record<string, PriceSettings>>("planPrices", {});
+  return PLANS.map(p => pricePlan(p, o[p.key]));
 }
+
 export const getSupport = () => getSetting<SupportInfo>("support", { phone: "", email: "", hours: "۲۴ ساعته" });
 export const getBilling = () => getSetting<BillingInfo>("billing", { bank: "", owner: "", card: "", sheba: "", note: "" });

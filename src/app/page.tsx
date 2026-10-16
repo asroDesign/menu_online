@@ -1,44 +1,38 @@
-import { EmojiIcon , IconText} from "@/components/ui";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
+import { ArrowUpLeft, ArrowLeft, BookOpen, CalendarDays, ChartNoAxesCombined, ChefHat, Coffee, Layers, QrCode, ReceiptText, Star, UtensilsCrossed, Wallet } from "lucide-react";
 import { db } from "@/db";
 import { businesses } from "@/db/schema";
 import { MenuClient } from "@/components/menu-client";
-import { getPlanList } from "@/lib/app-settings";
-import { formatNumber } from "@/lib/format";
 import { MiniSite } from "@/components/mini-site";
-import { featuresOf } from "@/lib/entitlements";
+import { getPlanList } from "@/lib/app-settings";
+import { featuresOf, getPlanOverrides } from "@/lib/entitlements";
+import { formatNumber } from "@/lib/format";
+import { resolveFeatures } from "@/lib/plans";
 import { buildPublicMenu } from "@/lib/public-menu";
 import { ensureDemoData, DEMO_SLUG } from "@/lib/seed";
+import { DEMO_ENABLED } from "@/lib/demo-mode";
 import { getAuth } from "@/lib/auth";
-
+import { getPublicFaqs, getPublicPosts, getPublicTestimonials } from "@/lib/marketing-content";
+import { SiteFooter } from "@/components/marketing/site-footer";
+import { SiteHeader } from "@/components/marketing/site-header";
+import { Pricing } from "@/components/marketing/pricing";
+import { DashboardPreview } from "@/components/marketing/dashboard-preview";
+import "@/components/marketing/marketing.css";
 export const dynamic = "force-dynamic";
-
-const FEATURES = [
-  { icon: "", title: "منوی دیجیتال با QR", text: "برای هر میز یک QR اختصاصی؛ مشتری اسکن می‌کند، منوی تصویری را می‌بیند و سفارش می‌دهد." },
-  { icon: "", title: "پنل سفارش‌گیری گارسون", text: "انتخاب میز، لمس محصولات و ارسال لحظه‌ای سفارش به آشپزخانه؛ بدون کاغذ و بدون اشتباه." },
-  { icon: "", title: "کاتالوگ محصولات", text: "دسته‌بندی، قیمت، تخفیف، آیکن و تصویر برای هر آیتم. با یک کلیک ناموجود یا ویژه کنید." },
-  { icon: "", title: "داشبورد فروش", text: "فروش روزانه، پرفروش‌ترین‌ها، میانگین سفارش و وضعیت میزها را زنده ببینید." },
-  { icon: "", title: "مدیریت میز و سالن", text: "سالن، تراس و VIP تعریف کنید؛ میزهای اشغال و آزاد با رنگ مشخص هستند." },
-  { icon: "", title: "جریان سفارش حرفه‌ای", text: "از «جدید» تا «پرداخت»؛ وضعیت هر سفارش را با یک لمس تغییر دهید." },
+const solutions = [
+  { icon: QrCode, title: "منویی که همیشه تازه است", text: "تصویر، قیمت و موجودی را به‌روز کنید؛ مشتری همان لحظه آخرین منو را روی موبایل خود می‌بیند.", label: "منوی دیجیتال و QR", className: "solution-menu" },
+  { icon: ChefHat, title: "هر سفارش، سر جای خودش", text: "صندوق، گارسون و آشپزخانه را به هم وصل کنید. از ثبت سفارش تا آماده‌سازی و تحویل، مسیر روشن است.", label: "سفارش‌گیری یکپارچه", className: "solution-orders" },
+  { icon: ChartNoAxesCombined, title: "تصمیم بهتر با عددهای روشن", text: "فروش، هزینه‌ها و موجودی انبار را کنار هم ببینید و مدیریت روزانه را با دید بازتری پیش ببرید.", label: "حسابداری و انبار", className: "solution-finance" },
 ];
-
-const PLANS = [
-  { name: "پایه", tag: "منو و کاتالوگ", price: "۲٬۹۹۰٬۰۰۰", old: "۳٬۴۹۰٬۰۰۰", items: ["راه‌اندازی اولیه رایگان", "منوی دیجیتال و QR نامحدود", "کاتالوگ محصولات", "دسته‌بندی و تخفیف", "پشتیبانی تیکتی ۲۴/۷"] },
-  { name: "پرمیوم", tag: "سفارشگیر و گارسون", price: "۱۱٬۹۹۰٬۰۰۰", old: "۱۳٬۹۹۰٬۰۰۰", popular: true, items: ["همه امکانات پلن پایه", "پنل سفارش‌گیری گارسون", "داشبورد آماده‌سازی", "ثبت سفارش، پیش‌سفارش، بیرون‌بر", "گزارش‌گیری فروش"] },
-  { name: "پرمیوم پلاس", tag: "برندهای زنجیره‌ای", price: "۱۹٬۹۹۰٬۰۰۰", old: "۲۴٬۹۹۰٬۰۰۰", items: ["همه امکانات پلن پرمیوم", "وب‌سایت اختصاصی برند", "دامنه .com و .ir رایگان", "چند شعبه", "اولویت پشتیبانی"] },
+const fallbackFaqs = [
+  ["مشتری برای دیدن منو باید برنامه نصب کند؟", "خیر. کافی است QR روی میز را اسکن کند یا لینک منو را باز کند. منو در مرورگر موبایل نمایش داده می‌شود."],
+  ["آیا امکانات پلن‌ها متفاوت است؟", "بله. در صفحه تعرفه‌ها می‌توانید تمام امکانات و تفاوت پلن‌ها را مشاهده کنید. دسترسی هر امکان طبق پلن انتخابی شما تعیین می‌شود."],
+  ["تعرفه‌ها چگونه محاسبه می‌شوند؟", "اشتراک به صورت شش‌ماهه یا سالانه ارائه می‌شود. مبلغ نمایش داده‌شده برای کل دوره است و تخفیف فعال همان دوره در آن محاسبه شده است."],
+  ["قبل از انتخاب می‌توانم سامانه را ببینم؟", "بله. منوی نمونه را باز کنید یا برای نمایش بخش‌های مدیریتی، درخواست دموی رایگان ثبت کنید."],
 ];
-
-const FAQ = [
-  ["منوی دیجیتال چیست؟", "نسخه آنلاین منوی شماست که مشتری از طریق QR کد یا لینک، بدون نصب برنامه به آن دسترسی دارد؛ همیشه به‌روز و بدون هزینه چاپ."],
-  ["آیا فقط برای رستوران و کافه است؟", "خیر. هر کسب‌وکاری با محصول یا خدمات، از گل‌فروشی تا سالن زیبایی، می‌تواند از آن به‌عنوان کاتالوگ آنلاین استفاده کند."],
-  ["آیا برای مشاهده و مدیریت نرم‌افزار لازم است؟", "نه. همه‌چیز وب‌اپلیکیشن است و روی موبایل، تبلت و کامپیوتر کار می‌کند."],
-  ["چطور سفارش‌ها به گارسون می‌رسد؟", "سفارش مشتری یا گارسون بلافاصله در بخش سفارش‌ها نمایش داده می‌شود و می‌توانید وضعیت آن را تا پرداخت پیش ببرید."],
-];
-
 export default async function Home() {
-  const livePlans = await getPlanList();
   // Custom-domain parking: a verified customer domain serves its own mini-site / menu at "/"
   const host = ((await headers()).get("host") ?? "").split(":")[0].toLowerCase();
   if (host && !["localhost", "127.0.0.1"].includes(host)) {
@@ -51,170 +45,20 @@ export default async function Home() {
       }
     }
   }
+
   await ensureDemoData();
-  const auth = await getAuth();
-  const cta = auth ? { href: "/dashboard", label: "ورود به داشبورد" } : { href: "/register", label: "شروع رایگان" };
-
-  return (
-    <div className="bg-white">
-      <nav className="navbar sticky top-0 z-40 border-b border-base-300/80 bg-base-100/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-brand-500 text-lg text-white shadow-lg shadow-brand-500/30"><IconText>{<EmojiIcon emoji="" />}</IconText></span>
-            <span className="text-lg font-extrabold">منوی دیجیتال</span>
-          </Link>
-          <div className="hidden items-center gap-7 text-sm font-medium text-stone-600 md:flex">
-            <a href="#features" className="hover:text-brand-600">امکانات</a>
-            <a href="#pricing" className="hover:text-brand-600">تعرفه‌ها</a>
-            <a href="#faq" className="hover:text-brand-600">سوالات متداول</a>
-          </div>
-          <div className="flex items-center gap-2">
-            {!auth && <Link href="/login" className="rounded-xl px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">ورود</Link>}
-            <Link href={cta.href} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800">{cta.label}</Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-brand-50 via-white to-white">
-        <div className="pointer-events-none absolute -start-32 top-10 size-96 rounded-full bg-brand-200/40 blur-3xl" />
-        <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-2 lg:py-24">
-          <div>
-            <span className="inline-flex items-center gap-2 rounded-full bg-brand-100 px-4 py-1.5 text-xs font-bold text-brand-700"><IconText>{<EmojiIcon emoji="" />}</IconText> کاتالوگ آنلاین · منوی QR · سفارش گارسون</span>
-            <h1 className="mt-6 text-4xl leading-[1.35] font-black tracking-tight text-stone-900 sm:text-5xl">
-              منوی کافه و رستوران‌تان را <span className="text-brand-500">دیجیتال</span> کنید و سفارش‌گیری را هوشمند
-            </h1>
-            <p className="mt-6 max-w-xl text-lg leading-9 text-stone-600">
-              مشتری با اسکن QR میز، منوی تصویری شما را می‌بیند و سفارش می‌دهد؛ گارسون و آشپزخانه همان لحظه مطلع می‌شوند و شما همه‌چیز را از یک داشبورد مدیریت می‌کنید.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link href={cta.href} className="btn btn-primary rounded-2xl px-7 py-3.5 font-bold text-white shadow-xl shadow-brand-500/30 transition hover:bg-brand-600">{cta.label}</Link>
-              <Link href="/restaurants" className="btn rounded-2xl border-base-300 bg-base-100 px-7 py-3.5 font-bold text-base-content transition hover:bg-base-200">رستوران‌ها <IconText>{<EmojiIcon emoji="" />}</IconText></Link>
-              <Link href={`/m/${DEMO_SLUG}?table=3`} className="btn rounded-2xl border-base-300 bg-base-100 px-7 py-3.5 font-bold text-base-content transition hover:bg-base-200">مشاهده منوی نمونه <IconText>{<EmojiIcon emoji="" />}</IconText></Link>
-            </div>
-            <div className="mt-10 flex gap-8 text-sm">
-              {[["+۱۰ سال", "تجربه سفارشگیر"], ["۹۹٫۹٪", "پایداری سرویس"], ["۲۴/۷", "پشتیبانی"]].map(([a, b]) => (
-                <div key={b}><p className="text-xl font-black text-stone-900">{a}</p><p className="text-stone-500">{b}</p></div>
-              ))}
-            </div>
-          </div>
-
-          {/* Phone mock */}
-          <div className="relative mx-auto w-full max-w-sm">
-            <div className="absolute -end-6 top-16 z-10 hidden rounded-2xl bg-white p-3 shadow-xl ring-1 ring-stone-100 sm:block">
-              <p className="text-[11px] text-stone-500">سفارش جدید · میز ۳</p>
-              <p className="mt-1 text-sm font-extrabold">۳ آیتم · ۷۸۵٬۰۰۰ تومان</p>
-              <span className="mt-1 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">در انتظار تأیید</span>
-            </div>
-            <div className="absolute -start-6 bottom-24 z-10 hidden rounded-2xl bg-stone-900 p-3 text-white shadow-xl sm:block">
-              <p className="text-[11px] text-stone-400">فروش امروز</p>
-              <p className="text-sm font-extrabold">۴٬۲۸۰٬۰۰۰ تومان</p>
-              <p className="text-[10px] text-emerald-400">▲ ۱۸٪ نسبت به دیروز</p>
-            </div>
-            <div className="rounded-[2.5rem] bg-stone-900 p-3 shadow-2xl">
-              <div className="overflow-hidden rounded-[2rem] bg-[#f6f5f3]">
-                <div className="bg-gradient-to-br from-brand-500 to-brand-700 px-5 pb-6 pt-8 text-white">
-                  <div className="flex items-center gap-3"><span className="flex size-12 items-center justify-center rounded-xl bg-white text-2xl"><IconText>{<EmojiIcon emoji="" />}</IconText></span><div><p className="font-extrabold">کافه رستوران نیلوفر</p><p className="text-[11px] text-white/80"><IconText>{<EmojiIcon emoji="" />}</IconText> میز ۳ · سالن اصلی</p></div></div>
-                </div>
-                <div className="-mt-3 space-y-2.5 rounded-t-3xl bg-[#f6f5f3] p-4">
-                  <div className="flex gap-2 text-xs font-semibold"><span className="rounded-full bg-brand-500 px-3 py-1.5 text-white"><IconText>{<EmojiIcon emoji="" />}</IconText> قهوه</span><span className="rounded-full bg-white px-3 py-1.5 text-stone-600"><IconText>{<EmojiIcon emoji="" />}</IconText> پیتزا</span><span className="rounded-full bg-white px-3 py-1.5 text-stone-600"><IconText>{<EmojiIcon emoji="" />}</IconText> دسر</span></div>
-                  <IconText>{[["", "کاپوچینو", "۱۱۵٬۰۰۰", "/food/coffee.jpg"], ["", "پیتزا پپرونی", "۲۹۵٬۰۰۰", "/food/pizza.jpg"], ["", "چیزکیک نیویورکی", "۱۵۵٬۰۰۰", "/food/dessert.jpg"]].map(([e, n, p, img]) => (
-                    <div key={n} className="flex gap-3 rounded-2xl bg-white p-2.5 shadow-sm">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={img} alt={e} className="size-16 rounded-xl object-cover" />
-                      <div className="flex-1"><p className="text-sm font-bold">{n}</p><p className="mt-5 text-xs font-extrabold">{p} تومان</p></div>
-                      <span className="flex size-8 items-center justify-center self-end rounded-lg bg-brand-500 text-white">+</span>
-                    </div>
-                  ))}</IconText>
-                  <div className="rounded-2xl bg-brand-500 p-3.5 text-center text-sm font-bold text-white">مشاهده و ثبت سفارش · ۵۶۵٬۰۰۰ تومان</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="features" className="mx-auto max-w-6xl px-5 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-bold text-brand-600">امکانات</p>
-          <h2 className="mt-2 text-3xl font-black">همه‌چیز برای مدیریت منو و سفارش</h2>
-          <p className="mt-4 leading-8 text-stone-500">از ساخت منو تا تحویل سفارش و گزارش فروش، در یک پلتفرم یکپارچه.</p>
-        </div>
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="card border border-base-300/70 bg-base-100 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
-              <span className="flex size-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm ring-1 ring-stone-100">{f.icon}</span>
-              <h3 className="mt-4 text-lg font-extrabold">{f.title}</h3>
-              <p className="mt-2 text-sm leading-7 text-stone-500">{f.text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="bg-stone-900 py-20 text-white">
-        <div className="mx-auto max-w-6xl px-5">
-          <h2 className="text-center text-3xl font-black">در سه قدم آنلاین شوید</h2>
-          <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {[["۱", "ثبت‌نام و ساخت منو", "دسته‌بندی‌ها و محصولات را با قیمت و تصویر اضافه کنید."], ["۲", "چاپ QR میزها", "برای هر میز QR اختصاصی بسازید و روی میز بگذارید."], ["۳", "دریافت سفارش", "سفارش مشتری و گارسون را در داشبورد مدیریت کنید."]].map(([n, t, d]) => (
-              <div key={n} className="rounded-3xl bg-white/5 p-7 ring-1 ring-white/10">
-                <span className="flex size-11 items-center justify-center rounded-xl bg-brand-500 text-lg font-black">{n}</span>
-                <h3 className="mt-5 text-lg font-extrabold">{t}</h3>
-                <p className="mt-2 text-sm leading-7 text-stone-400">{d}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="pricing" className="mx-auto max-w-6xl px-5 py-20">
-        <div className="text-center">
-          <p className="text-sm font-bold text-brand-600">تعرفه سالانه</p>
-          <h2 className="mt-2 text-3xl font-black">پلنی متناسب با اندازه کسب‌وکار شما</h2>
-          <span className="mt-4 inline-block rounded-full bg-rose-50 px-4 py-1 text-xs font-bold text-rose-600">۱۵٪ تخفیف ویژه</span>
-        </div>
-        <div className="mt-12 grid gap-6 lg:grid-cols-3">
-          {PLANS.map((p, pi) => (
-            <div key={p.name} className={`card relative rounded-3xl border p-7 ${p.popular ? "border-neutral bg-neutral text-neutral-content shadow-2xl lg:-translate-y-3" : "border-base-300 bg-base-100 shadow-sm"}`}>
-              {p.popular && <span className="absolute -top-3 start-7 rounded-full bg-brand-500 px-3 py-1 text-xs font-bold text-white">محبوب‌ترین</span>}
-              <h3 className="text-xl font-black">{p.name}</h3>
-              <p className={`mt-1 text-sm ${p.popular ? "text-stone-400" : "text-stone-500"}`}>{p.tag}</p>
-              <p className="mt-6 text-sm line-through opacity-50">{formatNumber(livePlans[pi]?.oldPrice ?? 0)} تومان</p>
-              <p className="text-3xl font-black">{formatNumber(livePlans[pi]?.price ?? 0)} <span className="text-sm font-medium opacity-70">تومان / سال</span></p>
-              <ul className="mt-6 space-y-3 text-sm">
-                {p.items.map((i) => (
-                  <li key={i} className="flex items-start gap-2.5"><span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-500 text-[11px] text-white">✓</span>{i}</li>
-                ))}
-              </ul>
-              <Link href={cta.href} className={`mt-8 block rounded-xl py-3 text-center text-sm font-bold ${p.popular ? "bg-brand-500 text-white hover:bg-brand-600" : "bg-stone-900 text-white hover:bg-stone-800"}`}>{cta.label}</Link>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="faq" className="mx-auto max-w-3xl px-5 pb-20">
-        <h2 className="mb-8 text-center text-3xl font-black">سوالات متداول</h2>
-        <div className="space-y-3">
-          {FAQ.map(([q, a]) => (
-            <details key={q} className="group rounded-2xl bg-stone-50 p-5 ring-1 ring-stone-100 open:bg-white open:shadow-md">
-              <summary className="flex list-none items-center justify-between font-bold">{q}<span className="text-brand-500 transition group-open:rotate-45">＋</span></summary>
-              <p className="mt-3 text-sm leading-8 text-stone-600">{a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
-
-      <section className="px-5 pb-20">
-        <div className="mx-auto max-w-5xl rounded-[2rem] bg-gradient-to-br from-brand-500 to-brand-700 p-10 text-center text-white shadow-2xl shadow-brand-500/30 sm:p-14">
-          <h2 className="text-3xl font-black">آماده‌اید منوی خود را آنلاین کنید؟</h2>
-          <p className="mx-auto mt-4 max-w-xl leading-8 text-white/90">همین حالا با حساب دمو داشبورد را با داده‌های واقعی ببینید یا حساب خودتان را بسازید.</p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link href={cta.href} className="rounded-2xl bg-white px-7 py-3.5 font-bold text-brand-700 hover:bg-brand-50">{cta.label}</Link>
-            {!auth && <Link href="/login" className="rounded-2xl bg-white/15 px-7 py-3.5 font-bold text-white ring-1 ring-white/40 hover:bg-white/25">ورود با حساب دمو</Link>}
-          </div>
-        </div>
-      </section>
-
-      <footer className="border-t border-stone-100 py-8 text-center text-sm text-stone-500"><IconText>{<EmojiIcon emoji="" />}</IconText> منوی دیجیتال — پلتفرم کاتالوگ، منوی QR و سفارش‌گیری گارسون</footer>
-    </div>
-  );
+  const [auth, plans, overrides, faqRows, testimonials, posts] = await Promise.all([getAuth(), getPlanList(), getPlanOverrides(), getPublicFaqs(), getPublicTestimonials(3), getPublicPosts(3)]);
+  const matrix = Object.fromEntries(plans.map(p=>[p.key,resolveFeatures(p.key,null,overrides)]));
+  const faqs = faqRows.length ? faqRows.slice(0,5).map(f=>[f.question,f.answer]) : fallbackFaqs;
+  return <div className="marketing-site"><SiteHeader/><main>
+    <section className="market-hero"><div className="market-container hero-grid"><div className="hero-copy"><span className="eyebrow"><span className="status-dot"/> برای کافه‌ها و رستوران‌های رو به رشد</span><h1>طعم خوب از شما،<br/><em>نظم کار با ما.</em></h1><p>از منوی روی میز تا سفارش در آشپزخانه؛<br className="desktop-break"/> رستوران‌تان را از یک جای ساده و یکپارچه مدیریت کنید.</p><div className="hero-actions"><Link href={auth ? "/dashboard" : "/demo"} className="btn market-button">{auth ? "ورود به داشبورد" : "سامانه را از نزدیک ببینید"}<ArrowUpLeft size={19}/></Link>{DEMO_ENABLED && <Link href={`/m/${DEMO_SLUG}?table=3`} className="btn market-secondary"><QrCode size={19}/> تجربه منوی مشتری</Link>}</div><div className="hero-assurances"><span>منوی دیجیتال</span><i/><span>سفارش‌گیری</span><i/><span>حسابداری و انبار</span></div></div><DashboardPreview/></div><div className="market-container hero-bottom"><span>یک همراه، برای تمام بخش‌های کسب‌وکار</span><div><span><Coffee size={19}/> کافه</span><span><UtensilsCrossed size={19}/> رستوران</span><span><ChefHat size={19}/> فودکورت</span><span><ReceiptText size={19}/> بیرون‌بر</span></div></div></section>
+    <section id="features" className="market-container market-section"><div className="section-heading split-heading"><div><span className="eyebrow">کمتر درگیر جزئیات، بیشتر کنار مشتری</span><h2>پشت یک تجربهٔ خوب،<br/>یک مدیریت خوب است.</h2></div><p>ابزارهای روزانهٔ شما در کنار هم قرار می‌گیرند؛<br/>تا برای مهم‌ترین بخش کار، وقت بیشتری داشته باشید.</p></div><div className="solutions-grid">{solutions.map(({icon:Icon,...s})=><article key={s.title} className={`solution-card ${s.className}`}><div className="solution-art"><Icon size={48} strokeWidth={1.25}/><span>{s.label}</span>{s.className==="solution-menu" ? <div className="mini-menu"><span>اسپرسو دبل <b>۸۵٬۰۰۰</b></span><span>کاپوچینو <b>۱۱۵٬۰۰۰</b></span><span>چیزکیک <b>۱۵۵٬۰۰۰</b></span></div> : s.className==="solution-orders" ? <div className="mini-flow"><span>ثبت</span><ArrowLeft size={14}/><span>آماده‌سازی</span><ArrowLeft size={14}/><span>تحویل</span></div> : <div className="mini-bars" aria-hidden="true">{[35,55,42,75,60,90,78].map((h,i)=><i key={i} style={{height:`${h}%`}}/>)}</div>}</div><div className="solution-copy"><h3>{s.title}</h3><p>{s.text}</p><Link href="/plans#comparison">امکانات این بخش <ArrowUpLeft size={16}/></Link></div></article>)}</div></section>
+    <section className="workflow-section"><div className="market-container workflow-grid"><div><span className="eyebrow">از سلام مشتری تا خداحافظی</span><h2>همهٔ تیم،<br/><em>در یک مسیر.</em></h2><p>فرقی ندارد سفارش از روی میز ثبت شود یا پشت صندوق؛ هر بخش اطلاعات مورد نیاز خودش را در اختیار دارد.</p><Link href="/tutorials" className="workflow-link">با سامانه آشنا شوید <ArrowUpLeft size={19}/></Link></div><ol className="workflow-steps">{[[QrCode,"۰۱","منو را به دست مشتری برسانید","منوی تصویری، دسته‌بندی و قیمت‌های به‌روز، با یک اسکن."],[ReceiptText,"۰۲","سفارش را به جریان بیندازید","ثبت سفارش توسط مشتری، گارسون یا صندوق، متناسب با پلن."],[ChefHat,"۰۳","آماده کنید و تحویل دهید","مدیریت وضعیت سفارش‌ها و ارسال اقلام به بخش آماده‌سازی."],[ChartNoAxesCombined,"۰۴","روز را با دید روشن تمام کنید","گزارش فروش، حسابداری و کنترل موجودی در پلن‌های مربوط."]].map(([I,n,title,desc])=>{const Icon=I as typeof QrCode;return <li key={String(n)}><span className="step-icon"><Icon size={22}/></span><div><small>{String(n)}</small><h3>{String(title)}</h3><p>{String(desc)}</p></div></li>})}</ol></div></section>
+    <section className="market-container module-strip"><div><CalendarDays/><h3>جای مهمان‌تان محفوظ</h3><p>رزرو میز با امکان تنظیم پیش‌پرداخت</p></div><div><Wallet/><h3>حساب‌ها مرتب‌تر</h3><p>پرداخت، هزینه و اسناد در کنار هم</p></div><div><Layers/><h3>موجودی زیر نظر شما</h3><p>ثبت ورود و خروج و کنترل مواد اولیه</p></div></section>
+    <section id="pricing" className="market-container market-section"><div className="section-heading centered"><span className="eyebrow">انتخابی به اندازهٔ کسب‌وکار شما</span><h2>از یک منوی ساده،<br/><em>تا مدیریت یکپارچه.</em></h2><p>دورهٔ اشتراک را انتخاب کنید. قیمت و تخفیف هر پلن، شفاف و مشخص است.</p></div><Pricing plans={plans} matrix={matrix}/></section>
+    {testimonials.length>0 && <section className="testimonials-section"><div className="market-container"><div className="section-heading split-heading"><div><span className="eyebrow">از زبان همراهان ما</span><h2>تجربه‌ای که تعریف می‌شود.</h2></div><Link href="/testimonials" className="text-link">همه تجربه‌ها <ArrowUpLeft size={18}/></Link></div><div className="testimonials-grid">{testimonials.map(t=><article key={t.id}><div className="rating-stars" aria-label={`امتیاز ${t.rating} از ۵`}>{Array.from({length:5},(_,i)=><Star key={i} size={15} fill={i<t.rating ? "currentColor" : "none"}/>)}</div><blockquote>«{t.body}»</blockquote><div className="quote-author"><span>{t.name.charAt(0)}</span><div><b>{t.name}</b><small>{[t.title,t.businessName].filter(Boolean).join(" · ")}</small></div></div></article>)}</div></div></section>}
+    <section className="market-container market-section faq-grid"><div className="section-heading"><span className="eyebrow">پیش از شروع</span><h2>شاید سوال<br/>شما هم باشد.</h2><p>برای انتخاب راهکار مناسب رستوران‌تان،<br/>کنارتان هستیم.</p><Link href="/consultation" className="text-link">با ما صحبت کنید <ArrowUpLeft size={18}/></Link></div><div className="faq-list">{faqs.map(([q,a],i)=><details className="collapse collapse-plus" key={q}><summary className="collapse-title"><span>{formatNumber(i+1).padStart(2,"۰")}</span>{q}</summary><div className="collapse-content"><p>{a}</p></div></details>)}<Link href="/faq" className="text-link">همه سوالات متداول <ArrowUpLeft size={17}/></Link></div></section>
+    {posts.length>0 && <section className="market-container market-section journal-section"><div className="section-heading split-heading"><div><span className="eyebrow">مجلهٔ منوی دیجیتال</span><h2>برای بهتر اداره کردن.</h2></div><Link href="/blog" className="text-link">همه مقاله‌ها <ArrowUpLeft size={18}/></Link></div><div className="journal-grid">{posts.map(post=><Link key={post.id} href={`/blog/${post.slug}`} className="journal-card"><div className="journal-art"><BookOpen size={40}/><span>{post.category}</span></div><div><small>{post.category}</small><h3>{post.title}</h3><p>{post.excerpt}</p><span className="text-link">خواندن مقاله <ArrowUpLeft size={17}/></span></div></Link>)}</div></section>}
+    <section className="market-container closing-section"><div className="closing-card"><div><span className="eyebrow">فصل تازهٔ کسب‌وکار شما</span><h2>میز بعدی،<br/>برای یک شروع تازه.</h2><p>بیایید ببینیم منوی دیجیتال چطور به رستوران شما کمک می‌کند.</p><div className="hero-actions"><Link href="/demo" className="btn market-button">درخواست دموی رایگان <ArrowUpLeft size={18}/></Link><Link href="/register" className="btn market-secondary">ساخت حساب کاربری</Link></div></div><div className="table-art" aria-hidden="true"><div className="plate"><UtensilsCrossed size={66} strokeWidth={1}/><span>یک تجربهٔ بهتر</span></div><div className="table-seat seat-one"/><div className="table-seat seat-two"/></div></div></section>
+  </main><SiteFooter/></div>;
 }

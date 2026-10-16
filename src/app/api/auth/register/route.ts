@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { db } from "@/db";
-import { businesses, users } from "@/db/schema";
+import { affiliates, businesses, users } from "@/db/schema";
 import { createSession, errorResponse, hashPassword, HttpError, readJson } from "@/lib/auth";
 
 export async function POST(req: Request) {
@@ -21,8 +22,11 @@ export async function POST(req: Request) {
       .insert(users)
       .values({ name, email, passwordHash: hashPassword(password) })
       .returning();
+    const referralCode = (await cookies()).get("affiliate_ref")?.value?.toUpperCase();
+    const [affiliate] = referralCode ? await db.select({ id: affiliates.id }).from(affiliates).where(and(eq(affiliates.referralCode, referralCode), eq(affiliates.status, "active"))) : [];
     await db.insert(businesses).values({
       userId: user.id,
+      affiliateId: affiliate?.id ?? null,
       name: businessName,
       slug: `shop-${randomBytes(3).toString("hex")}`,
       description: "به منوی دیجیتال ما خوش آمدید!",

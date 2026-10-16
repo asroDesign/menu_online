@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
+import { DEMO_ENABLED } from "@/lib/demo-mode";
 import {
   businesses,
   categories,
@@ -299,6 +300,7 @@ async function seedDemo() {
 
 let running: Promise<void> | null = null;
 export function ensureDemoData() {
+  if (!DEMO_ENABLED) return Promise.resolve();
   if (!running) {
     running = (async () => {
       await seedDemo();

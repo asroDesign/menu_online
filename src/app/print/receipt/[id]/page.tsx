@@ -1,6 +1,7 @@
 import { EmojiIcon , IconText} from "@/components/ui";
 import { and, eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import { db } from "@/db";
 import { orders } from "@/db/schema";
 import { PrintButton } from "@/components/print-button";
@@ -26,7 +27,7 @@ export default async function Receipt({ params }: { params: Promise<{ id: string
   return (
     <div className="min-h-dvh bg-stone-100 p-4 print:bg-white print:p-0">
       <style>{"@page{size:80mm auto;margin:3mm}"}</style>
-      <div className="no-print mx-auto mb-4 flex max-w-sm justify-between"><a href="/dashboard/orders" className="text-sm font-semibold text-stone-600">← سفارش‌ها</a><PrintButton /></div>
+      <div className="no-print mx-auto mb-4 flex max-w-sm justify-between"><Link href="/dashboard/orders" className="text-sm font-semibold text-stone-600">← سفارش‌ها</Link><PrintButton /></div>
       <div className="mx-auto w-[76mm] bg-white p-3 text-[12px] leading-6 shadow print:w-full print:shadow-none">
         <h1 className="text-center text-base font-black">{auth.business.name}</h1>
         {auth.business.phone && <p className="text-center text-[11px]">{auth.business.phone}</p>}

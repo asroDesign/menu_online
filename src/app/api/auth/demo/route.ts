@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { createSession, errorResponse, readJson } from "@/lib/auth";
 import { DEMO_EMAIL, ensureDemoData } from "@/lib/seed";
+import { DEMO_ENABLED } from "@/lib/demo-mode";
 
 const ACCOUNTS: Record<string, string> = {
   basic: "basic@menudigital.ir",
@@ -20,6 +21,7 @@ const ACCOUNTS: Record<string, string> = {
 };
 
 export async function POST(req: Request) {
+  if (!DEMO_ENABLED) return Response.json({ error: "ورود دمو غیرفعال است" }, { status: 404 });
   try {
     const b = await readJson(req).catch(() => ({}) as Record<string, unknown>);
     await ensureDemoData();

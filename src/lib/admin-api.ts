@@ -4,7 +4,8 @@ import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql } from "drizzle-or
 import { db } from "@/db";
 import {
   adminAudit, announcements, businesses, categories, customers, diningTables, planFeatures, platformExpenses, products, staff,
-  subscriptionInvoices, ticketMessages, tickets, users, sessions,
+  subscriptionInvoices, ticketMessages, tickets, users, sessions, affiliates, affiliateCommissions, affiliateWalletEntries,
+  affiliateWithdrawals, blogPosts, tutorials, faqs, testimonials, leadRequests, platformAccountingDocuments,
 } from "@/db/schema";
 import { getBilling, getPlanList, getSetting, getSupport, setSetting } from "@/lib/app-settings";
 import { adminCan, adminDept, hashPassword, HttpError, readJson, startImpersonation, type AuthContext } from "@/lib/auth";
@@ -20,6 +21,13 @@ const date = (v: unknown) => { if (v === null || v === "" || v === undefined) re
 const addMonths = (d: Date, m: number) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
 const genPassword = () => randomBytes(9).toString("base64url").slice(0, 10);
 const EMAIL = /^\S+@\S+\.\S+$/;
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const publicUrl = (v: unknown, max = 500) => {
+  const value = str(v, max);
+  if (!value) return "";
+  if (value.startsWith("/api/files/") && /^\/api\/files\/[a-f0-9]{24}$/.test(value)) return value;
+  try { const u = new URL(value); return ["http:", "https:"].includes(u.protocol) ? value : ""; } catch { return ""; }
+};
 
 async function audit(auth: AuthContext, action: string, targetType = "", targetId: string | number = "", detail = "") {
   await db.insert(adminAudit).values({ adminId: auth.user.id, adminName: auth.user.name, action, targetType, targetId: String(targetId), detail: detail.slice(0, 400) });
@@ -210,11 +218,13 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       if (!biz) throw new HttpError(404, "کسب‌وکار پیدا نشد");
       const plan = String(b.plan);
       if (!PLAN_KEYS.includes(plan as never)) throw new HttpError(400, "پلن نامعتبر است");
-      const months = Math.min(60, Math.max(1, num(b.months, 12)));
+      const months = num(b.months, 12);
+      if (months !== 6 && months !== 12) throw new HttpError(400, "دوره اشتراک باید شش‌ماهه یا سالانه باشد");
       const list = await getPlanList();
-      const base = Math.round(((list.find((p) => p.key === plan)?.price ?? 0) * months) / 12);
-      const discount = Math.max(0, num(b.discount, 0));
-      const amount = b.amount !== undefined && b.amount !== "" ? Math.max(0, num(b.amount)) : Math.max(0, base - discount);
+      const quote = list.find((p) => p.key === plan)!.terms[months];
+      const additionalDiscount = Math.min(quote.total, Math.max(0, num(b.discount, 0)));
+      const discount = quote.base - quote.total + additionalDiscount;
+      const amount = b.amount !== undefined && b.amount !== "" ? Math.max(0, num(b.amount)) : quote.total - additionalDiscount;
       const [mx] = await db.select({ n: sql<number>`coalesce(max(${subscriptionInvoices.number}),1000)::int` }).from(subscriptionInvoices);
       const [row] = await db.insert(subscriptionInvoices).values({ number: mx.n + 1, businessId: biz.id, plan, months, amount, discount, note: str(b.note, 300), createdBy: auth.user.name }).returning();
       await audit(auth, "صدور فاکتور اشتراک", "invoice", row.number, `${biz.name} · ${plan} · ${months} ماه`);
@@ -451,13 +461,171 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       else if (b.key === "billing") { if (!adminCan(auth, "settings") && !adminCan(auth, "accounting")) throw new HttpError(403, "دسترسی ندارید"); await setSetting("billing", { bank: str(v.bank, 60), owner: str(v.owner, 80), card: str(v.card, 30), sheba: str(v.sheba, 40), note: str(v.note, 400) }); }
       else if (b.key === "planPrices") {
         need(auth, "plans");
-        const out: Record<string, { price: number; oldPrice: number }> = {};
-        for (const k of PLAN_KEYS) { const p = v[k] as any; if (p) out[k] = { price: Math.max(0, num(p.price)), oldPrice: Math.max(0, num(p.oldPrice)) }; }
+        const out: Record<string, Record<string, number>> = {};
+        for (const k of PLAN_KEYS) {
+          const p = v[k] as Record<string, unknown> | undefined;
+          if (!p || typeof p !== "object" || ["oldPrice", "sixMonthPrice", "sixMonthDiscount", "annualDiscount"].some(key => typeof p[key] !== "number")) throw new HttpError(400, "قیمت و تخفیف همه دوره‌ها را وارد کنید");
+          const values = Object.fromEntries(["price", "oldPrice", "sixMonthPrice", "sixMonthDiscount", "annualDiscount"].map(key => [key, Number(p[key] ?? 0)]));
+          if (Object.values(values).some(n => !Number.isFinite(n) || n < 0 || n > 2000000000) || values.sixMonthDiscount > 100 || values.annualDiscount > 100) throw new HttpError(400, "قیمت نامعتبر است؛ تخفیف باید بین صفر و صد باشد");
+          out[k] = values;
+        }
         await setSetting("planPrices", out);
       } else throw new HttpError(400, "کلید نامعتبر است");
       await audit(auth, "ویرایش تنظیمات سامانه", "settings", String(b.key));
       return J({ ok: true });
     }
+  }
+
+  /* --------------------------------------------------------- website content */
+  if (res === "content") {
+    need(auth, "content");
+    const collection = id;
+    const table = collection === "posts" ? blogPosts : collection === "tutorials" ? tutorials : collection === "faqs" ? faqs : collection === "testimonials" ? testimonials : null;
+    if (!table) throw new HttpError(404, "بخش محتوا پیدا نشد");
+    if (m === "GET" && !act) {
+      const items = collection === "posts" || collection === "tutorials"
+        ? await db.select().from(table).orderBy(desc((table as any).updatedAt ?? (table as any).id)).limit(500)
+        : await db.select().from(table).orderBy(asc((table as any).sortOrder ?? (table as any).id)).limit(500);
+      return J({ items });
+    }
+    if ((m === "POST" && !act) || (m === "PATCH" && act)) {
+      const b = await readJson(req);
+      const title = str(b.title, 180);
+      if (collection === "posts" || collection === "tutorials") {
+        const slug = str(b.slug, 120).toLowerCase();
+        if (!title || !SLUG.test(slug)) throw new HttpError(400, "عنوان و نشانی انگلیسی معتبر با خط تیره وارد کنید");
+        const status = b.status === "published" ? "published" : "draft";
+        const publishedAt = status === "published" ? (date(b.publishedAt) ?? new Date()) : null;
+        const common = { slug, title, status, publishedAt, updatedAt: new Date(), metaTitle: str(b.metaTitle, 180), metaDescription: str(b.metaDescription, 320), noIndex: Boolean(b.noIndex), category: str(b.category, 80) || (collection === "posts" ? "عمومی" : "راهنمای شروع"), coverImage: publicUrl(b.coverImage) };
+        const values = collection === "posts"
+          ? { ...common, excerpt: str(b.excerpt, 600), content: str(b.content, 60000), author: str(b.author, 100) || "تیم منوی دیجیتال", canonicalUrl: publicUrl(b.canonicalUrl), tags: Array.isArray(b.tags) ? [...new Set(b.tags.map((x: unknown) => str(x, 40)).filter(Boolean))].slice(0, 20) : [] }
+          : { ...common, summary: str(b.summary, 600), content: str(b.content, 60000), videoUrl: publicUrl(b.videoUrl), sortOrder: Math.max(0, num(b.sortOrder)) };
+        if (collection === "posts" && b.canonicalUrl && !(values as any).canonicalUrl) throw new HttpError(400, "نشانی canonical باید URL امن http یا https باشد");
+        if (collection === "tutorials" && b.videoUrl && !(values as any).videoUrl) throw new HttpError(400, "نشانی ویدیو معتبر نیست");
+        const [row] = m === "POST"
+          ? await db.insert(table).values(values as any).returning()
+          : await db.update(table).set(values as any).where(eq((table as any).id, Number(act))).returning();
+        if (!row) throw new HttpError(404, "محتوا پیدا نشد");
+        await audit(auth, m === "POST" ? "ایجاد محتوای سایت" : "ویرایش محتوای سایت", collection, row.id, title);
+        return J({ item: row }, m === "POST" ? 201 : 200);
+      }
+      if (collection === "faqs") {
+        const values = { question: str(b.question, 400), answer: str(b.answer, 6000), category: str(b.category, 80) || "عمومی", isPublished: b.isPublished !== false, sortOrder: Math.max(0, num(b.sortOrder)) };
+        if (!values.question || !values.answer) throw new HttpError(400, "پرسش و پاسخ را وارد کنید");
+        const [row] = m === "POST" ? await db.insert(faqs).values(values).returning() : await db.update(faqs).set(values).where(eq(faqs.id, Number(act))).returning();
+        if (!row) throw new HttpError(404, "پرسش پیدا نشد");
+        await audit(auth, m === "POST" ? "ایجاد سوال متداول" : "ویرایش سوال متداول", "faq", row.id, values.question);
+        return J({ item: row }, m === "POST" ? 201 : 200);
+      }
+      const values = { name: str(b.name, 100), title: str(b.title, 120), businessName: str(b.businessName, 120), body: str(b.body, 2000), rating: Math.min(5, Math.max(1, num(b.rating, 5))), imageUrl: publicUrl(b.imageUrl), isPublished: Boolean(b.isPublished), sortOrder: Math.max(0, num(b.sortOrder)) };
+      if (!values.name || !values.body) throw new HttpError(400, "نام و متن نظر را وارد کنید");
+      const [row] = m === "POST" ? await db.insert(testimonials).values(values).returning() : await db.update(testimonials).set(values).where(eq(testimonials.id, Number(act))).returning();
+      if (!row) throw new HttpError(404, "نظر پیدا نشد");
+      await audit(auth, m === "POST" ? "ایجاد نظر مشتری" : "ویرایش نظر مشتری", "testimonial", row.id, values.name);
+      return J({ item: row }, m === "POST" ? 201 : 200);
+    }
+    if (m === "DELETE" && act) {
+      const [row] = await db.delete(table).where(eq((table as any).id, Number(act))).returning({ id: (table as any).id });
+      if (!row) throw new HttpError(404, "محتوا پیدا نشد");
+      await audit(auth, "حذف محتوای سایت", collection, row.id);
+      return J({ ok: true });
+    }
+  }
+
+  /* --------------------------------------------------------- inbound leads */
+  if (res === "leads") {
+    need(auth, "tickets");
+    if (m === "GET" && !id) {
+      const conditions = [] as any[];
+      if (q.get("status")) conditions.push(eq(leadRequests.status, q.get("status")!));
+      if (q.get("kind")) conditions.push(eq(leadRequests.kind, q.get("kind")!));
+      return J({ items: await db.select().from(leadRequests).where(conditions.length ? and(...conditions) : undefined).orderBy(desc(leadRequests.createdAt)).limit(500) });
+    }
+    if (m === "PATCH" && id) {
+      const b = await readJson(req);
+      const set: Record<string, unknown> = { updatedAt: new Date() };
+      if (b.status !== undefined) {
+        if (!["new", "contacted", "qualified", "closed"].includes(String(b.status))) throw new HttpError(400, "وضعیت درخواست معتبر نیست");
+        set.status = String(b.status);
+      }
+      if (b.assignedTo !== undefined) set.assignedTo = b.assignedTo === null || b.assignedTo === "" ? null : num(b.assignedTo);
+      if (typeof b.adminNote === "string") set.adminNote = str(b.adminNote, 1200);
+      const [row] = await db.update(leadRequests).set(set).where(eq(leadRequests.id, Number(id))).returning();
+      if (!row) throw new HttpError(404, "درخواست پیدا نشد");
+      await audit(auth, "پیگیری درخواست وب‌سایت", "lead", row.id, row.status);
+      return J({ item: row });
+    }
+  }
+
+  /* --------------------------------------------------------- affiliate program */
+  if (res === "affiliates") {
+    need(auth, "affiliates");
+    if (m === "GET" && !id) {
+      const rows = await db.select({ id: affiliates.id, name: affiliates.name, email: affiliates.email, phone: affiliates.phone, status: affiliates.status, referralCode: affiliates.referralCode, channel: affiliates.channel, website: affiliates.website, introduction: affiliates.introduction, commissionPercent: affiliates.commissionPercent, attributionDays: affiliates.attributionDays, minimumWithdrawal: affiliates.minimumWithdrawal, bankName: affiliates.bankName, accountHolder: affiliates.accountHolder, cardNumber: affiliates.cardNumber, sheba: affiliates.sheba, createdAt: affiliates.createdAt, approvedAt: affiliates.approvedAt }).from(affiliates).orderBy(desc(affiliates.createdAt)).limit(500);
+      const balances = await db.select({ affiliateId: affiliateWalletEntries.affiliateId, amount: sql<number>`coalesce(sum(${affiliateWalletEntries.amount}),0)::bigint` }).from(affiliateWalletEntries).groupBy(affiliateWalletEntries.affiliateId);
+      const totals = new Map(balances.map(x => [x.affiliateId, Number(x.amount)]));
+      return J({ items: rows.map(x => ({ ...x, balance: totals.get(x.id) ?? 0 })) });
+    }
+    if (m === "PATCH" && id) {
+      const b = await readJson(req);
+      const set: Record<string, unknown> = {};
+      if (b.status !== undefined) {
+        if (!["pending", "active", "rejected", "suspended"].includes(String(b.status))) throw new HttpError(400, "وضعیت همکار فروش معتبر نیست");
+        set.status = String(b.status);
+        if (b.status === "active") set.approvedAt = new Date();
+      }
+      if (b.commissionPercent !== undefined) {
+        const p = num(b.commissionPercent, -1);
+        if (p < 0 || p > 50) throw new HttpError(400, "پورسانت باید بین صفر تا ۵۰ درصد باشد");
+        set.commissionPercent = p;
+      }
+      if (b.attributionDays !== undefined) {
+        const n = num(b.attributionDays, -1);
+        if (n < 1 || n > 365) throw new HttpError(400, "مدت انتساب باید بین ۱ تا ۳۶۵ روز باشد");
+        set.attributionDays = n;
+      }
+      if (b.minimumWithdrawal !== undefined) set.minimumWithdrawal = Math.max(0, num(b.minimumWithdrawal));
+      if (!Object.keys(set).length) throw new HttpError(400, "تغییری برای ذخیره ارسال نشد");
+      const [row] = await db.update(affiliates).set(set).where(eq(affiliates.id, Number(id))).returning({ id: affiliates.id, name: affiliates.name, status: affiliates.status, commissionPercent: affiliates.commissionPercent, attributionDays: affiliates.attributionDays, minimumWithdrawal: affiliates.minimumWithdrawal, referralCode: affiliates.referralCode });
+      if (!row) throw new HttpError(404, "همکار فروش پیدا نشد");
+      await audit(auth, "ویرایش همکار فروش", "affiliate", row.id, `${row.name}: ${row.status}`);
+      return J({ item: row });
+    }
+  }
+
+  if (res === "affiliate-withdrawals") {
+    need(auth, "affiliates");
+    if (m === "GET" && !id) {
+      const items = await db.select({ withdrawal: affiliateWithdrawals, affiliateName: affiliates.name, affiliateEmail: affiliates.email }).from(affiliateWithdrawals).innerJoin(affiliates, eq(affiliates.id, affiliateWithdrawals.affiliateId)).orderBy(desc(affiliateWithdrawals.createdAt)).limit(500);
+      return J({ items: items.map(x => ({ ...x.withdrawal, affiliateName: x.affiliateName, affiliateEmail: x.affiliateEmail })) });
+    }
+    if (m === "PATCH" && id) {
+      const b = await readJson(req);
+      const action = String(b.action);
+      if (!["pay", "reject"].includes(action)) throw new HttpError(400, "عملیات برداشت نامعتبر است");
+      const done = await db.transaction(async tx => {
+        const [current] = await tx.select().from(affiliateWithdrawals).where(eq(affiliateWithdrawals.id, Number(id))).for("update");
+        if (!current) throw new HttpError(404, "درخواست برداشت پیدا نشد");
+        if (current.status !== "pending") throw new HttpError(409, "این درخواست قبلاً بررسی شده است");
+        const now = new Date();
+        const [row] = await tx.update(affiliateWithdrawals).set({ status: action === "pay" ? "paid" : "rejected", payoutReference: str(b.payoutReference, 80), adminNote: str(b.adminNote, 600), decidedAt: now }).where(and(eq(affiliateWithdrawals.id, current.id), eq(affiliateWithdrawals.status, "pending"))).returning();
+        if (!row) throw new HttpError(409, "درخواست هم‌زمان تغییر کرد");
+        if (action === "reject") {
+          await tx.insert(affiliateWalletEntries).values({ affiliateId: row.affiliateId, kind: "withdrawal_release", amount: row.amount, referenceType: "withdrawal", referenceId: row.id, description: "آزادسازی موجودی درخواست ردشده" }).onConflictDoNothing();
+        } else {
+          await tx.insert(platformAccountingDocuments).values({ sourceType: "affiliate_payout", sourceId: row.id, date: now, description: `پرداخت پورسانت همکار فروش #${row.affiliateId}`, debitAccount: "بدهی به بازاریاب", creditAccount: "بانک/صندوق", amount: row.amount, createdBy: auth.user.name }).onConflictDoNothing();
+        }
+        return row;
+      });
+      await audit(auth, action === "pay" ? "پرداخت برداشت همکار فروش" : "رد درخواست برداشت", "affiliate_withdrawal", done.id, `${done.amount} تومان`);
+      return J({ item: done });
+    }
+  }
+
+  if (res === "accounting-documents" && m === "GET") {
+    need(auth, "accounting");
+    const items = await db.select({ document: platformAccountingDocuments, sourceRef: platformAccountingDocuments.sourceId }).from(platformAccountingDocuments).orderBy(desc(platformAccountingDocuments.date)).limit(500);
+    return J({ items: items.map(x => x.document) });
   }
 
   /* ----------------------------------------------------------- audit */
@@ -473,16 +641,38 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
 
 /** Mark an invoice paid and extend the subscription. */
 async function payInvoice(auth: AuthContext, id: number, method: string, refNo: string, paidAt: Date | null) {
-  const [inv] = await db.select().from(subscriptionInvoices).where(eq(subscriptionInvoices.id, id));
-  if (!inv) throw new HttpError(404, "فاکتور پیدا نشد");
-  if (inv.status !== "unpaid") throw new HttpError(400, inv.status === "paid" ? "این فاکتور قبلاً پرداخت شده است" : "این فاکتور باطل شده است");
-  const [biz] = await db.select().from(businesses).where(eq(businesses.id, inv.businessId));
-  const now = new Date();
-  const from = biz.subscriptionEndsAt && biz.subscriptionEndsAt > now && biz.plan === inv.plan ? biz.subscriptionEndsAt : now;
-  const end = addMonths(from, inv.months);
-  const [row] = await db.update(subscriptionInvoices).set({ status: "paid", method, refNo, paidAt: paidAt ?? now, periodStart: from, periodEnd: end }).where(and(eq(subscriptionInvoices.id, id), eq(subscriptionInvoices.status, "unpaid"))).returning();
-  if (!row) throw new HttpError(409, "فاکتور هم‌زمان تغییر کرد");
-  await db.update(businesses).set({ plan: inv.plan, subscriptionEndsAt: end, upgradeRequest: biz.upgradeRequest === inv.plan ? null : biz.upgradeRequest }).where(eq(businesses.id, biz.id));
-  await audit(auth, "ثبت پرداخت فاکتور", "invoice", row.number, `${biz.name} · ${inv.plan} تا ${end.toISOString().slice(0, 10)}`);
-  return row;
+  const result = await db.transaction(async (tx) => {
+    const [inv] = await tx.select().from(subscriptionInvoices).where(eq(subscriptionInvoices.id, id)).for("update");
+    if (!inv) throw new HttpError(404, "فاکتور پیدا نشد");
+    if (inv.status !== "unpaid") throw new HttpError(400, inv.status === "paid" ? "این فاکتور قبلاً پرداخت شده است" : "این فاکتور باطل شده است");
+    const [biz] = await tx.select().from(businesses).where(eq(businesses.id, inv.businessId));
+    if (!biz) throw new HttpError(404, "کسب‌وکار پیدا نشد");
+    const now = paidAt ?? new Date();
+    const from = biz.subscriptionEndsAt && biz.subscriptionEndsAt > now && biz.plan === inv.plan ? biz.subscriptionEndsAt : now;
+    const end = addMonths(from, inv.months);
+    const [row] = await tx.update(subscriptionInvoices).set({ status: "paid", method, refNo, paidAt: now, periodStart: from, periodEnd: end }).where(and(eq(subscriptionInvoices.id, id), eq(subscriptionInvoices.status, "unpaid"))).returning();
+    if (!row) throw new HttpError(409, "فاکتور هم‌زمان تغییر کرد");
+    await tx.update(businesses).set({ plan: inv.plan, subscriptionEndsAt: end, upgradeRequest: biz.upgradeRequest === inv.plan ? null : biz.upgradeRequest }).where(eq(businesses.id, biz.id));
+
+    // Record affiliate commission only on a paid subscription invoice. The unique invoice key and
+    // the surrounding transaction keep wallet and accounting entries exactly-once.
+    if (biz.affiliateId && inv.amount > 0) {
+      const [affiliate] = await tx.select().from(affiliates).where(and(eq(affiliates.id, biz.affiliateId), eq(affiliates.status, "active")));
+      if (affiliate && affiliate.commissionPercent > 0) {
+        const amount = Math.round(inv.amount * affiliate.commissionPercent / 100);
+        if (amount > 0) {
+          const [commission] = await tx.insert(affiliateCommissions).values({ affiliateId: affiliate.id, businessId: biz.id, invoiceId: inv.id, saleAmount: inv.amount, commissionPercent: affiliate.commissionPercent, amount }).onConflictDoNothing().returning();
+          if (commission) {
+            const description = `پورسانت ${affiliate.commissionPercent}٪ فاکتور اشتراک #${inv.number} · ${biz.name}`;
+            await tx.insert(affiliateWalletEntries).values({ affiliateId: affiliate.id, kind: "commission", amount, referenceType: "commission", referenceId: commission.id, description });
+            await tx.insert(platformExpenses).values({ category: "پورسانت فروش", amount, description, date: now, createdBy: "سیستم همکاری در فروش" });
+            await tx.insert(platformAccountingDocuments).values({ sourceType: "affiliate_commission", sourceId: commission.id, date: now, description, debitAccount: "هزینه پورسانت فروش", creditAccount: "بدهی به بازاریاب", amount, createdBy: "سیستم" });
+          }
+        }
+      }
+    }
+    return { row, biz, end };
+  });
+  await audit(auth, "ثبت پرداخت فاکتور", "invoice", result.row.number, `${result.biz.name} · ${result.row.plan} تا ${result.end.toISOString().slice(0, 10)}`);
+  return result.row;
 }

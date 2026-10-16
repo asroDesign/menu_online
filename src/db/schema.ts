@@ -25,6 +25,34 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const affiliates = pgTable("affiliates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  phone: text("phone").notNull().default(""),
+  passwordHash: text("password_hash").notNull(),
+  status: text("status").notNull().default("pending"), // pending | active | rejected | suspended
+  referralCode: text("referral_code").notNull().unique(),
+  channel: text("channel").notNull().default(""),
+  website: text("website").notNull().default(""),
+  introduction: text("introduction").notNull().default(""),
+  commissionPercent: integer("commission_percent").notNull().default(10),
+  attributionDays: integer("attribution_days").notNull().default(30),
+  minimumWithdrawal: bigint("minimum_withdrawal", { mode: "number" }).notNull().default(0),
+  bankName: text("bank_name").notNull().default(""),
+  accountHolder: text("account_holder").notNull().default(""),
+  cardNumber: text("card_number").notNull().default(""),
+  sheba: text("sheba").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+});
+
+export const affiliateSessions = pgTable("affiliate_sessions", {
+  id: text("id").primaryKey(), // SHA-256 of the HTTP-only cookie token
+  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
 export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(), // sha256 of the cookie token
   userId: integer("user_id")
@@ -39,6 +67,7 @@ export const businesses = pgTable("businesses", {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  affiliateId: integer("affiliate_id").references(() => affiliates.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   type: text("type").notNull().default("cafe"),
@@ -63,7 +92,7 @@ export const businesses = pgTable("businesses", {
   adminNote: text("admin_note").notNull().default(""),
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("businesses_affiliate_idx").on(t.affiliateId)]);
 
 export const categories = pgTable(
   "categories",
@@ -802,6 +831,138 @@ export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
 });
+
+/* ---------------- platform marketing content ---------------- */
+export const blogPosts = pgTable("blog_posts", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  excerpt: text("excerpt").notNull().default(""),
+  content: text("content").notNull().default(""),
+  category: text("category").notNull().default("عمومی"),
+  tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  coverImage: text("cover_image").notNull().default(""),
+  author: text("author").notNull().default("تیم منوی دیجیتال"),
+  status: text("status").notNull().default("draft"), // draft | published
+  metaTitle: text("meta_title").notNull().default(""),
+  metaDescription: text("meta_description").notNull().default(""),
+  canonicalUrl: text("canonical_url").notNull().default(""),
+  noIndex: boolean("no_index").notNull().default(false),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("blog_posts_status_published_idx").on(t.status, t.publishedAt)]);
+
+export const tutorials = pgTable("tutorials", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull().default(""),
+  content: text("content").notNull().default(""),
+  category: text("category").notNull().default("راهنمای شروع"),
+  coverImage: text("cover_image").notNull().default(""),
+  videoUrl: text("video_url").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  metaTitle: text("meta_title").notNull().default(""),
+  metaDescription: text("meta_description").notNull().default(""),
+  noIndex: boolean("no_index").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("tutorials_status_order_idx").on(t.status, t.sortOrder)]);
+
+export const faqs = pgTable("faqs", {
+  id: serial("id").primaryKey(),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  category: text("category").notNull().default("عمومی"),
+  isPublished: boolean("is_published").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const testimonials = pgTable("testimonials", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  title: text("title").notNull().default(""),
+  businessName: text("business_name").notNull().default(""),
+  body: text("body").notNull(),
+  rating: integer("rating").notNull().default(5),
+  imageUrl: text("image_url").notNull().default(""),
+  isPublished: boolean("is_published").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const leadRequests = pgTable("lead_requests", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(), // contact | consultation | demo
+  name: text("name").notNull(),
+  phone: text("phone").notNull().default(""),
+  email: text("email").notNull().default(""),
+  businessName: text("business_name").notNull().default(""),
+  subject: text("subject").notNull().default(""),
+  message: text("message").notNull().default(""),
+  preferredAt: timestamp("preferred_at", { withTimezone: true }),
+  status: text("status").notNull().default("new"), // new | contacted | qualified | closed
+  assignedTo: integer("assigned_to"),
+  source: text("source").notNull().default("website"),
+  adminNote: text("admin_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("lead_requests_status_created_idx").on(t.status, t.createdAt)]);
+
+/* ---------------- affiliate sales, wallet and platform accounting ---------------- */
+export const affiliateCommissions = pgTable("affiliate_commissions", {
+  id: serial("id").primaryKey(),
+  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
+  businessId: integer("business_id").notNull().references(() => businesses.id),
+  invoiceId: integer("invoice_id").notNull().references(() => subscriptionInvoices.id),
+  saleAmount: bigint("sale_amount", { mode: "number" }).notNull(),
+  commissionPercent: integer("commission_percent").notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("affiliate_commissions_invoice_idx").on(t.invoiceId), index("affiliate_commissions_affiliate_idx").on(t.affiliateId, t.createdAt)]);
+
+export const affiliateWalletEntries = pgTable("affiliate_wallet_entries", {
+  id: serial("id").primaryKey(),
+  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // commission | withdrawal_hold | withdrawal_release
+  amount: bigint("amount", { mode: "number" }).notNull(), // signed, in toman
+  referenceType: text("reference_type").notNull(),
+  referenceId: integer("reference_id").notNull(),
+  description: text("description").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("affiliate_wallet_ref_idx").on(t.affiliateId, t.kind, t.referenceType, t.referenceId), index("affiliate_wallet_date_idx").on(t.affiliateId, t.createdAt)]);
+
+export const affiliateWithdrawals = pgTable("affiliate_withdrawals", {
+  id: serial("id").primaryKey(),
+  affiliateId: integer("affiliate_id").notNull().references(() => affiliates.id),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("pending"), // pending | paid | rejected
+  bankName: text("bank_name").notNull().default(""),
+  accountHolder: text("account_holder").notNull().default(""),
+  cardNumber: text("card_number").notNull().default(""),
+  sheba: text("sheba").notNull().default(""),
+  payoutReference: text("payout_reference").notNull().default(""),
+  adminNote: text("admin_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+}, (t) => [index("affiliate_withdrawals_affiliate_idx").on(t.affiliateId, t.createdAt), index("affiliate_withdrawals_status_idx").on(t.status, t.createdAt)]);
+
+export const platformAccountingDocuments = pgTable("platform_accounting_documents", {
+  id: serial("id").primaryKey(),
+  sourceType: text("source_type").notNull(), // affiliate_commission | affiliate_payout
+  sourceId: integer("source_id").notNull(),
+  date: timestamp("date", { withTimezone: true }).notNull().defaultNow(),
+  description: text("description").notNull(),
+  debitAccount: text("debit_account").notNull(),
+  creditAccount: text("credit_account").notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  createdBy: text("created_by").notNull().default("سیستم"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("platform_accounting_source_idx").on(t.sourceType, t.sourceId), index("platform_accounting_date_idx").on(t.date)]);
 
 export const reservations = pgTable(
   "reservations",
