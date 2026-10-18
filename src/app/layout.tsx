@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { PlatformBrandingRuntime } from "@/components/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="fa" dir="rtl" data-theme="menu" data-scroll-behavior="smooth">
-      <body className="min-h-dvh antialiased">{children}</body>
+      <body className="min-h-dvh antialiased"><PlatformBrandingRuntime />{children}</body>
     </html>
   );
 }

@@ -1,6 +1,6 @@
 /** Public feature switch for the sample/demo tenant and demo-account sign-in. */
-const value = (process.env.NEXT_PUBLIC_DEMO_MODE ?? "true").trim().toLowerCase();
-export const DEMO_ENABLED = !["false", "0", "off", "disabled", "no"].includes(value);
+const value = (process.env.DEMO_MODE ?? process.env.NEXT_PUBLIC_DEMO_MODE ?? "false").trim().toLowerCase();
+export const DEMO_ENABLED = ["true", "1", "on", "enabled", "yes"].includes(value);
 
 /** Emails reserved for the seeded accounts shown in the demo sign-in panel. */
 export const DEMO_LOGIN_EMAILS = new Set([

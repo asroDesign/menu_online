@@ -3,7 +3,7 @@ import { getPublicPosts, getPublicTutorials } from "@/lib/marketing-content";
 
 export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://menudigital.ir").replace(/\/$/, "");
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://menupeak.ir").replace(/\/$/, "");
   const [posts, tutorials] = await Promise.all([getPublicPosts(1000), getPublicTutorials(1000)]);
   const staticRoutes = ["", "/plans", "/about", "/contact", "/consultation", "/terms", "/demo", "/faq", "/blog", "/tutorials", "/testimonials"];
   return [

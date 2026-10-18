@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { BrandLogo, usePlatformBranding } from "@/components/brand";
 import { ADMIN_DEPTS, type AdminPerm } from "@/lib/admin-meta";
 import { Badge, cn, EmojiIcon, Icon, ToastProvider} from "@/components/ui";
 import type { Me } from "@/components/admin/common";
@@ -15,7 +16,7 @@ import { AdminAccounting } from "@/components/admin/accounting";
 import { AdminTickets } from "@/components/admin/tickets";
 import { UsersTab } from "@/components/admin/users";
 import { PlansTab } from "@/components/admin/plans";
-import { AnnouncementsTab, AuditTab, SettingsTab } from "@/components/admin/misc";
+import { AnnouncementsTab, AuditTab, PlatformChannelsTab, SettingsTab } from "@/components/admin/misc";
 import { AffiliatesTab, ContentTab, LeadsTab } from "@/components/admin/marketing";
 
 type Tab = { key: string; label: string; emoji: string; perm: AdminPerm };
@@ -31,13 +32,14 @@ const TABS: Tab[] = [
   { key: "users", label: "کاربران و تیم", emoji: "", perm: "users" },
   { key: "announcements", label: "اطلاعیه‌ها", emoji: "", perm: "announcements" },
   { key: "settings", label: "تنظیمات سامانه", emoji: "", perm: "settings" },
+  { key: "integrations", label: "درگاه پرداخت و پیامک", emoji: "", perm: "settings" },
   { key: "audit", label: "گزارش فعالیت", emoji: "", perm: "audit" },
 ];
 const ADMIN_GROUPS = [
   { title: "مدیریت", keys: ["overview", "businesses", "users"] },
   { title: "اشتراک و مالی", keys: ["accounting", "plans", "affiliates"] },
   { title: "وب‌سایت و پشتیبانی", keys: ["content", "leads", "tickets"] },
-  { title: "سامانه", keys: ["announcements", "settings", "audit"] },
+  { title: "سامانه", keys: ["announcements", "settings", "integrations", "audit"] },
 ];
 
 export function AdminShell({ me }: { me: Me }) {
@@ -45,6 +47,7 @@ export function AdminShell({ me }: { me: Me }) {
 }
 
 function Inner({ me }: { me: Me }) {
+  const branding = usePlatformBranding();
   const router = useRouter();
   const allowed = useMemo(() => TABS.filter((t) => me.perms.includes(t.perm)), [me.perms]);
   const [tab, setTab] = useState<string>(allowed[0]?.key ?? "overview");
@@ -106,7 +109,7 @@ function Inner({ me }: { me: Me }) {
 
   const sidebar = (
     <div className="panel-sidebar flex h-full flex-col border-e border-base-300 bg-base-100 text-base-content">
-      <div className="flex items-center gap-3 px-5 py-5"><span className="flex size-11 items-center justify-center rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/20"><Icon name="shield" className="size-5" /></span><div><p className="text-sm font-bold text-base-content">پنل مدیر سامانه</p><p className="text-[11px] text-base-content/50">منوی دیجیتال</p></div></div>
+      <div className="flex items-center gap-3 px-5 py-5"><span className="flex size-11 items-center justify-center overflow-hidden rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/20"><BrandLogo url={branding.logoUrl} alt="" className="size-full bg-white object-contain p-1.5" fallback={<Icon name="shield" className="size-5" />} /></span><div><p className="text-sm font-bold text-base-content">پنل مدیر سامانه</p><p className="text-[11px] text-base-content/50">{branding.siteName}</p></div></div>
       <nav aria-label="منوی مدیریت سامانه" className="menu flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-4">
         {ADMIN_GROUPS.map((group) => {
           const items = allowed.filter((item) => group.keys.includes(item.key));
@@ -158,6 +161,7 @@ function Inner({ me }: { me: Me }) {
           {tab === "users" && <UsersTab me={me} />}
           {tab === "announcements" && <AnnouncementsTab />}
           {tab === "settings" && <SettingsTab me={me} />}
+          {tab === "integrations" && <PlatformChannelsTab />}
           {tab === "audit" && <AuditTab />}
         </main>
       </div>

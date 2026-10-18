@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { BrandLogo } from "@/components/brand";
 import { FeaturesProvider } from "@/components/features";
 import { cn, Icon, ToastProvider, EmojiIcon } from "@/components/ui";
 import { hasAny, planName, type FeatureMap } from "@/lib/plans";
@@ -78,7 +79,7 @@ const NAV: { title?: string; items: Item[] }[] = [
 const ALL = NAV.flatMap((g) => g.items);
 
 export function DashboardShell({ business, user, features, planFeatures, role, plan, isAdmin, impersonating, children }: {
-  business: { name: string; slug: string; logoEmoji: string };
+  business: { name: string; slug: string; logoEmoji: string; logoUrl: string };
   user: { name: string; email: string };
   features: FeatureMap; planFeatures: FeatureMap; role: string; plan: string;
   isAdmin: boolean; impersonating?: string; children: ReactNode;
@@ -139,7 +140,7 @@ export function DashboardShell({ business, user, features, planFeatures, role, p
     <div className="panel-sidebar flex h-full flex-col border-e border-base-300 bg-base-100 text-base-content">
       <div className="border-b border-base-200 px-5 py-5">
         <Link href="/dashboard" className="flex items-center gap-3">
-          <span className="flex size-11 items-center justify-center rounded-2xl bg-primary text-white shadow-lg shadow-primary/20"><EmojiIcon emoji={business.logoEmoji} className="text-xl" /></span>
+          <span className="flex size-11 items-center justify-center overflow-hidden rounded-2xl bg-primary text-white shadow-lg shadow-primary/20"><BrandLogo url={business.logoUrl} alt="" className="size-full bg-white object-contain p-1.5" fallback={<EmojiIcon emoji={business.logoEmoji} className="text-xl" />} /></span>
           <span className="min-w-0"><span className="block truncate text-sm font-extrabold">{business.name}</span><span className="mt-1 inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">{role === "owner" ? "پلن " + planName(plan) : STAFF_ROLE_LABELS[role] ?? role}</span></span>
         </Link>
       </div>

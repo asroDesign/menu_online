@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       name: businessName,
       slug: `shop-${randomBytes(3).toString("hex")}`,
       description: "به منوی دیجیتال ما خوش آمدید!",
+      plan: "pending",
     });
     await createSession(user.id);
     return Response.json({ ok: true });

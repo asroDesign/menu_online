@@ -23,9 +23,13 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         </div>
       </div>
     );
+  if (auth.business.plan === "pending" && auth.user.role !== "admin") {
+    const requested = auth.business.upgradeRequest;
+    redirect(`/checkout?plan=${requested && ["basic", "premium", "premium_plus"].includes(requested) ? requested : "basic"}&months=12`);
+  }
   return (
     <DashboardShell
-      business={{ name: auth.business.name, slug: auth.business.slug, logoEmoji: auth.business.logoEmoji }}
+      business={{ name: auth.business.name, slug: auth.business.slug, logoEmoji: auth.business.logoEmoji, logoUrl: auth.business.logoUrl }}
       user={{ name: auth.user.name, email: auth.user.email }}
       features={auth.features}
       planFeatures={auth.planFeatures}

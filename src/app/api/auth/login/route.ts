@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const b = await readJson(req);
     const email = String(b.email ?? "").trim().toLowerCase();
     const password = String(b.password ?? "");
-    if (!DEMO_ENABLED && DEMO_LOGIN_EMAILS.has(email) && ["demo1234", "admin1234"].includes(password))
+    if (!DEMO_ENABLED && DEMO_LOGIN_EMAILS.has(email))
       throw new HttpError(401, "حساب‌های آزمایشی غیرفعال هستند");
     const [user] = await db.select().from(users).where(eq(users.email, email));
     if (!user || !verifyPassword(password, user.passwordHash))

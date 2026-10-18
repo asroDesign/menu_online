@@ -4,15 +4,16 @@ import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql } from "drizzle-or
 import { db } from "@/db";
 import {
   adminAudit, announcements, businesses, categories, customers, diningTables, planFeatures, platformExpenses, products, staff,
-  subscriptionInvoices, ticketMessages, tickets, users, sessions, affiliates, affiliateCommissions, affiliateWalletEntries,
+  subscriptionInvoices, subscriptionPayments, promoCoupons, couponRedemptions, ticketMessages, tickets, users, sessions, affiliates, affiliateCommissions, affiliateWalletEntries,
   affiliateWithdrawals, blogPosts, tutorials, faqs, testimonials, leadRequests, platformAccountingDocuments,
 } from "@/db/schema";
-import { getBilling, getPlanList, getSetting, getSupport, setSetting } from "@/lib/app-settings";
+import { getBilling, getManagerNotifications, getPlatformBranding, getPlanList, getSetting, getSupport, setSetting } from "@/lib/app-settings";
 import { adminCan, adminDept, hashPassword, HttpError, readJson, startImpersonation, type AuthContext } from "@/lib/auth";
 import { ADMIN_DEPTS, permsOf, TICKET_DEPTS, type AdminPerm } from "@/lib/admin-meta";
 import { effectivePlan, getPlanOverrides, invalidatePlanCache } from "@/lib/entitlements";
 import { jMonthRange, jYearRange, toJ } from "@/lib/jalali";
-import { FEATURES, PLAN_KEYS } from "@/lib/plans";
+import { FEATURES, PLAN_KEYS, planName } from "@/lib/plans";
+import { getPlatformSms, notifyPlatformManager, type PlatformSmsConfig, normalizedPhone } from "@/lib/platform-sms";
 
 const J = (d: unknown, s = 200) => Response.json(d, { status: s });
 const str = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -201,6 +202,37 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
   }
 
   /* ------------------------------------------- invoices (subscriptions) */
+  if (res === "coupons") {
+    need(auth, "plans");
+    if (m === "GET") return J({ items: await db.select().from(promoCoupons).orderBy(desc(promoCoupons.id)).limit(300) });
+    if (m === "POST" || (m === "PATCH" && id)) {
+      const b = await readJson(req);
+      const code = str(b.code, 32).toUpperCase();
+      const kind = b.kind === "fixed" ? "fixed" : "percent";
+      const value = num(b.value, -1);
+      const planKeys = Array.isArray(b.planKeys) ? [...new Set(b.planKeys.map((x: unknown) => str(x, 30)).filter((x: string) => PLAN_KEYS.includes(x as never)))] : [];
+      const startsAt = date(b.startsAt), endsAt = date(b.endsAt);
+      const maxRedemptions = b.maxRedemptions === "" || b.maxRedemptions == null ? null : num(b.maxRedemptions, 0);
+      if (!/^[A-Z0-9_-]{3,32}$/.test(code) || value <= 0 || value > 2_000_000_000_000 || (kind === "percent" && value > 100)) throw new HttpError(400, "کد و مقدار تخفیف را معتبر وارد کنید");
+      if (startsAt && endsAt && endsAt <= startsAt) throw new HttpError(400, "پایان اعتبار باید پس از شروع آن باشد");
+      if (maxRedemptions !== null && maxRedemptions < 1) throw new HttpError(400, "سقف استفاده باید عددی مثبت باشد");
+      const values = { code, kind, value, planKeys, startsAt, endsAt, maxRedemptions, isActive: b.isActive !== false };
+      const [row] = m === "POST"
+        ? await db.insert(promoCoupons).values({ ...values, createdBy: auth.user.name }).returning()
+        : await db.update(promoCoupons).set(values).where(eq(promoCoupons.id, Number(id))).returning();
+      if (!row) throw new HttpError(404, "کد تخفیف پیدا نشد");
+      await audit(auth, m === "POST" ? "ایجاد کد تخفیف" : "ویرایش کد تخفیف", "coupon", row.id, row.code);
+      return J({ item: row }, m === "POST" ? 201 : 200);
+    }
+    if (m === "DELETE" && id) {
+      const [row] = await db.update(promoCoupons).set({ isActive: false }).where(eq(promoCoupons.id, Number(id))).returning();
+      if (!row) throw new HttpError(404, "کد تخفیف پیدا نشد");
+      await audit(auth, "غیرفعال‌سازی کد تخفیف", "coupon", row.id, row.code);
+      return J({ item: row });
+    }
+  }
+
+  /* ------------------------------------------- invoices (subscriptions) */
   if (res === "invoices") {
     need(auth, "accounting");
     if (m === "GET") {
@@ -234,9 +266,27 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
     if (m === "PATCH" && id) {
       const b = await readJson(req);
       if (b.action === "pay") return J({ item: await payInvoice(auth, Number(id), str(b.method, 20) || "transfer", str(b.refNo, 40), date(b.paidAt)) });
+      if (b.action === "adjust") {
+        const amount = num(b.amount, -1);
+        if (amount <= 0 || amount > 2_000_000_000_000) throw new HttpError(400, "مبلغ فاکتور باید بیشتر از صفر و در محدوده مجاز باشد");
+        const [inv] = await db.select().from(subscriptionInvoices).where(eq(subscriptionInvoices.id, Number(id)));
+        if (!inv || inv.status !== "unpaid") throw new HttpError(400, "فقط مبلغ فاکتور پرداخت‌نشده قابل تغییر است");
+        await db.update(subscriptionPayments).set({ status: "failed", detail: "مهلت پرداخت پایان یافت" }).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"), sql`${subscriptionPayments.createdAt} < now() - interval '30 minutes'`));
+        const [pending] = await db.select({ id: subscriptionPayments.id }).from(subscriptionPayments).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"))).limit(1);
+        if (pending) throw new HttpError(409, "برای این فاکتور پرداخت در حال انجام است؛ ابتدا آن را لغو یا تعیین تکلیف کنید");
+        const [row] = await db.update(subscriptionInvoices).set({ amount, note: b.note === undefined ? inv.note : str(b.note, 300) }).where(and(eq(subscriptionInvoices.id, inv.id), eq(subscriptionInvoices.status, "unpaid"))).returning();
+        if (!row) throw new HttpError(409, "فاکتور هم‌زمان تغییر کرد");
+        await audit(auth, "ویرایش مبلغ فاکتور اشتراک", "invoice", row.number, `${inv.amount} ← ${amount} تومان`);
+        return J({ item: row });
+      }
       if (b.action === "void") {
+        const pending = await db.update(subscriptionPayments).set({ status: "failed", detail: "فاکتور باطل شد" }).where(and(eq(subscriptionPayments.invoiceId, Number(id)), eq(subscriptionPayments.status, "pending"), sql`${subscriptionPayments.createdAt} < now() - interval '30 minutes'`)).returning({ id: subscriptionPayments.id });
+        void pending;
+        const [activePayment] = await db.select({ id: subscriptionPayments.id }).from(subscriptionPayments).where(and(eq(subscriptionPayments.invoiceId, Number(id)), eq(subscriptionPayments.status, "pending"))).limit(1);
+        if (activePayment) throw new HttpError(409, "برای این فاکتور پرداخت در حال انجام است");
         const [r] = await db.update(subscriptionInvoices).set({ status: "void" }).where(and(eq(subscriptionInvoices.id, Number(id)), eq(subscriptionInvoices.status, "unpaid"))).returning();
         if (!r) throw new HttpError(400, "فقط فاکتور پرداخت‌نشده قابل ابطال است");
+        await db.update(couponRedemptions).set({ status: "released" }).where(and(eq(couponRedemptions.invoiceId, r.id), eq(couponRedemptions.status, "reserved")));
         await audit(auth, "ابطال فاکتور", "invoice", r.number);
         return J({ item: r });
       }
@@ -451,13 +501,33 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
   /* -------------------------------------------------------- settings */
   if (res === "settings") {
     if (m === "GET") {
+      need(auth, "settings");
       const prices = await getSetting<Record<string, { price?: number; oldPrice?: number }>>("planPrices", {});
-      return J({ support: await getSupport(), billing: await getBilling(), plans: await getPlanList(), planPrices: prices });
+      const payments = await getSetting("platformPayments", { zarinpalEnabled: false, zarinpalMerchantId: "", zibalEnabled: false, zibalMerchantId: "" });
+      const sms = await getPlatformSms();
+      return J({ support: await getSupport(), managerNotifications: await getManagerNotifications(), billing: await getBilling(), platformBranding: await getPlatformBranding(), plans: await getPlanList(), planPrices: prices,
+        platformPayments: payments,
+        platformSms: { ...sms, smsirApiKey: "", kavenegarApiKey: "", hasSmsirKey: !!sms.smsirApiKey, hasKavenegarKey: !!sms.kavenegarApiKey },
+      });
     }
     if (m === "POST") {
       const b = await readJson(req);
       const v = (b.value && typeof b.value === "object" ? b.value : {}) as Record<string, unknown>;
-      if (b.key === "support") { need(auth, "settings"); await setSetting("support", { phone: str(v.phone, 40), email: str(v.email, 120), hours: str(v.hours, 80) }); }
+      if (b.key === "platformBranding") {
+        need(auth, "settings");
+        const siteName = str(v.siteName, 80);
+        const logoUrl = str(v.logoUrl, 64);
+        if (siteName.length < 2) throw new HttpError(400, "نام سامانه باید حداقل دو نویسه باشد");
+        if (logoUrl && !/^\/api\/files\/[a-f0-9]{24}$/.test(logoUrl)) throw new HttpError(400, "لوگوی سامانه باید از بخش بارگذاری انتخاب شود");
+        await setSetting("platformBranding", { siteName, logoUrl });
+      }
+      else if (b.key === "managerNotifications") {
+        need(auth, "settings");
+        const phone = str(v.phone, 40);
+        if (phone && !normalizedPhone(phone)) throw new HttpError(400, "شماره اطلاع‌رسانی مدیر معتبر نیست");
+        await setSetting("managerNotifications", { phone });
+      }
+      else if (b.key === "support") { need(auth, "settings"); await setSetting("support", { phone: str(v.phone, 40), email: str(v.email, 120), hours: str(v.hours, 80) }); }
       else if (b.key === "billing") { if (!adminCan(auth, "settings") && !adminCan(auth, "accounting")) throw new HttpError(403, "دسترسی ندارید"); await setSetting("billing", { bank: str(v.bank, 60), owner: str(v.owner, 80), card: str(v.card, 30), sheba: str(v.sheba, 40), note: str(v.note, 400) }); }
       else if (b.key === "planPrices") {
         need(auth, "plans");
@@ -470,8 +540,30 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
           out[k] = values;
         }
         await setSetting("planPrices", out);
+      } else if (b.key === "platformPayments") {
+        need(auth, "settings");
+        const value = { zarinpalEnabled: Boolean(v.zarinpalEnabled), zarinpalMerchantId: str(v.zarinpalMerchantId, 80), zibalEnabled: Boolean(v.zibalEnabled), zibalMerchantId: str(v.zibalMerchantId, 80) };
+        if (value.zarinpalEnabled && !value.zarinpalMerchantId || value.zibalEnabled && !value.zibalMerchantId) throw new HttpError(400, "شناسه پذیرنده هر درگاه فعال را وارد کنید");
+        await setSetting("platformPayments", value);
+      } else if (b.key === "platformSms") {
+        need(auth, "settings");
+        const old = await getPlatformSms();
+        const provider = v.provider === "smsir" ? "smsir" : "kavenegar";
+        const templates = {} as PlatformSmsConfig["templates"];
+        for (const key of ["otp", "renewal", "occasion", "adminAlert"] as const) {
+          const raw = (v.templates as any)?.[key] ?? {};
+          const defaults = key === "otp" ? ["code"] : key === "renewal" ? ["business", "plan", "days"] : key === "occasion" ? ["business", "plan", "occasion"] : ["event", "name", "phone", "details"];
+          const params = Array.isArray(raw.params) ? raw.params.map((x: unknown) => str(x, 30).replace(/[^a-zA-Z0-9_]/g, "")).filter(Boolean).slice(0, 5) : defaults;
+          const smsirId = str(raw.smsirId, 30);
+          if (smsirId && !/^\d+$/.test(smsirId)) throw new HttpError(400, "شناسه الگوی sms.ir باید عددی باشد");
+          templates[key] = { kavenegarId: str(raw.kavenegarId, 100), smsirId, params };
+        }
+        const smsirApiKey = v.clearSmsirKey ? "" : str(v.smsirApiKey, 500) || old.smsirApiKey;
+        const kavenegarApiKey = v.clearKavenegarKey ? "" : str(v.kavenegarApiKey, 500) || old.kavenegarApiKey;
+        const renewalDays = Math.min(60, Math.max(1, num(v.renewalDays, 7)));
+        await setSetting("platformSms", { enabled: Boolean(v.enabled), provider, smsirApiKey, kavenegarApiKey, renewalDays, templates });
       } else throw new HttpError(400, "کلید نامعتبر است");
-      await audit(auth, "ویرایش تنظیمات سامانه", "settings", String(b.key));
+      await audit(auth, "ویرایش تنظیمات سامانه", "settings", String(b.key), b.key === "platformSms" ? `درگاه فعال: ${str(v.provider, 20)}` : "");
       return J({ ok: true });
     }
   }
@@ -641,18 +733,42 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
 
 /** Mark an invoice paid and extend the subscription. */
 async function payInvoice(auth: AuthContext, id: number, method: string, refNo: string, paidAt: Date | null) {
+  return settleInvoice(auth, id, method, refNo, paidAt);
+}
+
+export async function settleSubscriptionInvoice(id: number, method: string, refNo: string, paymentId?: string) {
+  return settleInvoice(null, id, method, refNo, new Date(), paymentId);
+}
+
+async function settleInvoice(auth: AuthContext | null, id: number, method: string, refNo: string, paidAt: Date | null, paymentId?: string) {
   const result = await db.transaction(async (tx) => {
+    if (!paymentId) await tx.update(subscriptionPayments).set({ status: "failed", detail: "مهلت پرداخت پایان یافت" }).where(and(eq(subscriptionPayments.invoiceId, id), eq(subscriptionPayments.status, "pending"), sql`${subscriptionPayments.createdAt} < now() - interval '30 minutes'`));
+    const [payment] = paymentId ? await tx.select().from(subscriptionPayments).where(eq(subscriptionPayments.id, paymentId)).for("update") : [];
+    if (paymentId && (!payment || payment.status !== "pending")) throw new HttpError(409, "این پرداخت قبلاً بررسی شده است");
     const [inv] = await tx.select().from(subscriptionInvoices).where(eq(subscriptionInvoices.id, id)).for("update");
     if (!inv) throw new HttpError(404, "فاکتور پیدا نشد");
     if (inv.status !== "unpaid") throw new HttpError(400, inv.status === "paid" ? "این فاکتور قبلاً پرداخت شده است" : "این فاکتور باطل شده است");
+    if (!paymentId) {
+      const [activePayment] = await tx.select({ id: subscriptionPayments.id }).from(subscriptionPayments).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"))).limit(1);
+      if (activePayment) throw new HttpError(409, "برای این فاکتور پرداخت آنلاین در حال انجام است");
+    }
+    if (payment && (payment.invoiceId !== inv.id || payment.amount !== inv.amount)) throw new HttpError(409, "مبلغ یا فاکتور پرداخت با فاکتور فعلی هم‌خوانی ندارد");
     const [biz] = await tx.select().from(businesses).where(eq(businesses.id, inv.businessId));
     if (!biz) throw new HttpError(404, "کسب‌وکار پیدا نشد");
+    const [owner] = await tx.select({ name: users.name, phone: users.phone }).from(users).where(eq(users.id, biz.userId)).limit(1);
     const now = paidAt ?? new Date();
     const from = biz.subscriptionEndsAt && biz.subscriptionEndsAt > now && biz.plan === inv.plan ? biz.subscriptionEndsAt : now;
     const end = addMonths(from, inv.months);
     const [row] = await tx.update(subscriptionInvoices).set({ status: "paid", method, refNo, paidAt: now, periodStart: from, periodEnd: end }).where(and(eq(subscriptionInvoices.id, id), eq(subscriptionInvoices.status, "unpaid"))).returning();
     if (!row) throw new HttpError(409, "فاکتور هم‌زمان تغییر کرد");
+    if (payment) {
+      await tx.update(subscriptionPayments).set({ status: "paid", refNo, detail: "پرداخت توسط درگاه تأیید شد", verifiedAt: now }).where(eq(subscriptionPayments.id, payment.id));
+      await tx.update(subscriptionPayments).set({ status: "failed", detail: "فاکتور با درگاه دیگری پرداخت شد" }).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"), ne(subscriptionPayments.id, payment.id)));
+    }
     await tx.update(businesses).set({ plan: inv.plan, subscriptionEndsAt: end, upgradeRequest: biz.upgradeRequest === inv.plan ? null : biz.upgradeRequest }).where(eq(businesses.id, biz.id));
+
+    const [redemption] = await tx.update(couponRedemptions).set({ status: "redeemed" }).where(and(eq(couponRedemptions.invoiceId, inv.id), eq(couponRedemptions.status, "reserved"))).returning();
+    if (redemption) await tx.update(promoCoupons).set({ redemptions: sql`${promoCoupons.redemptions} + 1` }).where(eq(promoCoupons.id, redemption.couponId));
 
     // Record affiliate commission only on a paid subscription invoice. The unique invoice key and
     // the surrounding transaction keep wallet and accounting entries exactly-once.
@@ -671,8 +787,9 @@ async function payInvoice(auth: AuthContext, id: number, method: string, refNo: 
         }
       }
     }
-    return { row, biz, end };
+    return { row, biz, owner, end };
   });
-  await audit(auth, "ثبت پرداخت فاکتور", "invoice", result.row.number, `${result.biz.name} · ${result.row.plan} تا ${result.end.toISOString().slice(0, 10)}`);
+  if (auth) await audit(auth, "ثبت پرداخت فاکتور", "invoice", result.row.number, `${result.biz.name} · ${result.row.plan} تا ${result.end.toISOString().slice(0, 10)}`);
+  await notifyPlatformManager({ kind: "plan_sale", name: result.biz.name, phone: result.biz.phone || result.owner?.phone || "", details: `${planName(result.row.plan)} · ${result.row.months} ماهه · ${result.row.amount.toLocaleString("fa-IR")} تومان · فاکتور #${result.row.number}` });
   return result.row;
 }

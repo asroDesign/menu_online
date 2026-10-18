@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { leadRequests } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { notifyPlatformManager } from "@/lib/platform-sms";
 
 const clean = (v: unknown, max: number) => typeof v === "string" ? v.trim().slice(0, max) : "";
 
@@ -12,7 +13,7 @@ export async function POST(req: Request) {
     const kind = String(b.kind ?? "contact");
     if (!["contact", "consultation", "demo"].includes(kind)) throw new HttpError(400, "نوع درخواست معتبر نیست");
     const name = clean(b.name, 100);
-    const phone = clean(b.phone, 30).replace(/[^\d+]/g, "");
+    const phone = clean(b.phone, 30).replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[^\d+]/g, "");
     const email = clean(b.email, 150).toLowerCase();
     const businessName = clean(b.businessName, 120);
     const subject = clean(b.subject, 160);
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
     const preferredAt = b.preferredAt ? new Date(String(b.preferredAt)) : null;
     if (preferredAt && Number.isNaN(preferredAt.getTime())) throw new HttpError(400, "زمان درخواستی معتبر نیست");
     const [item] = await db.insert(leadRequests).values({ kind, name, phone, email, businessName, subject, message, preferredAt, source: "website" }).returning({ id: leadRequests.id, createdAt: leadRequests.createdAt });
+    if (kind === "demo") await notifyPlatformManager({ kind: "demo", name, phone, details: [businessName, subject, message].filter(Boolean).join(" · ") || "درخواست دموی رایگان" });
     return Response.json({ item }, { status: 201 });
   } catch (e) { return errorResponse(e); }
 }

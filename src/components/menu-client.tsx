@@ -8,6 +8,7 @@ import { LANGS } from "@/lib/plans";
 import type { PublicMenu } from "@/lib/public-menu";
 import { ModelViewer } from "@/components/model-viewer";
 import { MapPicker } from "@/components/map-picker";
+import { BrandLogo } from "@/components/brand";
 import { haversineKm } from "@/lib/geo";
 import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select, Textarea, ToastProvider, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
@@ -240,7 +241,7 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
           </div>
         )}
         <div className="relative flex items-center gap-4">
-          <span className="flex size-16 items-center justify-center rounded-2xl bg-white text-3xl shadow-lg">{<EmojiIcon emoji={biz.logoEmoji} /> }</span>
+          <span className="flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-white text-3xl shadow-lg"><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
           <div><h1 className="text-xl font-extrabold">{biz.name}</h1><p className="mt-1 text-xs text-white/80">{t("menu")}</p></div>
         </div>
         {biz.description && lang === "fa" && <p className="relative mt-4 text-sm leading-7 text-white/90">{biz.description}</p>}

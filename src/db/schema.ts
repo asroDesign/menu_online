@@ -12,11 +12,13 @@ import {
   doublePrecision,
   bigint,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  phone: text("phone").unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("owner"), // owner | staff | admin
   businessId: integer("business_id"), // for staff accounts
@@ -75,12 +77,13 @@ export const businesses = pgTable("businesses", {
   phone: text("phone").notNull().default(""),
   address: text("address").notNull().default(""),
   instagram: text("instagram").notNull().default(""),
+  logoUrl: text("logo_url").notNull().default(""),
   accentColor: text("accent_color").notNull().default("#f97316"),
   logoEmoji: text("logo_emoji").notNull().default(""),
   taxPercent: integer("tax_percent").notNull().default(10),
   servicePercent: integer("service_percent").notNull().default(0),
   acceptOrders: boolean("accept_orders").notNull().default(true),
-  plan: text("plan").notNull().default("basic"),
+  plan: text("plan").notNull().default("pending"),
   featureOverrides: jsonb("feature_overrides").$type<Record<string, boolean>>().notNull().default({}),
   upgradeRequest: text("upgrade_request"),
   customDomain: text("custom_domain").unique(),
@@ -757,7 +760,7 @@ export const uploads = pgTable(
   "uploads",
   {
     id: text("id").primaryKey(),
-    businessId: bizId(),
+    businessId: integer("business_id").references(() => businesses.id, { onDelete: "cascade" }),
     mime: text("mime").notNull(),
     size: integer("size").notNull(),
     data: bytea("data").notNull(),
@@ -777,6 +780,7 @@ export const subscriptionInvoices = pgTable(
     months: integer("months").notNull().default(12),
     amount: bigint("amount", { mode: "number" }).notNull().default(0), // toman, after discount
     discount: bigint("discount", { mode: "number" }).notNull().default(0),
+    couponCode: text("coupon_code").notNull().default(""),
     status: text("status").notNull().default("unpaid"), // unpaid | paid | void
     method: text("method").notNull().default(""), // transfer | card | cash | online
     refNo: text("ref_no").notNull().default(""),
@@ -789,6 +793,81 @@ export const subscriptionInvoices = pgTable(
   },
   (t) => [index("sub_inv_biz_idx").on(t.businessId), index("sub_inv_status_idx").on(t.status)],
 );
+
+export const promoCoupons = pgTable("promo_coupons", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  kind: text("kind").notNull().default("percent"), // percent | fixed
+  value: bigint("value", { mode: "number" }).notNull(),
+  planKeys: jsonb("plan_keys").$type<string[]>().notNull().default([]), // empty = all plans
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  maxRedemptions: integer("max_redemptions"),
+  redemptions: integer("redemptions").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: text("created_by").notNull().default(""),
+  createdAt: created(),
+}, (t) => [index("promo_coupons_active_idx").on(t.isActive)]);
+
+export const subscriptionPayments = pgTable("subscription_payments", {
+  id: text("id").primaryKey(), // opaque callback identifier
+  invoiceId: integer("invoice_id").notNull().references(() => subscriptionInvoices.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(), // zarinpal | zibal
+  amount: bigint("amount", { mode: "number" }).notNull(), // Toman
+  token: text("token").notNull().default(""),
+  status: text("status").notNull().default("pending"), // pending | paid | failed
+  refNo: text("ref_no").notNull().default(""),
+  detail: text("detail").notNull().default(""),
+  createdAt: created(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+}, (t) => [index("subscription_payments_invoice_idx").on(t.invoiceId), index("subscription_payments_token_idx").on(t.provider, t.token), uniqueIndex("subscription_payments_one_pending_idx").on(t.invoiceId).where(sql`${t.status} = 'pending'`)]);
+
+export const couponRedemptions = pgTable("coupon_redemptions", {
+  id: serial("id").primaryKey(),
+  couponId: integer("coupon_id").notNull().references(() => promoCoupons.id),
+  invoiceId: integer("invoice_id").notNull().unique().references(() => subscriptionInvoices.id, { onDelete: "cascade" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  discount: bigint("discount", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("reserved"), // reserved | redeemed | released
+  createdAt: created(),
+});
+
+export const otpChallenges = pgTable("otp_challenges", {
+  id: text("id").primaryKey(),
+  phone: text("phone").notNull(),
+  codeHash: text("code_hash").notNull(),
+  purpose: text("purpose").notNull().default("login"),
+  name: text("name").notNull().default(""),
+  businessName: text("business_name").notNull().default(""),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: created(),
+}, (t) => [index("otp_challenges_phone_idx").on(t.phone, t.createdAt)]);
+
+export const platformSmsCampaigns = pgTable("platform_sms_campaigns", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  occasion: text("occasion").notNull().default("campaign"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  status: text("status").notNull().default("scheduled"), // scheduled | sending | sent | failed
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdBy: text("created_by").notNull().default(""),
+  createdAt: created(),
+});
+
+export const platformSmsLogs = pgTable("platform_sms_logs", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id, { onDelete: "set null" }),
+  phone: text("phone").notNull(),
+  kind: text("kind").notNull(),
+  periodKey: text("period_key").notNull().default(""),
+  provider: text("provider").notNull().default(""),
+  status: text("status").notNull(),
+  detail: text("detail").notNull().default(""),
+  createdAt: created(),
+}, (t) => [index("platform_sms_logs_created_idx").on(t.createdAt), uniqueIndex("platform_sms_logs_dedupe_idx").on(t.businessId, t.kind, t.periodKey).where(sql`${t.businessId} is not null`)]);
 
 export const platformExpenses = pgTable("platform_expenses", {
   id: serial("id").primaryKey(),

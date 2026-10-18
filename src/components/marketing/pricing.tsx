@@ -21,7 +21,7 @@ export function Pricing({ plans, matrix, compare = false }: { plans: PricedPlan[
         <div className="price-card-top"><span className="plan-index">{formatNumber(i+1).padStart(2,"۰")}</span>{i===1 && <span className="badge"><Sparkles size={13}/> پیشنهاد برای مدیریت یکپارچه</span>}</div>
         <h3>{p.name}</h3><p className="plan-tag">{p.tag}</p>
         <div className="price-amount" aria-live="polite"><div className="price-savings">{price.base > price.total ? <><del>{formatNumber(price.base)}</del><span>{new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 2 }).format(price.discount)}٪ تخفیف</span></> : <span>قیمت دوره بدون تخفیف</span>}</div><strong>{formatNumber(price.total)}</strong><span> تومان / {TERM_LABELS[term]}</span><small>معادل ماهانه {formatNumber(Math.round(price.total/term))} تومان · پرداخت یکجای دوره</small></div>
-        <Link className="btn price-cta" href={`/consultation?plan=${p.key}&months=${term}`}>انتخاب پلن {p.name}<ArrowUpLeft size={17}/></Link>
+        <Link className="btn price-cta" href={`/checkout?plan=${p.key}&months=${term}`}>خرید آنلاین پلن {p.name}<ArrowUpLeft size={17}/></Link>
         <p className="included-count">{formatNumber(included.length)} امکان فعال در این پلن</p>
         <ul>{highlights.map(f=><li key={f.key}><Check size={16}/><span>{f.label}{matrix[p.key][f.key]==="custom" && " (اختصاصی)"}</span></li>)}</ul>
         <Link className="all-features-link" href={compare ? "#comparison" : "/plans#comparison"}>مشاهده همه امکانات <ArrowUpLeft size={15}/></Link>

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { formatPrice, toFa } from "@/lib/format";
 import type { PublicMenu } from "@/lib/public-menu";
 import { cn, ProductThumb, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
+import { BrandLogo } from "@/components/brand";
 
 type Prod = PublicMenu["products"][number];
 type Step = "welcome" | "type" | "menu" | "review" | "pospay" | "done";
@@ -231,7 +232,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
       <div onClick={() => { last.current = Date.now(); setStep("type"); }} className="relative flex h-dvh cursor-pointer select-none flex-col items-center justify-center overflow-hidden text-center text-white" style={{ background: `linear-gradient(160deg, ${accent}, #111)` }}>
         {hero && (tpl === "photo" || tpl === "dark") && <div className="absolute inset-0 bg-cover bg-center opacity-35" style={{ backgroundImage: `url(${hero})` }} />}
         <div className="relative px-8">
-          <div className="mx-auto flex size-40 items-center justify-center rounded-[2.5rem] bg-white text-8xl shadow-2xl">{<EmojiIcon emoji={biz.logoEmoji} /> }</div>
+          <div className="mx-auto flex size-40 items-center justify-center overflow-hidden rounded-[2.5rem] bg-white text-8xl shadow-2xl"><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-3" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></div>
           <h1 className="mt-8 text-6xl font-black leading-tight">{cfg.welcomeTitle}</h1>
           <p className="mt-4 text-3xl text-white/85">{cfg.welcomeSubtitle}</p>
           <div className="mx-auto mt-14 w-fit animate-pulse rounded-full bg-white px-14 py-6 text-4xl font-black shadow-2xl" style={{ color: accent }}><IconText>{<EmojiIcon emoji="" />}</IconText> شروع سفارش</div>

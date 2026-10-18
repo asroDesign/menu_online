@@ -4,10 +4,11 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { toFa } from "@/lib/format";
 import { Button, cn, Input, Textarea, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
+import { BrandLogo } from "@/components/brand";
 
 type Q = { id: string; text: string; type: "rating" | "choice" | "text"; options?: string[] };
 
-export function SurveyForm({ id, title, description, questions, business }: { id: number; title: string; description: string; questions: Q[]; business: { name: string; emoji: string; color: string } }) {
+export function SurveyForm({ id, title, description, questions, business }: { id: number; title: string; description: string; questions: Q[]; business: { name: string; emoji: string; logoUrl?: string; color: string } }) {
   const [a, setA] = useState<Record<string, string | number>>({});
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,7 +23,7 @@ export function SurveyForm({ id, title, description, questions, business }: { id
     <div className="min-h-dvh bg-[#f6f5f3] px-4 py-8">
       <div className="mx-auto max-w-lg">
         <div className="rounded-3xl p-6 text-white shadow-xl" style={{ background: `linear-gradient(135deg, ${business.color}, #1c1917)` }}>
-          <div className="flex items-center gap-3"><span className="flex size-12 items-center justify-center rounded-2xl bg-white text-2xl">{<EmojiIcon emoji={business.emoji} /> }</span><p className="font-bold">{business.name}</p></div>
+          <div className="flex items-center gap-3"><span className="flex size-12 items-center justify-center overflow-hidden rounded-2xl bg-white text-2xl"><BrandLogo url={business.logoUrl} alt={business.name} className="size-full object-contain p-1" fallback={<EmojiIcon emoji={business.emoji} />} /></span><p className="font-bold">{business.name}</p></div>
           <h1 className="mt-5 text-xl font-extrabold">{title}</h1>
           {description && <p className="mt-2 text-sm leading-7 text-white/85">{description}</p>}
         </div>

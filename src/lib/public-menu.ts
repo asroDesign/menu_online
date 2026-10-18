@@ -7,7 +7,7 @@ import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
 
 export async function getPublicMenu(slug: string) {
   const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
-  if (!biz || biz.isSuspended) return null;
+  if (!biz || biz.isSuspended || biz.plan === "pending") return null;
   return buildPublicMenu(biz);
 }
 
@@ -39,7 +39,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   return {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
-      instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, acceptOrders: biz.acceptOrders,
+      instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, logoUrl: biz.logoUrl, acceptOrders: biz.acceptOrders,
       taxPercent: biz.taxPercent, servicePercent: biz.servicePercent,
       isOpen: isOpenAt(st, new Date()),
       operatingHours: st.operatingHours ?? null,

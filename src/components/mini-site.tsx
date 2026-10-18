@@ -1,4 +1,5 @@
 import { iconGlyph, EmojiIcon , IconText} from "@/components/ui";
+import { BrandLogo, PlatformSiteName } from "@/components/brand";
 import Link from "next/link";
 import type { businesses } from "@/db/schema";
 import type { Settings } from "@/lib/plans";
@@ -16,7 +17,7 @@ export function MiniSite({ biz, custom }: { biz: Biz; custom: boolean }) {
           <img src={ms.heroImage} alt="" className="absolute inset-0 size-full object-cover opacity-40" />
         )}
         <div className="relative mx-auto max-w-2xl">
-          <div className="mx-auto flex size-20 items-center justify-center rounded-3xl bg-white text-4xl shadow-xl">{<EmojiIcon emoji={biz.logoEmoji} /> }</div>
+          <div className="mx-auto flex size-20 items-center justify-center overflow-hidden rounded-3xl bg-white text-4xl shadow-xl"><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></div>
           <h1 className="mt-6 text-4xl font-black">{ms.heroTitle || biz.name}</h1>
           <p className="mt-4 text-lg leading-8 text-white/85">{ms.heroSubtitle || biz.description}</p>
           <IconText>{ms.showMenuButton !== false && (
@@ -49,7 +50,7 @@ export function MiniSite({ biz, custom }: { biz: Biz; custom: boolean }) {
         </section>
         {biz.instagram && <p className="text-center"><a href={`https://instagram.com/${biz.instagram}`} target="_blank" className="font-bold" style={{ color: accent }} dir="ltr">@{biz.instagram}</a></p>}
       </main>
-      <footer className="border-t border-stone-100 py-6 text-center text-xs text-stone-400"><IconText>{<EmojiIcon emoji="" />}</IconText> {biz.name} · قدرت‌گرفته از منوی دیجیتال</footer>
+      <footer className="border-t border-stone-100 py-6 text-center text-xs text-stone-400"><IconText>{<EmojiIcon emoji="" />}</IconText> {biz.name} · قدرت‌گرفته از <PlatformSiteName /></footer>
     </div>
   );
 }

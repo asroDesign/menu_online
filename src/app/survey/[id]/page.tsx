@@ -16,5 +16,5 @@ export default async function SurveyPage({ params }: { params: Promise<{ id: str
   if (!sv || !sv.isActive) notFound();
   const [biz] = await db.select().from(businesses).where(eq(businesses.id, sv.businessId));
   if (!biz || !hasAny(await featuresOf(biz), "surveys")) notFound();
-  return <SurveyForm id={sv.id} title={sv.title} description={sv.description} questions={sv.questions as never} business={{ name: biz.name, emoji: biz.logoEmoji, color: biz.accentColor }} />;
+  return <SurveyForm id={sv.id} title={sv.title} description={sv.description} questions={sv.questions as never} business={{ name: biz.name, emoji: biz.logoEmoji, logoUrl: biz.logoUrl, color: biz.accentColor }} />;
 }

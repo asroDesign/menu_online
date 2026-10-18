@@ -12,7 +12,7 @@ export const PLANS: { key: PlanKey; name: string; tag: string; price: number; ol
   { key: "premium_plus", name: "پرمیوم پلاس", tag: "مخصوص برندهای زنجیره‌ای", price: 19990000, oldPrice: 24990000 },
 ];
 
-export const planName = (k: string) => PLANS.find((p) => p.key === k)?.name ?? k;
+export const planName = (k: string) => k === "pending" ? "در انتظار پرداخت" : PLANS.find((p) => p.key === k)?.name ?? k;
 
 export const GROUPS: Record<string, { title: string; emoji: string }> = {
   base: { title: "امکانات پایه", emoji: "" },

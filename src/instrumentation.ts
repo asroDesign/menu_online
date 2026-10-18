@@ -6,6 +6,8 @@ export async function register() {
     try {
       const { runAutomations } = await import("@/lib/sms");
       await runAutomations();
+      const { runPlatformSmsAutomations } = await import("@/lib/platform-sms");
+      await runPlatformSmsAutomations();
     } catch (e) {
       console.error("automation tick failed", e);
     }

@@ -27,18 +27,18 @@ async function prepare(file: File): Promise<Blob> {
   throw new Error("تصویر پس از فشرده‌سازی هم بزرگ است؛ تصویر کوچک‌تری انتخاب کنید");
 }
 
-export function ImageUpload({ value, emoji, onChange }: { value: string; emoji: string; onChange: (url: string) => void }) {
+export function ImageUpload({ value, emoji, onChange, uploadUrl = "/api/upload", label = "تصویر محصول", description = "تصویر را بکشید و رها کنید یا از دستگاه انتخاب کنید. تصویر خودکار کوچک و بهینه می‌شود (JPG، PNG، WebP، GIF).", disabled = false }: { value: string; emoji: string; onChange: (url: string) => void; uploadUrl?: string; label?: string; description?: string; disabled?: boolean }) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
 
   async function upload(file: File | undefined) {
-    if (!file) return;
+    if (!file || disabled) return;
     setBusy(true);
     try {
       const blob = await prepare(file);
-      const res = await fetch("/api/upload", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+      const res = await fetch(uploadUrl, { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error ?? "بارگذاری ناموفق بود");
       onChange(j.url);
@@ -48,19 +48,19 @@ export function ImageUpload({ value, emoji, onChange }: { value: string; emoji: 
 
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragOver={(e) => { e.preventDefault(); if (!disabled) setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => { e.preventDefault(); setDrag(false); void upload(e.dataTransfer.files?.[0]); }}
-      className={cn("flex flex-wrap items-center gap-4 rounded-2xl border-2 border-dashed p-4 transition", drag ? "border-brand-400 bg-brand-50" : "border-stone-300 bg-stone-50")}
+      className={cn("flex flex-wrap items-center gap-4 rounded-2xl border-2 border-dashed p-4 transition", disabled && "opacity-60", drag ? "border-brand-400 bg-brand-50" : "border-stone-300 bg-stone-50")}
     >
       <ProductThumb imageUrl={value} emoji={emoji} className="size-24 shrink-0 rounded-2xl text-4xl" />
       <div className="min-w-48 flex-1 space-y-2">
-        <p className="text-sm font-semibold">{value ? "تصویر محصول" : "تصویری انتخاب نشده"}</p>
-        <p className="text-xs leading-6 text-stone-500">تصویر را بکشید و رها کنید یا از دستگاه انتخاب کنید. تصویر خودکار کوچک و بهینه می‌شود (JPG، PNG، WebP، GIF).</p>
+        <p className="text-sm font-semibold">{value ? `${label} ثبت شده` : `${label} انتخاب نشده`}</p>
+        <p className="text-xs leading-6 text-stone-500">{description}</p>
         <div className="flex flex-wrap gap-2">
-          <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" capture={undefined} className="hidden" onChange={(e) => void upload(e.target.files?.[0])} />
-          <Button type="button" size="sm" loading={busy} onClick={() => input.current?.click()}><IconText>{<EmojiIcon emoji="" />}</IconText> {value ? "تغییر تصویر" : "انتخاب فایل تصویر"}</Button>
-          {value && <Button type="button" size="sm" variant="ghost" className="text-rose-600" onClick={() => onChange("")}>حذف تصویر</Button>}
+          <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" capture={undefined} className="hidden" disabled={disabled || busy} onChange={(e) => void upload(e.target.files?.[0])} />
+          <Button type="button" size="sm" loading={busy} disabled={disabled || busy} onClick={() => input.current?.click()}><IconText>{<EmojiIcon emoji="" />}</IconText> {value ? "تغییر تصویر" : "انتخاب فایل تصویر"}</Button>
+          {value && <Button type="button" size="sm" variant="ghost" disabled={disabled} className="text-rose-600" onClick={() => onChange("")}>حذف تصویر</Button>}
         </div>
       </div>
     </div>

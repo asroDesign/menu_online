@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { affiliateCommissions, affiliateWalletEntries, affiliateWithdrawals, affiliates } from "@/db/schema";
+import { affiliateCommissions, affiliateWalletEntries, affiliateWithdrawals, affiliates, businesses, subscriptionInvoices } from "@/db/schema";
 import { getAffiliate } from "@/lib/affiliate-auth";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
 
@@ -10,13 +10,15 @@ export async function GET() {
   try {
     const affiliate = await getAffiliate();
     if (!affiliate) throw new HttpError(401, "برای ادامه وارد پنل همکاری شوید");
-    const [balance] = await db.select({ amount: sql<number>`coalesce(sum(${affiliateWalletEntries.amount}),0)::bigint` }).from(affiliateWalletEntries).where(eq(affiliateWalletEntries.affiliateId, affiliate.id));
-    const [commissions, entries, withdrawals] = await Promise.all([
-      db.select({ c: affiliateCommissions }).from(affiliateCommissions).where(eq(affiliateCommissions.affiliateId, affiliate.id)).orderBy(desc(affiliateCommissions.id)).limit(200),
+    const [balance, stats, customersCount, commissions, entries, withdrawals] = await Promise.all([
+      db.select({ amount: sql<number>`coalesce(sum(${affiliateWalletEntries.amount}),0)::bigint` }).from(affiliateWalletEntries).where(eq(affiliateWalletEntries.affiliateId, affiliate.id)).then(rows => rows[0]),
+      db.select({ count: sql<number>`count(*)::int`, saleAmount: sql<number>`coalesce(sum(${affiliateCommissions.saleAmount}),0)::bigint`, commissionAmount: sql<number>`coalesce(sum(${affiliateCommissions.amount}),0)::bigint` }).from(affiliateCommissions).where(eq(affiliateCommissions.affiliateId, affiliate.id)).then(rows => rows[0]),
+      db.select({ count: sql<number>`count(*)::int` }).from(businesses).where(eq(businesses.affiliateId, affiliate.id)).then(rows => rows[0]),
+      db.select({ c: affiliateCommissions, businessName: businesses.name, plan: subscriptionInvoices.plan, invoiceNumber: subscriptionInvoices.number, months: subscriptionInvoices.months }).from(affiliateCommissions).innerJoin(businesses, eq(businesses.id, affiliateCommissions.businessId)).innerJoin(subscriptionInvoices, eq(subscriptionInvoices.id, affiliateCommissions.invoiceId)).where(eq(affiliateCommissions.affiliateId, affiliate.id)).orderBy(desc(affiliateCommissions.id)).limit(200),
       db.select().from(affiliateWalletEntries).where(eq(affiliateWalletEntries.affiliateId, affiliate.id)).orderBy(desc(affiliateWalletEntries.id)).limit(300),
       db.select().from(affiliateWithdrawals).where(eq(affiliateWithdrawals.affiliateId, affiliate.id)).orderBy(desc(affiliateWithdrawals.id)).limit(100),
     ]);
-    return Response.json({ item: affiliate, balance: Number(balance.amount ?? 0), commissions: commissions.map(x => x.c), entries, withdrawals });
+    return Response.json({ item: affiliate, balance: Number(balance?.amount ?? 0), stats: { salesCount: Number(stats?.count ?? 0), saleAmount: Number(stats?.saleAmount ?? 0), commissionAmount: Number(stats?.commissionAmount ?? 0), customerCount: Number(customersCount?.count ?? 0) }, commissions: commissions.map(x => ({ ...x.c, businessName: x.businessName, plan: x.plan, invoiceNumber: x.invoiceNumber, months: x.months })), entries, withdrawals });
   } catch (e) { return errorResponse(e); }
 }
 

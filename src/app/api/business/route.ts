@@ -197,6 +197,11 @@ export const PATCH = withAuth(async (req, auth) => {
   str("address", 200);
   str("instagram", 60);
   str("logoEmoji", 8);
+  if ("logoUrl" in b) {
+    const logoUrl = typeof b.logoUrl === "string" ? b.logoUrl.trim() : "";
+    if (logoUrl && !/^\/api\/files\/[a-f0-9]{24}$/.test(logoUrl)) throw new HttpError(400, "لوگوی کسب‌وکار باید از بخش بارگذاری انتخاب شود");
+    set.logoUrl = logoUrl;
+  }
   str("type", 20);
   if (typeof b.accentColor === "string") {
     if (!/^#[0-9a-fA-F]{6}$/.test(b.accentColor)) throw new HttpError(400, "رنگ نامعتبر است");

@@ -6,6 +6,10 @@ import { PLANS } from "@/lib/plans";
 
 export type SupportInfo = { phone: string; email: string; hours: string };
 export type BillingInfo = { bank: string; owner: string; card: string; sheba: string; note: string };
+export type PlatformBranding = { siteName: string; logoUrl: string };
+export type ManagerNotificationSettings = { phone: string };
+
+export const DEFAULT_PLATFORM_BRANDING: PlatformBranding = { siteName: "منوی دیجیتال", logoUrl: "" };
 
 export async function getSetting<T extends object>(key: string, def: T): Promise<T> {
   const [r] = await db.select().from(appSettings).where(eq(appSettings.key, key));
@@ -22,3 +26,10 @@ export async function getPlanList() {
 
 export const getSupport = () => getSetting<SupportInfo>("support", { phone: "", email: "", hours: "۲۴ ساعته" });
 export const getBilling = () => getSetting<BillingInfo>("billing", { bank: "", owner: "", card: "", sheba: "", note: "" });
+export const getManagerNotifications = () => getSetting<ManagerNotificationSettings>("managerNotifications", { phone: "" });
+export async function getPlatformBranding(): Promise<PlatformBranding> {
+  const saved = await getSetting<PlatformBranding>("platformBranding", DEFAULT_PLATFORM_BRANDING);
+  const siteName = typeof saved.siteName === "string" ? saved.siteName.trim().slice(0, 80) : "";
+  const logoUrl = typeof saved.logoUrl === "string" && /^\/api\/files\/[a-f0-9]{24}$/.test(saved.logoUrl) ? saved.logoUrl : "";
+  return { siteName: siteName || DEFAULT_PLATFORM_BRANDING.siteName, logoUrl };
+}

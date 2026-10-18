@@ -9,11 +9,12 @@ import type { Settings } from "@/lib/plans";
 import { toFa } from "@/lib/format";
 import { MapPicker } from "@/components/map-picker";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
+import { ImageUpload } from "@/components/image-upload";
 import { Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 type Biz = {
   name: string; slug: string; type: string; description: string; phone: string; address: string; instagram: string;
-  accentColor: string; logoEmoji: string; lat: number | null; lng: number | null; taxPercent: number; servicePercent: number; acceptOrders: boolean;
+  accentColor: string; logoEmoji: string; logoUrl: string; lat: number | null; lng: number | null; taxPercent: number; servicePercent: number; acceptOrders: boolean;
   settings: Settings;
 };
 
@@ -165,12 +166,16 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <span className="mb-2 block text-xs font-semibold text-stone-600">لوگو (آیکن)</span>
+                <span className="mb-2 block text-xs font-semibold text-stone-600">آیکن جایگزین لوگو</span>
                 <div className="flex flex-wrap gap-2">
                   {LOGOS.map((e) => (
                     <button key={e} type="button" onClick={() => set("logoEmoji", e)} className={cn("flex size-11 items-center justify-center rounded-xl text-2xl transition", biz.logoEmoji === e ? "bg-brand-100 ring-2 ring-brand-400" : "bg-stone-100 hover:bg-stone-200")}>{e}</button>
                   ))}
                 </div>
+              </div>
+              <div>
+                <span className="mb-2 block text-xs font-semibold text-stone-600">تصویر لوگوی کسب‌وکار</span>
+                <ImageUpload value={biz.logoUrl ?? ""} emoji={biz.logoEmoji} label="لوگوی کسب‌وکار" description="لوگو در سربرگ پنل و منوی عمومی نمایش داده می‌شود؛ JPG، PNG، WebP یا GIF، حداکثر ۲٫۵ مگابایت." onChange={(logoUrl) => set("logoUrl", logoUrl)} />
               </div>
             </div>
           </Card>

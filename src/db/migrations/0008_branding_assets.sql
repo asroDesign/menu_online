@@ -1,0 +1,5 @@
+ALTER TABLE businesses
+  ADD COLUMN IF NOT EXISTS logo_url text NOT NULL DEFAULT '';
+
+ALTER TABLE uploads
+  ALTER COLUMN business_id DROP NOT NULL;

@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { planFeatures } from "@/db/schema";
-import { resolveFeatures, type FeatureMap, type Level } from "@/lib/plans";
+import { FEATURES, resolveFeatures, type FeatureMap, type Level } from "@/lib/plans";
 
 let cache: { at: number; map: Record<string, Record<string, Level>> } | null = null;
 
@@ -24,5 +24,6 @@ export function effectivePlan(biz: { plan: string; subscriptionEndsAt?: Date | s
 }
 
 export async function featuresOf(biz: { plan: string; featureOverrides: unknown; subscriptionEndsAt?: Date | string | null }): Promise<FeatureMap> {
+  if (biz.plan === "pending") return Object.fromEntries(FEATURES.map(({ key }) => [key, "no"])) as FeatureMap;
   return resolveFeatures(effectivePlan(biz), biz.featureOverrides as Record<string, boolean>, await getPlanOverrides());
 }

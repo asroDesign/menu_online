@@ -527,23 +527,20 @@ export function Tickets() {
 
 /* ---------------- Plan ---------------- */
 export function PlanPage() {
-  const toast = useToast();
   const sp = useSearchParams();
   const locked = sp.get("locked");
   const [d, setD] = useState<{ plan: string; features: FeatureMap; matrix: Record<string, FeatureMap>; upgradeRequest: string | null; plans: PricedPlan[]; endsAt: string | null } | null>(null);
   const [term, setTerm] = useState<BillingTerm>(12);
-  const [busy, setBusy] = useState("");
-  useEffect(() => { api<NonNullable<typeof d>>("/api/plan").then(setD); }, []);
+  const [openInvoices, setOpenInvoices] = useState<any[]>([]);
+  useEffect(() => { api<NonNullable<typeof d>>("/api/plan").then(setD); api<{ items: any[] }>("/api/subscription/invoices").then((r) => setOpenInvoices(r.items)).catch(() => {}); }, []);
   const lockedDef = useMemo(() => FEATURES.find((x) => x.key === locked), [locked]);
   if (!d) return <Skeleton className="h-96 rounded-2xl" />;
-  async function request(plan: string) {
-    setBusy(plan);
-    try { await api("/api/plan", { method: "POST", body: { plan } }); setD({ ...d!, upgradeRequest: plan }); toast("درخواست شما ثبت شد؛ پس از تأیید مدیر سامانه اعمال می‌شود"); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(""); }
-  }
   const cell = (l: Level) => (l === "yes" ? <span className="text-emerald-600"><IconText>{<EmojiIcon emoji="" />}</IconText></span> : l === "custom" ? <Badge color="violet">اختصاصی</Badge> : <span className="text-stone-300">✕</span>);
   return (
     <div className="animate-fade-in">
       <PageHeader title="پلن و امکانات" subtitle="امکانات هر پلن و وضعیت دسترسی حساب شما" />
+      {sp.get("payment") === "success" && <div className="mb-5 rounded-2xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">پرداخت با موفقیت تأیید شد و پلن شما فعال یا تمدید شد.</div>}
+      {sp.get("payment") === "failed" && <div className="mb-5 rounded-2xl bg-rose-50 p-4 text-sm font-semibold text-rose-800 ring-1 ring-rose-200">پرداخت تأیید نشد. می‌توانید دوباره تلاش کنید یا روش پرداخت دیگری را انتخاب کنید.</div>}
       <IconText>{lockedDef && <div className="mb-5 flex items-start gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200"><span className="text-xl">{<EmojiIcon emoji="" />}</span><p>امکان «<b>{lockedDef.label}</b>» در پلن فعلی شما (<b>{planName(d.plan)}</b>) فعال نیست. برای استفاده، پلن خود را ارتقا دهید.</p></div>}</IconText>
       <IconText>{d.upgradeRequest && <div className="mb-5 rounded-2xl bg-sky-50 p-4 text-sm text-sky-900 ring-1 ring-sky-200">{<EmojiIcon emoji="" />} درخواست ارتقا به پلن <b>{planName(d.upgradeRequest)}</b> در انتظار تأیید است.</div>}</IconText>
       <div className="mb-5 flex gap-2" role="group" aria-label="دوره تعرفه">{([6,12] as const).map(t=><Button key={t} variant={term===t ? "primary" : "secondary"} aria-pressed={term===t} onClick={()=>setTerm(t)}>{TERM_LABELS[t]}</Button>)}</div>
@@ -557,11 +554,12 @@ export function PlanPage() {
               {p.terms[term].base > p.terms[term].total && <p className="mt-4 text-xs text-stone-400 line-through">{formatNumber(p.terms[term].base)} تومان</p>}
               <p className="text-2xl font-black">{formatNumber(p.terms[term].total)} <span className="text-xs font-medium text-stone-500">تومان / {TERM_LABELS[term]}</span></p>
               <p className="mt-3 text-xs text-stone-500">{toFa(FEATURES.filter((f) => d.matrix[p.key][f.key] !== "no").length)} از {toFa(FEATURES.length)} امکان</p>
-              <Button className="mt-4 w-full" variant={cur ? "secondary" : "primary"} disabled={cur || d.upgradeRequest === p.key} loading={busy === p.key} onClick={() => request(p.key)}>{cur ? "پلن فعلی" : d.upgradeRequest === p.key ? "درخواست ثبت شده" : "درخواست تغییر به این پلن"}</Button>
+              <Button className="mt-4 w-full" variant={cur ? "secondary" : "primary"} onClick={() => { window.location.assign(`/checkout?plan=${encodeURIComponent(p.key)}&months=${term}`); }}>{cur ? "تمدید این پلن" : "خرید این پلن"}</Button>
             </Card>
           );
         })}
       </div>
+      {!!openInvoices.length && <Card className="mt-5 space-y-3 p-5"><div><h3 className="font-extrabold">فاکتورهای در انتظار پرداخت</h3><p className="mt-1 text-xs text-stone-500">فاکتورهای صادرشده توسط مدیریت را از اینجا پرداخت کنید.</p></div>{openInvoices.map((i) => <div key={i.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 p-3"><span className="font-bold">فاکتور #{toFa(i.number)}</span><span className="text-sm text-base-content/60">{planName(i.plan)} · {toFa(i.months)} ماه</span><b className="ms-auto">{formatPrice(i.amount)}</b><Button size="sm" onClick={() => window.location.assign(`/checkout?invoiceId=${i.id}`)}>پرداخت فاکتور</Button></div>)}</Card>}
       <Card className="mt-6 overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead><tr className="border-b bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">امکان</th>{PLANS.map((p) => <th key={p.key} className={cn("w-28 p-3 text-center", p.key === d.plan && "text-brand-600")}>{p.name}</th>)}<th className="w-28 p-3 text-center">حساب شما</th></tr></thead>

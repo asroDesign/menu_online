@@ -15,3 +15,17 @@
 .auth-story>a{font-size:12px;font-weight:650}
 .auth-layout>.flex>.card{box-shadow:none;border-color:#dce1d2;background:#fffdf8}
 @media(max-width:1023px){.auth-story{display:none}}
+@media(min-width:1024px){
+  .marketing-site.auth-layout{height:100vh;height:100dvh;min-height:0;grid-template-rows:minmax(0,1fr);overflow:hidden}
+  .auth-layout>.flex,.auth-layout>.auth-story{min-height:0}
+  .auth-layout>.flex{padding-block:clamp(16px,3vh,28px)}
+  .auth-layout>.flex>.card{max-height:100%;overflow-y:auto}
+  .auth-story{padding:clamp(20px,4vh,34px) clamp(28px,4vw,50px);gap:clamp(10px,1.4vh,14px)}
+  .auth-story h2{font-size:clamp(25px,2.4vw,33px);line-height:1.45}
+  .auth-story .hero-workspace{margin-block:6px 12px}
+  .auth-story .preview-content{padding-block:10px}
+  .auth-story .preview-stats{margin-top:8px}
+  .auth-story .preview-order-title{margin:10px 0 6px}
+  .auth-story .preview-order{padding-block:6px}
+  .auth-story .preview-bottom{margin-top:4px}
+}

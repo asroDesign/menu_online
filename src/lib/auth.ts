@@ -141,7 +141,7 @@ type Ctx<P> = { params: Promise<P> };
 /** Wrap an API handler: enforces authentication + plan entitlement, and converts thrown errors to JSON. */
 export function withAuth<P = Record<string, string>>(
   handler: (req: Request, auth: AuthContext, params: P) => Promise<Response>,
-  opts: { feature?: string | string[]; admin?: boolean; manager?: boolean; roles?: string[]; courierOk?: boolean; perm?: AdminPerm } = {},
+  opts: { feature?: string | string[]; admin?: boolean; manager?: boolean; roles?: string[]; courierOk?: boolean; perm?: AdminPerm; allowUnpaid?: boolean } = {},
 ) {
   return async (req: Request, ctx: Ctx<P>) => {
     try {
@@ -149,6 +149,8 @@ export function withAuth<P = Record<string, string>>(
       if (!auth) throw new HttpError(401, "ابتدا وارد حساب کاربری شوید");
       if (auth.business.isSuspended && auth.user.role !== "admin")
         throw new HttpError(403, "حساب شما توسط مدیر سامانه مسدود شده است");
+      if (auth.business.plan === "pending" && auth.user.role !== "admin" && !opts.allowUnpaid)
+        throw new HttpError(402, "برای دسترسی به پنل، ابتدا پلن را انتخاب و پرداخت کنید");
       if (auth.role === "courier" && !opts.courierOk) throw new HttpError(403, "دسترسی پیک فقط به پنل پیک محدود است");
       if (opts.admin) requireAdmin(auth);
       if (opts.perm && !adminCan(auth, opts.perm)) throw new HttpError(403, "شما به این بخش از پنل مدیریت دسترسی ندارید");
