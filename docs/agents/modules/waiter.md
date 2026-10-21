@@ -15,7 +15,7 @@
 
 ## داده و API
 
-GET /api/products, /api/categories, /api/tables, /api/staff, /api/business, /api/r/zones؛ POST /api/orders؛ GET /api/public/:slug/customer و /discount فقط در mode صندوق، نه گارسون.
+GET /api/products, /api/categories, /api/tables, /api/staff, /api/business, /api/r/zones؛ POST /api/orders؛ GET `/api/scales` فقط هنگام بازبودن انتخاب محصول وزنی و داشتن entitlement scale؛ GET /api/public/:slug/customer و /discount فقط در mode صندوق، نه گارسون.
 
 ## قواعدی که بازنویسی باید حفظ کند
 
@@ -38,6 +38,8 @@ mode=waiter نباید روش پرداخت/کد تخفیف/دریافت وجه �
 در mode=`waiter` فقط سفارش ثبت می‌شود. کنترل روش پرداخت، کد و تخفیف دستی، cashback و داده‌های تسویه نمایش داده نشوند؛ نام مشتری/یادداشت آشپزخانه و انتخاب waiter موجود ممکن است نمایش داده شود. UI را برای touch طراحی کن: دکمه‌های کم/زیاد حداقل 44px و دکمه ثبت در footer sticky و safe-area پایین موبایل. اطلاعات محصول/سبد باید در tablet landscape و mobile portrait قابل پیمایش باشند.
 
 POST `/api/orders` payload شامل itemهای `productId,quantity`, `type`, `tableId`, customer, note, `waiterId`, `source=waiter`, `appendTo` است. Server route role waiter را از session می‌شناسد و `waiterId` را خودش override می‌کند. در صورت نبود قلم یا میز/type لازم، inline error/toast و حفظ cart.
+
+اگر `sellingMode=weight` انتخاب شود، modal وزن ناخالص/ظرف می‌گیرد؛ در صورت entitlement ترازو، endpoint tenant-bound `/api/scales` فقط قرائت‌های تازه را بدون device code می‌دهد تا اپراتور یکی را دستی تأیید کند. cart باید مقدار gross را در payload بگذارد و مقدار net را جدا برای نمایش نگه دارد. قیمت هر کیلو و yield را server از محصول می‌خواند. توضیح کامل در [راهنمای فروش وزنی](weighted-sales.md) است.
 
 **پذیرش:** بدون انتخاب میز submit باید modal را باز کند؛ submit دوبار ممکن نباشد؛ پس از ثبت موفق سبد و note/name پاک و میزها reload شوند؛ خطای server سبد را پاک نکند.
 

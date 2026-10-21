@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -14,8 +13,8 @@ type Q = typeof db;
 
 /* ------------------------------------------------------------------ chart */
 export const C = {
-  CASH: "1101", BANK: "1102", AR: "1201", INV: "1301", FA_EQ: "1401", FA_FUR: "1402", ACC_DEP: "1409",
-  AP: "2101", VAT: "2102", CB_LIAB: "2103", PAYROLL: "2104",
+  CASH: "1101", BANK: "1102", AR: "1201", CHEQUE_RECEIVABLE: "1202", INV: "1301", FA_EQ: "1401", FA_FUR: "1402", ACC_DEP: "1409",
+  AP: "2101", VAT: "2102", CB_LIAB: "2103", PAYROLL: "2104", CHEQUE_PAYABLE: "2105",
   CAPITAL: "3101", RETAINED: "3102", DRAW: "3103",
   SALES: "4101", DELIVERY: "4102", SERVICE: "4103", DISCOUNT: "4104", OTHER_INC: "4201", STOCK_GAIN: "4202",
   COGS: "5101", WASTE: "5102",
@@ -31,6 +30,7 @@ const CHART: Def[] = [
   ["1102", "بانک‌ها", "moein", "11", "asset", D],
   ["12", "حساب‌ها و اسناد دریافتنی", "kol", null, "asset", D],
   ["1201", "مشتریان (دریافتنی)", "moein", "12", "asset", D],
+  [C.CHEQUE_RECEIVABLE, "اسناد دریافتنی (چک)", "moein", "12", "asset", D],
   ["13", "موجودی مواد و کالا", "kol", null, "asset", D],
   ["1301", "موجودی مواد اولیه", "moein", "13", "asset", D],
   ["14", "دارایی‌های ثابت", "kol", null, "asset", D],
@@ -42,6 +42,7 @@ const CHART: Def[] = [
   ["2102", "مالیات بر ارزش افزوده", "moein", "21", "liability", K],
   ["2103", "اعتبار کش‌بک مشتریان", "moein", "21", "liability", K],
   ["2104", "حقوق و دستمزد پرداختنی", "moein", "21", "liability", K],
+  [C.CHEQUE_PAYABLE, "اسناد پرداختنی (چک)", "moein", "21", "liability", K],
   ["31", "حقوق صاحبان سرمایه", "kol", null, "equity", K],
   ["3101", "سرمایه", "moein", "31", "equity", K],
   ["3102", "سود (زیان) انباشته", "moein", "31", "equity", K],
@@ -103,6 +104,38 @@ export function ensureAccounting(biz: Biz) {
 
 export async function loadAccounts(bizId: number) {
   return db.select().from(accAccounts).where(eq(accAccounts.businessId, bizId)).orderBy(asc(accAccounts.code));
+}
+
+/** Add the two cheque control accounts to existing charts without changing tenant-created accounts. */
+export async function ensureChequeAccountingAccounts(biz: Biz) {
+  await ensureAccounting(biz);
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${biz.id + 779001})`);
+    const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+    const byCode = new Map(all.map((account) => [account.code, account]));
+    const definitions = [
+      { code: C.CHEQUE_RECEIVABLE, name: "اسناد دریافتنی (چک)", parentCode: "12", type: "asset", nature: "debit" },
+      { code: C.CHEQUE_PAYABLE, name: "اسناد پرداختنی (چک)", parentCode: "21", type: "liability", nature: "credit" },
+    ] as const;
+    for (const definition of definitions) {
+      const parent = byCode.get(definition.parentCode);
+      if (!parent || parent.level !== "kol" || parent.type !== definition.type) {
+        throw new HttpError(409, `سرفصل کل ${definition.parentCode} برای ثبت اسناد چک آماده نیست.`);
+      }
+      const existing = byCode.get(definition.code);
+      if (existing) {
+        if (existing.level !== "moein" || existing.parentId !== parent.id || existing.type !== definition.type || existing.nature !== definition.nature || !existing.isActive) {
+          throw new HttpError(409, `کد حساب ${definition.code} با ساختار موردنیاز دفتر چک سازگار نیست.`);
+        }
+        continue;
+      }
+      const [created] = await tx.insert(accAccounts).values({
+        businessId: biz.id, code: definition.code, name: definition.name, level: "moein", parentId: parent.id,
+        type: definition.type, nature: definition.nature, isSystem: true,
+      }).returning();
+      byCode.set(created.code, created);
+    }
+  });
 }
 async function codeMap(bizId: number) {
   const all = await loadAccounts(bizId);
@@ -487,6 +520,38 @@ export async function postOrderSale(biz: Biz, o: OrderRow, cogs: number, earned:
   });
 }
 
+/** Post an order sale using the caller's transaction so a failed journal rolls back settlement. */
+export async function postOrderSaleInTransaction(txInput: Q, biz: Biz, o: OrderRow, cogs: number, earned: number, receivable = false) {
+  const tx = txInput as Q;
+  await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+  const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+  const byCode = new Map(all.map((a) => [a.code, a]));
+  const ids = new Map(all.map((a) => [a.code, a.id]));
+  let payId = byCode.get(receivable ? C.AR : C.CASH)!.id;
+  if (!receivable && o.paymentMethod === "cashback") payId = byCode.get(C.CB_LIAB)!.id;
+  else if (!receivable && o.paymentMethod && o.paymentMethod !== "cash") {
+    const [bank] = await tx.select({ id: bankAccounts.id }).from(bankAccounts)
+      .where(eq(bankAccounts.businessId, biz.id)).orderBy(asc(bankAccounts.id)).limit(1);
+    if (bank) {
+      let detail = all.find((a) => a.refType === "bank" && a.refId === bank.id);
+      if (!detail) {
+        const parent = byCode.get(C.BANK)!;
+        const seq = all.filter((a) => a.parentId === parent.id).length + 1;
+        [detail] = await tx.insert(accAccounts).values({
+          businessId: biz.id, code: `${C.BANK}${String(seq).padStart(2, "0")}`, name: `بانک — ${(await tx.select({ name: bankAccounts.name }).from(bankAccounts).where(eq(bankAccounts.id, bank.id)))[0]?.name ?? "حساب"}`,
+          level: "tafsili", parentId: parent.id, type: "asset", nature: "debit", refType: "bank", refId: bank.id, isSystem: true,
+        }).returning();
+      }
+      payId = detail.id;
+    }
+  }
+  return postDocumentInTransaction(tx, biz, {
+    date: new Date(), source: "order", sourceRef: `order:${o.id}`,
+    description: `فروش سفارش #${o.number}${o.customerName ? ` — ${o.customerName}` : ""}`,
+    lines: orderDocLines(o, payId, ids, cogs, earned),
+  });
+}
+
 export async function postInventoryMovement(biz: Biz, m: { id: number; type: string; delta: number; amount: number; note: string; payFrom?: string; supplierAccountId?: number }) {
   if (m.amount <= 0) return;
   await ensureAccounting(biz);
@@ -505,14 +570,27 @@ const EXPENSE_MAP: [RegExp, string][] = [
   [/اجاره/, C.RENT], [/حقوق|دستمزد|پرسنل/, C.PAY_EXP], [/قبض|برق|آب|گاز|تلفن/, C.UTIL], [/بازاریابی|تبلیغ/, C.MKT],
   [/تعمیر|نگهداری/, C.REPAIR], [/اینترنت|نرم‌افزار|نرم افزار|سامانه/, C.SOFT], [/مواد|خرید/, C.INV],
 ];
-export async function postManualTx(biz: Biz, t: { id: number; kind: string; category: string; amount: number; description: string; bankAccountId: number | null; date: Date }) {
+export async function postManualTx(biz: Biz, t: { id: number; kind: string; category: string; amount: number; description: string; bankAccountId: number | null; accountMoeinId?: number | null; accountTafsiliId?: number | null; date: Date }) {
   await ensureAccounting(biz);
-  const moneyId = t.bankAccountId ? await bankDetailId(biz, t.bankAccountId) : (await codeMap(biz.id)).byCode.get(C.CASH)!.id;
+  const maps = await codeMap(biz.id);
+  const moneyId = t.bankAccountId ? await bankDetailId(biz, t.bankAccountId) : maps.byCode.get(C.CASH)!.id;
   const code = t.kind === "income" ? C.OTHER_INC : (EXPENSE_MAP.find(([re]) => re.test(t.category))?.[1] ?? C.OTHER_EXP);
+  const selectedMoein = t.accountMoeinId ? maps.byId.get(t.accountMoeinId) : undefined;
+  const selectedTafsili = t.accountTafsiliId ? maps.byId.get(t.accountTafsiliId) : undefined;
+  let categoryAccountId: number;
+  if (selectedMoein) {
+    const accountType = t.kind === "income" ? "revenue" : "expense";
+    const nature = t.kind === "income" ? "credit" : "debit";
+    if (selectedMoein.level !== "moein" || selectedMoein.type !== accountType || selectedMoein.nature !== nature) throw new HttpError(400, "حساب معین با ماهیت این درآمد یا هزینه سازگار نیست");
+    if (selectedTafsili && (selectedTafsili.level !== "tafsili" || selectedTafsili.parentId !== selectedMoein.id || selectedTafsili.type !== accountType || selectedTafsili.nature !== nature)) throw new HttpError(400, "حساب تفصیلی با حساب معین و ماهیت این ردیف سازگار نیست");
+    categoryAccountId = selectedTafsili?.id ?? selectedMoein.id;
+  } else {
+    categoryAccountId = maps.byCode.get(code)!.id;
+  }
   const desc = `${t.kind === "income" ? "درآمد" : "هزینه"}: ${t.category || t.description}`.slice(0, 200);
   await postDocument(biz, {
     date: t.date, source: "expense", sourceRef: `tx:${t.id}`, description: desc,
-    lines: t.kind === "income" ? [{ accountId: moneyId, debit: t.amount }, { code, credit: t.amount }] : [{ code, debit: t.amount }, { accountId: moneyId, credit: t.amount }],
+    lines: t.kind === "income" ? [{ accountId: moneyId, debit: t.amount }, { accountId: categoryAccountId, credit: t.amount }] : [{ accountId: categoryAccountId, debit: t.amount }, { accountId: moneyId, credit: t.amount }],
   });
 }
 export async function unpostManualTx(biz: Biz, txId: number) {
@@ -547,9 +625,9 @@ export async function postDepreciation(biz: Biz, by: string, at = new Date()) {
 export async function cogsForOrders(bizId: number, ids: number[]) {
   if (!ids.length) return new Map<number, number>();
   const res: any = await db.execute(sql`
-    select oi.order_id as oid, sum(oi.quantity * r.quantity * ii.cost_per_unit)::float8 as cogs
+    select oi.order_id as oid, sum(oi.quantity * (case when oi.weight_grams is null then 1 else oi.weight_grams::float8 / 1000 / oi.yield_ratio_snapshot end) * r.quantity * ii.recipe_to_stock_factor * (1 + r.waste_percent / 100.0) * ii.cost_per_unit)::float8 as cogs
     from order_items oi join recipes r on r.product_id = oi.product_id join inventory_items ii on ii.id = r.item_id
-    where oi.order_id in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}) group by oi.order_id`);
+    where oi.order_id in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}) and ii.track_stock = true group by oi.order_id`);
   return new Map<number, number>(res.rows.map((r: any) => [Number(r.oid), Math.round(Number(r.cogs))]));
 }
 

@@ -18,6 +18,7 @@ import { UsersTab } from "@/components/admin/users";
 import { PlansTab } from "@/components/admin/plans";
 import { AnnouncementsTab, AuditTab, PlatformChannelsTab, SettingsTab } from "@/components/admin/misc";
 import { AffiliatesTab, ContentTab, LeadsTab } from "@/components/admin/marketing";
+import { brandThemeStyle } from "@/lib/brand-color";
 
 type Tab = { key: string; label: string; emoji: string; perm: AdminPerm };
 const TABS: Tab[] = [
@@ -109,7 +110,7 @@ function Inner({ me }: { me: Me }) {
 
   const sidebar = (
     <div className="panel-sidebar flex h-full flex-col border-e border-base-300 bg-base-100 text-base-content">
-      <div className="flex items-center gap-3 px-5 py-5"><span className="flex size-11 items-center justify-center overflow-hidden rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/20"><BrandLogo url={branding.logoUrl} alt="" className="size-full bg-white object-contain p-1.5" fallback={<Icon name="shield" className="size-5" />} /></span><div><p className="text-sm font-bold text-base-content">پنل مدیر سامانه</p><p className="text-[11px] text-base-content/50">{branding.siteName}</p></div></div>
+      <div className="flex items-center gap-3 px-5 py-5"><span className="flex size-11 items-center justify-center overflow-hidden rounded-2xl bg-primary text-primary-content shadow-lg shadow-primary/20"><BrandLogo url={branding.logoUrl} alt="" className="size-full bg-white object-contain p-1.5" fallback={<Icon name="shield" className="size-5" />} /></span><div><p className="text-sm font-bold text-base-content">پنل مدیر سامانه</p><p className="text-[11px] text-base-content/50">{branding.siteName}</p></div></div>
       <nav aria-label="منوی مدیریت سامانه" className="menu flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-4">
         {ADMIN_GROUPS.map((group) => {
           const items = allowed.filter((item) => group.keys.includes(item.key));
@@ -137,7 +138,7 @@ function Inner({ me }: { me: Me }) {
   );
 
   return (
-    <div className="min-h-dvh bg-base-200/70">
+      <div className="min-h-dvh bg-base-200/70" style={brandThemeStyle(branding.brandColor)}>
       <aside className="fixed inset-y-0 start-0 z-30 hidden w-72 lg:block">{sidebar}</aside>
       {open && <div className="fixed inset-0 z-40 lg:hidden">
         <button type="button" aria-label="بستن منو" onClick={() => setOpen(false)} className="absolute inset-0 animate-fade-in bg-stone-900/50 backdrop-blur-sm" />
@@ -147,7 +148,7 @@ function Inner({ me }: { me: Me }) {
         <header className="sticky top-0 z-20 flex h-[4.25rem] items-center gap-2 border-b border-base-300 bg-base-100/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
           <button ref={menuTriggerRef} type="button" aria-label="منو" aria-expanded={open} aria-controls="admin-navigation-drawer" onClick={() => setOpen(true)} className="btn btn-ghost btn-square btn-sm inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-base-content/65 transition hover:bg-base-200 hover:text-base-content lg:hidden"><Icon name="menuBurger" className="size-[18px]" /></button>
           <h2 className="min-w-0 flex-1 truncate text-sm font-bold">{current?.label}</h2>
-          <Badge color="rose" className="ms-auto shrink-0">{dept.label}</Badge>
+          <span className="badge ms-auto shrink-0 border-0 bg-primary/10 font-bold text-primary">{dept.label}</span>
         </header>
         <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">
           {tab === "overview" && <Overview go={go} />}

@@ -1,0 +1,143 @@
+/* Cashier-only workspace: independent scrolling keeps checkout actions visible. */
+.cashier-main { padding: 10px; }
+.cashier-notices { position: relative; z-index: 15; margin-bottom: 6px; font-size: 11px; color: #64748b; }
+.cashier-notices[open] { padding: 8px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; }
+.cashier-notices summary { cursor: pointer; }
+.cashier-order-list { display: none; }
+.cashier-product > button { display: flex; align-items: center; min-height: 102px; padding: 8px; gap: 8px; }
+.cashier-product > button > :first-child { width: 64px; height: 72px; flex-shrink: 0; border-radius: 8px; }
+.cashier-product > button > :nth-child(2) { min-width: 0; flex: 1; padding: 0; }
+.cashier-product > button p { white-space: normal; font-size: 12px; line-height: 1.65; }
+.cashier-product > button > div > div { flex-wrap: wrap; gap: 4px; }
+.cashier-product > button .size-8 { width: 24px; height: 24px; }
+.cashier-product > .absolute { top: auto; bottom: 4px; }
+.cashier-product > .absolute button { width: 32px; height: 32px; }
+.cashier-extras { padding: 10px; }
+.cashier-extras > button { min-height: 32px; height: 32px; padding: 0; font-size: 11px; }
+.cashier-extras section > button { min-height: 36px; font-size: 12px; }
+.cashier-lines ul { gap: 0; }
+.cashier-lines li { padding-block: 8px; }
+.cashier-checkout-panel > :last-child { padding: 10px; }
+@media (min-width: 1024px) {
+  .cashier-shell > aside { width: 208px; }
+  .cashier-shell > div { padding-inline-start: 208px; }
+  .cashier-shell > div > header { height: 48px; padding-inline: 12px; }
+  .cashier-shell > aside nav a { min-height: 36px; font-size: 11px; gap: 6px; }
+  .cashier-shell > aside nav a > span:first-child { width: 24px; height: 24px; }
+  .cashier-main { height: calc(100dvh - 48px); min-height: 560px; display: flex; flex-direction: column; }
+  .cashier-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .cashier-workspace > :first-child { flex: none; min-height: 36px; margin-bottom: 8px; }
+  .cashier-columns { flex: 1; min-height: 0; grid-template-columns: minmax(0,1fr) 340px; grid-template-rows: auto minmax(0,1fr); gap: 8px; }
+  .cashier-order-dock { grid-column: 1 / -1; }
+  .cashier-catalog { min-height: 0; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #e2e8f0; background: white; border-radius: 12px; padding: 8px; }
+  .cashier-catalog section > h2 { display: none; }
+  .cashier-catalog section > .sticky { top: -8px; padding: 8px 0; background: white; }
+  .cashier-catalog .no-scrollbar button { min-height: 32px; padding: 4px 10px; font-size: 11px; }
+  .cashier-catalog section > .grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .cashier-cart { min-height: 0; }
+  .cashier-cart > div { height: 100%; min-height: 0; position: static; border-radius: 12px; }
+  .cashier-checkout-panel > :first-child { scrollbar-width: thin; }
+  .cashier-checkout-panel .grid-cols-2 > button { padding-inline: 6px; font-size: 11px; }
+  .cashier-lines li > .size-12 { display: none; }
+  .cashier-lines li button { width: 32px; height: 36px; }
+  .cashier-lines li p:first-child { white-space: normal; font-size: 12px; }
+  .cashier-notices[open] { position: absolute; top: 56px; inset-inline-end: 12px; width: min(560px,75vw); box-shadow: 0 8px 30px #0f172a20; }
+}
+@media (min-width: 1280px) {
+  .cashier-columns { grid-template-columns: 230px minmax(0,1fr) 330px; grid-template-rows: minmax(0,1fr); }
+  .cashier-order-dock { grid-column: auto; min-height: 0; display: flex; flex-direction: column; border: 1px solid #e2e8f0; border-radius: 12px; background: white; padding: 8px; }
+  .cashier-order-dock > :first-child { flex: none; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; justify-content: space-between; }
+  .cashier-order-dock > :first-child > button { display: none; }
+  .cashier-order-dock > :first-child a { padding-inline: 4px; font-size: 10px; }
+  .cashier-order-list { display: flex; flex: 1; min-height: 0; flex-direction: column; padding-top: 10px; }
+  .cashier-order-list > .space-y-3 { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+  .cashier-order-list > .space-y-3 > .grid:first-child { grid-template-columns: 1fr; flex: none; }
+  .cashier-order-list .max-h-\[60dvh\] { max-height: none; min-height: 0; flex: 1; grid-template-columns: 1fr; align-content: start; }
+  .cashier-order-list button { padding: 8px; }
+  .cashier-order-list button > div:first-child { flex-wrap: wrap; font-size: 11px; }
+  .cashier-order-list button > div:nth-child(2) { flex-wrap: wrap; gap: 4px; }
+  .cashier-order-list > div > p:last-child { font-size: 10px; }
+}
+@media (max-width: 639px) {
+  .cashier-product > button { flex-direction: column; align-items: stretch; }
+  .cashier-product > button > :first-child { width: 100%; height: 80px; }
+}
+@media (min-width: 1024px) {
+  .cashier-notices:not([open]) { position: absolute; top: 16px; inset-inline-start: 430px; margin: 0; }
+  .cashier-workspace > :first-child { min-height: 30px; }
+  .cashier-workspace > :first-child > div:first-child > div > p { display: none; }
+  .cashier-checkout-panel > :last-child { gap: 6px; display: flex; flex-direction: column; }
+  .cashier-checkout-panel > :last-child > * { margin-block: 0; }
+  .cashier-checkout-panel > :last-child > div:first-child > p { display: none; }
+  .cashier-checkout-panel > :last-child > fieldset button { min-height: 36px; padding-block: 4px; }
+  .cashier-checkout-panel > :last-child > button { min-height: 36px; height: 36px; font-size: 12px; }
+  .cashier-checkout-panel > :last-child > button:last-child { min-height: 28px; height: 28px; font-size: 11px; }
+}
+@media (min-width: 1280px) {
+  .cashier-order-dock > :first-child a { flex: 1; justify-content: center; }
+  .cashier-order-dock > :first-child a span { display: none; }
+}
+.cashier-lines > div { min-height: 64px; padding-block: 8px; }
+.cashier-lines > div > svg { width: 24px; height: 24px; margin-bottom: 4px; }
+.cashier-lines > div > p { font-size: 12px; }
+/* Keep the order identity, type and status on a single compact line. */
+.cashier-order-card { gap: 5px; padding: 7px; border-radius: 10px; }
+.cashier-order-card > div:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.cashier-order-card > div:first-child > b { padding: 3px 5px; font-size: 10px; }
+.cashier-order-card > div:first-child > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+}
+.cashier-order-card > div:first-child > .badge {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 5px;
+  text-overflow: ellipsis;
+  font-size: 9px;
+  line-height: 1.4;
+  text-align: center;
+}
+.cashier-order-card > div:nth-child(2) { gap: 5px; padding: 6px; border-radius: 9px; }
+.cashier-order-card > div:nth-child(2) > p { font-size: 10px; line-height: 1.35; }
+.cashier-order-card > div:nth-child(2) > div:first-child { font-size: 11px; }
+.cashier-order-card > div:nth-child(2) > div:nth-last-child(1) > div > span { font-size: 8px; }
+.cashier-order-card > button { min-height: 30px; height: 30px; padding-inline: 6px; font-size: 10px; }
+.cashier-order-card > .grid > button { min-height: 28px; height: 28px; padding-inline: 4px; font-size: 9px; }
+.cashier-order-card > .grid { gap: 4px; }
+.cashier-order-card > .grid > a { min-height: 28px; height: 28px; font-size: 9px; }
+@media (min-width: 1024px) {
+  .cashier-checkout-panel select,
+  .cashier-checkout-panel input:not([type="checkbox"]):not([type="radio"]) {
+    min-height: 32px;
+    height: 32px;
+    padding-block: 3px;
+    font-size: 11px;
+  }
+  .cashier-checkout-panel > :first-child select,
+  .cashier-checkout-panel > :first-child button { min-height: 36px; }
+  .cashier-order-list input,
+  .cashier-order-list select { min-height: 32px; height: 32px; padding-block: 3px; font-size: 10px; }
+  .cashier-order-card { gap: 5px; padding: 7px; }
+}
+@media (max-width: 360px) {
+  .cashier-order-card > div:first-child { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.1fr); }
+  .cashier-order-card > div:first-child > .badge { font-size: 8px; }
+}
+@media (min-width: 1024px) {
+  .cashier-notices { z-index: 25; }
+  .cashier-checkout-panel > :first-child > .border-b:not(details) { padding: 8px; }
+  .cashier-checkout-panel h3 { font-size: 14px; }
+  .cashier-checkout-panel h3 + p { margin-top: 2px; font-size: 11px; }
+  .cashier-checkout-panel > :first-child > .border-b > button { min-height: 36px; height: 36px; font-size: 11px; }
+  .cashier-checkout-panel section > button[aria-controls="cashier-discount-fields"] { min-height: 36px; height: 36px; }
+}

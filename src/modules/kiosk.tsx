@@ -17,7 +17,7 @@ const TEMPLATES: { key: string; name: string; desc: string }[] = [
 ];
 
 function Mini({ k, active }: { k: string; active: boolean }) {
-  const ac = active ? "#f97316" : "#a8a29e";
+  const ac = active ? "var(--color-primary)" : "#94a3b8";
   const tile = <div className="rounded-md bg-stone-300" />;
   const dark = k === "dark";
   return (

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import type { PlatformBranding } from "@/lib/app-settings";
+import { DEFAULT_BRAND_COLOR, setRootBrandTheme } from "@/lib/brand-color";
 
-const DEFAULT_PLATFORM_BRANDING: PlatformBranding = { siteName: "منوی دیجیتال", logoUrl: "" };
+const DEFAULT_PLATFORM_BRANDING: PlatformBranding = { siteName: "منوی دیجیتال", logoUrl: "", brandColor: DEFAULT_BRAND_COLOR };
 
 export function usePlatformBranding() {
   const [branding, setBranding] = useState(DEFAULT_PLATFORM_BRANDING);
@@ -14,7 +15,7 @@ export function usePlatformBranding() {
     const load = () => {
       fetch("/api/public/branding", { cache: "no-store" })
         .then((response) => response.ok ? response.json() as Promise<PlatformBranding> : null)
-        .then((value) => { if (active && value?.siteName) setBranding({ siteName: value.siteName, logoUrl: value.logoUrl ?? "" }); })
+        .then((value) => { if (active && value?.siteName) setBranding({ siteName: value.siteName, logoUrl: value.logoUrl ?? "", brandColor: value.brandColor ?? DEFAULT_BRAND_COLOR }); })
         .catch(() => {});
     };
     load();
@@ -48,6 +49,8 @@ export function PlatformBrandingRuntime() {
   const createdFavicon = useRef(false);
 
   useEffect(() => {
+    setRootBrandTheme(branding.brandColor);
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", branding.brandColor);
     const title = document.title;
     const oldName = previousName.current;
     if (title.includes(oldName)) document.title = title.replaceAll(oldName, branding.siteName);

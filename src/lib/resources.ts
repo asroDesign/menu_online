@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { categories, diningTables, orders, products } from "@/db/schema";
+import { categories, diningTables, orders, products, reservations } from "@/db/schema";
+import { effectiveTableState } from "@/lib/table-lifecycle-core";
 import { can, HttpError } from "@/lib/auth";
 import { makeCrud } from "@/lib/crud";
+import { ALLERGEN_TAGS, DIETARY_TAGS, normalizeProductOptionGroups, normalizeTags } from "@/lib/product-options";
 
 export const categoriesCrud = makeCrud({
   table: categories,
@@ -22,6 +24,8 @@ export const productsCrud = makeCrud({
     name: { type: "string", required: true, max: 100 },
     description: { type: "string", max: 400 },
     price: { type: "int", required: true, min: 0, max: 100_000_000 },
+    sellingMode: { type: "enum", values: ["count", "weight"] },
+    yieldRatio: { type: "float", min: 0.000001, max: 1 },
     oldPrice: { type: "nullableInt", min: 0 },
     categoryId: { type: "nullableInt", min: 1 },
     emoji: { type: "string", max: 8 },
@@ -30,8 +34,30 @@ export const productsCrud = makeCrud({
     isAvailable: { type: "bool" },
     isFeatured: { type: "bool" },
     arModelUrl: { type: "string", max: 500 },
+    externalId: { type: "string", max: 80 },
+    modifierGroups: { type: "json" },
+    dietaryTags: { type: "json" },
+    allergenTags: { type: "json" },
   },
-  validate: async (biz, data, auth) => {
+  validate: async (biz, data, auth, creating, id) => {
+    try {
+      if ("modifierGroups" in data) data.modifierGroups = normalizeProductOptionGroups(data.modifierGroups);
+      if ("dietaryTags" in data) data.dietaryTags = normalizeTags(data.dietaryTags, DIETARY_TAGS, 8, "برچسب تغذیه‌ای");
+      if ("allergenTags" in data) data.allergenTags = normalizeTags(data.allergenTags, ALLERGEN_TAGS, 9, "برچسب آلرژن");
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : "اطلاعات گزینه‌های محصول نامعتبر است");
+    }
+    const [existing] = !creating && id
+      ? await db.select({ sellingMode: products.sellingMode, yieldRatio: products.yieldRatio, modifierGroups: products.modifierGroups })
+        .from(products).where(and(eq(products.id, id), eq(products.businessId, biz.id))).limit(1)
+      : [];
+    const mode = String(data.sellingMode ?? existing?.sellingMode ?? "count");
+    const yieldRatio = Number(data.yieldRatio ?? existing?.yieldRatio ?? 1);
+    if (!(["count", "weight"].includes(mode)) || !Number.isFinite(yieldRatio) || yieldRatio <= 0 || yieldRatio > 1)
+      throw new HttpError(400, "نوع فروش یا بازده خام به پخته معتبر نیست");
+    const effectiveModifierGroups = data.modifierGroups ?? existing?.modifierGroups;
+    if (mode === "weight" && Array.isArray(effectiveModifierGroups) && effectiveModifierGroups.some((group) => (group as { active?: boolean }).active !== false))
+      throw new HttpError(400, "برای محصول وزنی فعلاً گزینه‌های متغیر فعال نشود؛ نرخ ترازو باید مبنای محاسبه باشد");
     if (data.arModelUrl && !can(auth, "ar")) throw new HttpError(403, "واقعیت افزوده در پلن شما فعال نیست");
     if (data.categoryId) {
       const [c] = await db
@@ -56,6 +82,11 @@ export const tablesCrud = makeCrud({
   beforeDelete: async (biz, id) => {
     const [open] = await db.select({ number: orders.number }).from(orders).where(and(eq(orders.businessId, biz.id), eq(orders.tableId, id), inArray(orders.status, ["awaiting_payment", "pending", "preparing", "ready", "served"]), sql`${orders.paymentStatus} <> 'paid'`)).limit(1);
     if (open) throw new HttpError(400, `این میز سفارش باز (#${open.number.toLocaleString("fa-IR")}) دارد؛ ابتدا سفارش را ببندید یا لغو کنید`);
+    const [reserved] = await db.select({ id: reservations.id }).from(reservations).where(and(
+      eq(reservations.businessId, biz.id), eq(reservations.tableId, id), inArray(reservations.status, ["requested", "confirmed"]),
+      sql`${reservations.startsAt} + (${reservations.durationMinutes} * interval '1 minute') > now()`,
+    )).limit(1);
+    if (reserved) throw new HttpError(400, "این میز رزرو فعال یا آینده دارد؛ ابتدا رزرو را تعیین‌تکلیف کنید");
   },
   order: [asc(diningTables.id)],
   spec: {
@@ -77,13 +108,25 @@ export const tablesCrud = makeCrud({
       .where(
         and(
           eq(orders.businessId, biz.id),
-          inArray(orders.status, ["pending", "preparing", "ready", "served"]),
+          inArray(orders.status, ["awaiting_payment", "pending", "preparing", "ready", "served"]),
+          sql`${orders.paymentStatus} <> 'paid'`,
+          sql`${orders.deletedAt} IS NULL`,
         ),
       )
       .orderBy(desc(orders.createdAt));
+    const now = new Date();
+    const activeReservations = await db.select({ tableId: reservations.tableId }).from(reservations).where(and(
+      eq(reservations.businessId, biz.id), inArray(reservations.tableId, rows.map((r) => r.id)),
+      inArray(reservations.status, ["requested", "confirmed"]),
+      sql`${reservations.startsAt} <= ${now}`,
+      sql`${reservations.startsAt} + (${reservations.durationMinutes} * interval '1 minute') > ${now}`,
+    ));
+    const reservedIds = new Set(activeReservations.map((r) => r.tableId));
     return rows.map((r) => ({
       ...r,
       openOrder: open.find((o) => o.tableId === r.id) ?? null,
+      hasActiveReservation: reservedIds.has(r.id),
+      status: effectiveTableState(r.operationalStatus as "available" | "cleaning" | "out_of_service", open.some((o) => o.tableId === r.id), reservedIds.has(r.id)),
     }));
   },
 });

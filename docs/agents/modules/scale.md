@@ -33,6 +33,8 @@ Scale page: device resource `/api/r/dev_scale` poll هر ۳s، محصولات `/
 
 `DevicePanel` endpoint hint POST `/api/device/:code/weight {value}`؛ bridge باید وزن سخت‌افزار USB/network را به همین resource/device route بدهد. UI رندر وزن و total، نه checkout قطعی. ثبت محصول وزن‌دار و قیمت server در order parser باید یکسان باشد.
 
+Bridge مقدار خروجی را به kg نرمال می‌کند (`weightUnit=g` در config به `value/1000` تبدیل می‌شود). پنل صندوق/گارسون هنگام انتخاب محصول وزنی از `GET /api/scales` برای قرائت tenant-bound تازه (۲۰ ثانیه) استفاده می‌کند؛ endpoint تنها id/name/grams/lastSeenAt برمی‌گرداند و device `code` را افشا نمی‌کند. اپراتور باید قرائت را صریحاً انتخاب کند؛ `/api/scales` داده نمایشیِ قابل‌تأیید است، نه نمونه‌ی امضاشده یا سندی که سرور هنگام ثبت سفارش با دستگاه قفل کند. صفحه ترازو و سفارش وزنی در [راهنمای فروش وزنی](weighted-sales.md) هم‌راستا شده‌اند.
+
 **پذیرش:** وزن صفر، سه اعشار، product/scale absent، invalid negative، bridge offline، و تغییر محصول/دستگاه. وزن از browser query قابل اعتماد مالی نیست؛ server price calculation authoritative.
 
 ## مرجع بازسازی

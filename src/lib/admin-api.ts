@@ -1,13 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   adminAudit, announcements, businesses, categories, customers, diningTables, planFeatures, platformExpenses, products, staff,
   subscriptionInvoices, subscriptionPayments, promoCoupons, couponRedemptions, ticketMessages, tickets, users, sessions, affiliates, affiliateCommissions, affiliateWalletEntries,
-  affiliateWithdrawals, blogPosts, tutorials, faqs, testimonials, leadRequests, platformAccountingDocuments,
+  affiliateWithdrawals, blogPosts, tutorials, faqs, testimonials, leadRequests, platformAccountingDocuments, trialGrants,
 } from "@/db/schema";
 import { getBilling, getManagerNotifications, getPlatformBranding, getPlanList, getSetting, getSupport, setSetting } from "@/lib/app-settings";
+import { DEFAULT_BRAND_COLOR, normalizeBrandColor } from "@/lib/brand-color";
 import { adminCan, adminDept, hashPassword, HttpError, readJson, startImpersonation, type AuthContext } from "@/lib/auth";
 import { ADMIN_DEPTS, permsOf, TICKET_DEPTS, type AdminPerm } from "@/lib/admin-meta";
 import { effectivePlan, getPlanOverrides, invalidatePlanCache } from "@/lib/entitlements";
@@ -103,7 +103,7 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       const agg: any = await db.execute(sql`select count(*)::int as n, coalesce(sum(total) filter (where payment_status='paid'),0)::float8 as gmv, max(created_at) as last from orders where business_id = ${r.b.id}`);
       const invs = await db.select().from(subscriptionInvoices).where(eq(subscriptionInvoices.businessId, r.b.id)).orderBy(desc(subscriptionInvoices.id)).limit(20);
       const tks = await db.select().from(tickets).where(eq(tickets.businessId, r.b.id)).orderBy(desc(tickets.updatedAt)).limit(10);
-      const { settings: _s, ...pub } = r.b; // eslint-disable-line @typescript-eslint/no-unused-vars
+      const { settings: _s, ...pub } = r.b;
       return J({ business: { ...pub, effectivePlan: effectivePlan(r.b) }, owner: { id: r.ownerId, name: r.ownerName, email: r.ownerEmail, isAdmin: r.role === "admin" }, usage: { products: prods, categories: cats, tables: tbls, staff: stf, customers: custs, orders: Number(agg.rows[0].n), gmv: Number(agg.rows[0].gmv), lastOrderAt: agg.rows[0].last }, invoices: invs, tickets: tks });
     }
     if (m === "POST" && !id) {
@@ -504,9 +504,11 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       need(auth, "settings");
       const prices = await getSetting<Record<string, { price?: number; oldPrice?: number }>>("planPrices", {});
       const payments = await getSetting("platformPayments", { zarinpalEnabled: false, zarinpalMerchantId: "", zibalEnabled: false, zibalMerchantId: "" });
+      const savedTrialPolicy = await getSetting("trialPolicy", { enabled: true, durationDays: 14, plan: "premium_plus" });
+      const trialPolicy = { ...savedTrialPolicy, enabled: true, plan: "premium_plus" };
       const sms = await getPlatformSms();
       return J({ support: await getSupport(), managerNotifications: await getManagerNotifications(), billing: await getBilling(), platformBranding: await getPlatformBranding(), plans: await getPlanList(), planPrices: prices,
-        platformPayments: payments,
+        platformPayments: payments, trialPolicy,
         platformSms: { ...sms, smsirApiKey: "", kavenegarApiKey: "", hasSmsirKey: !!sms.smsirApiKey, hasKavenegarKey: !!sms.kavenegarApiKey },
       });
     }
@@ -517,9 +519,11 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
         need(auth, "settings");
         const siteName = str(v.siteName, 80);
         const logoUrl = str(v.logoUrl, 64);
+        const brandColor = v.brandColor === undefined ? DEFAULT_BRAND_COLOR : normalizeBrandColor(v.brandColor);
         if (siteName.length < 2) throw new HttpError(400, "نام سامانه باید حداقل دو نویسه باشد");
         if (logoUrl && !/^\/api\/files\/[a-f0-9]{24}$/.test(logoUrl)) throw new HttpError(400, "لوگوی سامانه باید از بخش بارگذاری انتخاب شود");
-        await setSetting("platformBranding", { siteName, logoUrl });
+        if (!brandColor) throw new HttpError(400, "رنگ سازمانی باید یک کد شش‌رقمی معتبر باشد");
+        await setSetting("platformBranding", { siteName, logoUrl, brandColor });
       }
       else if (b.key === "managerNotifications") {
         need(auth, "settings");
@@ -545,6 +549,11 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
         const value = { zarinpalEnabled: Boolean(v.zarinpalEnabled), zarinpalMerchantId: str(v.zarinpalMerchantId, 80), zibalEnabled: Boolean(v.zibalEnabled), zibalMerchantId: str(v.zibalMerchantId, 80) };
         if (value.zarinpalEnabled && !value.zarinpalMerchantId || value.zibalEnabled && !value.zibalMerchantId) throw new HttpError(400, "شناسه پذیرنده هر درگاه فعال را وارد کنید");
         await setSetting("platformPayments", value);
+      } else if (b.key === "trialPolicy") {
+        need(auth, "settings");
+        const durationDays = Number(v.durationDays);
+        if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 60) throw new HttpError(400, "مدت دوره آزمایشی باید بین ۱ تا ۶۰ روز باشد");
+        await setSetting("trialPolicy", { enabled: true, durationDays, plan: "premium_plus" });
       } else if (b.key === "platformSms") {
         need(auth, "settings");
         const old = await getPlatformSms();
@@ -766,6 +775,7 @@ async function settleInvoice(auth: AuthContext | null, id: number, method: strin
       await tx.update(subscriptionPayments).set({ status: "failed", detail: "فاکتور با درگاه دیگری پرداخت شد" }).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"), ne(subscriptionPayments.id, payment.id)));
     }
     await tx.update(businesses).set({ plan: inv.plan, subscriptionEndsAt: end, upgradeRequest: biz.upgradeRequest === inv.plan ? null : biz.upgradeRequest }).where(eq(businesses.id, biz.id));
+    await tx.update(trialGrants).set({ status: "converted", convertedAt: now }).where(and(eq(trialGrants.businessId, biz.id), inArray(trialGrants.status, ["active", "expired"])));
 
     const [redemption] = await tx.update(couponRedemptions).set({ status: "redeemed" }).where(and(eq(couponRedemptions.invoiceId, inv.id), eq(couponRedemptions.status, "reserved"))).returning();
     if (redemption) await tx.update(promoCoupons).set({ redemptions: sql`${promoCoupons.redemptions} + 1` }).where(eq(promoCoupons.id, redemption.couponId));

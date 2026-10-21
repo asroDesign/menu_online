@@ -17,11 +17,11 @@ export const ROLE_FEATURES: Record<string, string[] | "*"> = {
   owner: "*",
   courier: ["courier"],
   manager: "*",
-  waiter: ["cashier_pos", "self_order", "delivery_order", "preorder", "discount", "cashback", "loyalty", "cross_sell", "zones", "foodcourt_pager", "pager_voice", "caller_id", "support"],
-  cashier: ["cashier_pos", "self_order", "delivery_order", "preorder", "discount", "cashback", "loyalty", "cross_sell", "zones", "foodcourt_pager", "pager_voice", "caller_id", "tablet_pos", "scale", "support"],
-  chef: ["cashier_pos", "tablet_pos", "pager_voice", "foodcourt_pager", "recipes", "cloud_printer", "support"],
-  warehouse: ["inventory", "stock_movements", "stock_control", "recipes", "costing", "scale", "support"],
-  accountant: ["accounting", "income_expense", "sales_reports", "profit_loss", "bank_report", "assets", "costing", "cashier_pos", "support"],
+  waiter: ["cashier_pos", "self_order", "delivery_order", "preorder", "discount", "cashback", "loyalty", "cross_sell", "zones", "foodcourt_pager", "pager_voice", "caller_id", "staff_scheduling", "support"],
+  cashier: ["cashier_pos", "self_order", "delivery_order", "preorder", "discount", "cashback", "loyalty", "cross_sell", "zones", "foodcourt_pager", "pager_voice", "caller_id", "tablet_pos", "scale", "staff_scheduling", "support"],
+  chef: ["cashier_pos", "tablet_pos", "pager_voice", "foodcourt_pager", "recipes", "cloud_printer", "staff_scheduling", "support"],
+  warehouse: ["inventory", "stock_movements", "stock_control", "purchase_suggestions", "recipes", "costing", "scale", "staff_scheduling", "support"],
+  accountant: ["accounting", "income_expense", "sales_reports", "profit_loss", "bank_report", "assets", "cheque_register", "costing", "cashier_pos", "staff_scheduling", "support"],
 };
 
 const M = ["owner", "manager"];

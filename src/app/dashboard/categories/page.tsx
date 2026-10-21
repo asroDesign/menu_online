@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { notifySetupSaved } from "@/lib/onboarding-tour";
+
+import { useMemo, useRef, useState } from "react";
 import { useCollection } from "@/lib/api";
 import { toFa } from "@/lib/format";
 import type { Category, Product } from "@/lib/types";
@@ -32,22 +34,27 @@ export default function CategoriesPage() {
     setEditing(c);
   }
 
+  const saveLock = useRef(false);
+
   async function save() {
+    if (saveLock.current) return;
     if (!name.trim()) return toast("نام دسته‌بندی را وارد کنید", "error");
     const target = editing;
-    setEditing(null);
+    saveLock.current = true;
     try {
       if (target === "new") {
         const payload = { name: name.trim(), emoji, sortOrder: cats.items.length, isActive: true };
         await cats.create(payload, payload);
-        toast("دسته‌بندی اضافه شد");
+        setEditing(null);
+        toast("دسته‌بندی اضافه شد"); notifySetupSaved("categories");
       } else if (target) {
         await cats.update(target.id, { name: name.trim(), emoji });
+        setEditing(null);
         toast("تغییرات ذخیره شد");
       }
     } catch (e) {
       toast((e as Error).message, "error");
-    }
+    } finally { saveLock.current = false; }
   }
 
   async function move(i: number, dir: -1 | 1) {
@@ -76,7 +83,7 @@ export default function CategoriesPage() {
       <PageHeader
         title="دسته‌بندی‌ها"
         subtitle="ترتیب نمایش دسته‌ها در منوی مشتری را مدیریت کنید"
-        actions={<Button onClick={openNew}><Icon name="plus" className="size-4" /> دسته‌بندی جدید</Button>}
+        actions={<Button data-tour="category-create" onClick={openNew}><Icon name="plus" className="size-4" /> دسته‌بندی جدید</Button>}
       />
 
       <IconText>{cats.loading ? (
@@ -84,7 +91,7 @@ export default function CategoriesPage() {
       ) : cats.error ? (
         <ErrorState message={cats.error} onRetry={() => cats.reload()} />
       ) : sorted.length === 0 ? (
-        <EmptyState emoji="" title="هنوز دسته‌بندی‌ای ندارید" description="محصولات را در دسته‌هایی مثل «قهوه»، «پیتزا» یا «دسر» سازمان‌دهی کنید." action={<Button onClick={openNew}>ساخت اولین دسته‌بندی</Button>} />
+        <EmptyState emoji="" title="هنوز دسته‌بندی‌ای ندارید" description="محصولات را در دسته‌هایی مثل «قهوه»، «پیتزا» یا «دسر» سازمان‌دهی کنید." action={<Button data-tour="category-create" onClick={openNew}>ساخت اولین دسته‌بندی</Button>} />
       ) : (
         <div className="space-y-3">
           {sorted.map((c, i) => (
@@ -114,11 +121,11 @@ export default function CategoriesPage() {
         onClose={() => setEditing(null)}
         title={editing === "new" ? "دسته‌بندی جدید" : "ویرایش دسته‌بندی"}
         size="sm"
-        footer={<><Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button><Button onClick={save}>ذخیره</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button><Button data-tour="category-save" onClick={save}>ذخیره</Button></>}
       >
         <div className="space-y-4">
           <Field label="نام دسته‌بندی *">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً نوشیدنی گرم" autoFocus onKeyDown={(e) => e.key === "Enter" && save()} />
+            <Input data-tour="category-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً نوشیدنی گرم" autoFocus onKeyDown={(e) => e.key === "Enter" && save()} />
           </Field>
           <div>
             <span className="mb-1.5 block text-xs font-semibold text-stone-600">آیکن</span>

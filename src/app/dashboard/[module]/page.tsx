@@ -11,7 +11,7 @@ import Staff from "@/modules/staff";
 import { Customers, Cashback, Discounts, Surveys } from "@/modules/growth-a";
 import { CrossSell, Bale, Translations, MiniSiteEditor, Domain, ArPage, AiPage, Payments, Tickets, PlanPage } from "@/modules/growth-b";
 import { IncomeExpense, Reports, ProfitLoss, Bank, Assets } from "@/modules/finance";
-import { Inventory, StockMovements, StockControl, Recipes, Costing } from "@/modules/inventory";
+import { Inventory, StockMovements, StockControl, Recipes, Costing, PurchaseSuggestions } from "@/modules/inventory";
 import { Couriers, Zones, Devices, Printers, CallerId, Scale, VoicePager, FoodCourtPager } from "@/modules/hardware";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,9 @@ export const dynamic = "force-dynamic";
 import Suppliers from "@/modules/suppliers";
 import Kiosk from "@/modules/kiosk";
 import Reservations from "@/modules/reservations";
+import StaffSchedule from "@/modules/staff-schedule";
+import Cheques from "@/modules/cheques";
+import Receivables from "@/modules/receivables";
 
 const Cashier = () => <Waiter mode="cashier" />;
 
@@ -52,9 +55,13 @@ const MODULES: Record<string, { feature?: string | string[]; C: ComponentType }>
   "profit-loss": { feature: "profit_loss", C: ProfitLoss },
   bank: { feature: "bank_report", C: Bank },
   assets: { feature: "assets", C: Assets },
+  cheques: { feature: "cheque_register", C: Cheques },
+  receivables: { feature: "accounting", C: Receivables },
   inventory: { feature: "inventory", C: Inventory },
   "stock-movements": { feature: "stock_movements", C: StockMovements },
   "stock-control": { feature: "stock_control", C: StockControl },
+  "purchase-suggestions": { feature: "purchase_suggestions", C: PurchaseSuggestions },
+  "staff-schedule": { feature: "staff_scheduling", C: StaffSchedule },
   recipes: { feature: "recipes", C: Recipes },
   costing: { feature: "costing", C: Costing },
   couriers: { feature: "courier", C: Couriers },

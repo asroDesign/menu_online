@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { getSiteUrl } from "@/lib/site-url";
 import Link from "next/link";
 import { getPublicPosts } from "@/lib/marketing-content";
 import { SiteFooter } from "@/components/marketing/rich-content";
 
-export const metadata: Metadata = { metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://menudigital.ir"), title: "وبلاگ | منوی دیجیتال", description: "راهنماها، تجربه‌ها و نکات کاربردی برای مدیریت کافه، رستوران و فروش آنلاین." };
+export const metadata: Metadata = { metadataBase: new URL(getSiteUrl()), title: "وبلاگ | منوی دیجیتال", description: "راهنماها، تجربه‌ها و نکات کاربردی برای مدیریت کافه، رستوران و فروش آنلاین." };
 export const dynamic = "force-dynamic";
 export default async function BlogPage({ searchParams }: { searchParams: Promise<{ q?: string; category?: string }> }) {
   const params = await searchParams;

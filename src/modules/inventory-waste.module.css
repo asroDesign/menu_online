@@ -1,0 +1,31 @@
+.printMeta { display: none; }
+
+@media print {
+  @page { size: A4 landscape; margin: 12mm; }
+  .report {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 10px !important;
+    color: #111827 !important;
+  }
+  .report :global(.card) {
+    break-inside: avoid;
+    border-color: #d1d5db !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+  .report :global(.overflow-x-auto) { overflow: visible !important; }
+  .report table { width: 100% !important; min-width: 0 !important; font-size: 9pt !important; }
+  .report th, .report td { padding: 5px !important; }
+  .printMeta {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 1px solid #9ca3af;
+    padding-bottom: 8px;
+    font-size: 9pt;
+  }
+  .printMeta strong { font-size: 15pt; }
+}

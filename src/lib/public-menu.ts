@@ -1,13 +1,16 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, categories, deliveryZones, diningTables, products, translations } from "@/db/schema";
-import { featuresOf } from "@/lib/entitlements";
+import { activeTrialOf, featuresOf } from "@/lib/entitlements";
 import { hasAny, type Settings } from "@/lib/plans";
 import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
+import { visibleMenuPromoBanners } from "@/lib/menu-banners";
+import { activeTransferCards } from "@/lib/card-transfer";
 
 export async function getPublicMenu(slug: string) {
   const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
-  if (!biz || biz.isSuspended || biz.plan === "pending") return null;
+  if (!biz || biz.isSuspended) return null;
+  if (biz.plan === "pending" && !await activeTrialOf(biz.id)) return null;
   return buildPublicMenu(biz);
 }
 
@@ -16,12 +19,13 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   const can = (k: string) => hasAny(features, k);
   const st = (biz.settings ?? {}) as Settings;
   const cardTransfer = st.cardTransfer;
-  const cardTransferEnabled = can("card_transfer") && !!cardTransfer?.enabled && /^\d{16}$/.test(cardTransfer.cardNumber) && !!cardTransfer.accountHolder?.trim();
+  const transferCards = activeTransferCards(cardTransfer);
+  const cardTransferEnabled = can("card_transfer") && transferCards.length > 0;
   const [cats, prods, tbls, zones, trs] = await Promise.all([
     db.select().from(categories).where(and(eq(categories.businessId, biz.id), eq(categories.isActive, true))).orderBy(asc(categories.sortOrder), asc(categories.id)),
     db.select().from(products).where(eq(products.businessId, biz.id)).orderBy(asc(products.id)),
     can("self_order")
-      ? db.select({ id: diningTables.id, name: diningTables.name, zone: diningTables.zone }).from(diningTables).where(eq(diningTables.businessId, biz.id)).orderBy(asc(diningTables.id))
+      ? db.select({ id: diningTables.id, name: diningTables.name, zone: diningTables.zone, operationalStatus: diningTables.operationalStatus }).from(diningTables).where(eq(diningTables.businessId, biz.id)).orderBy(asc(diningTables.id))
       : Promise.resolve([]),
     can("delivery_order") && can("zones")
       ? db.select({ id: deliveryZones.id, name: deliveryZones.name, fee: deliveryZones.fee, radiusKm: deliveryZones.radiusKm, minOrder: deliveryZones.minOrder, etaMinutes: deliveryZones.etaMinutes }).from(deliveryZones).where(and(eq(deliveryZones.businessId, biz.id), eq(deliveryZones.isActive, true)))
@@ -39,6 +43,8 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   return {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
+      menuTemplate: ["classic", "editorial", "compact"].includes(String(st.menuTemplate)) ? st.menuTemplate : "classic",
+      promotionalBanners: visibleMenuPromoBanners(st.promoBanners),
       instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, logoUrl: biz.logoUrl, acceptOrders: biz.acceptOrders,
       taxPercent: biz.taxPercent, servicePercent: biz.servicePercent,
       isOpen: isOpenAt(st, new Date()),
@@ -48,10 +54,8 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
         ? { requireDeposit: !!st.reservations?.requireDeposit, depositPerGuest: st.reservations?.depositPerGuest ?? 0, durationMinutes: st.reservations?.durationMinutes ?? 90 }
         : null,
       cardTransfer: cardTransferEnabled ? {
-        cardNumber: cardTransfer!.cardNumber,
-        accountHolder: cardTransfer!.accountHolder,
-        bankName: cardTransfer!.bankName,
-        instructions: cardTransfer!.instructions,
+        ...transferCards[0],
+        cards: transferCards,
       } : null,
     },
     caps: {

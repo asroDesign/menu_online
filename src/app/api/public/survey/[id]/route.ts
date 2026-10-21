@@ -4,6 +4,7 @@ import { businesses, surveyResponses, surveys } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
 import { featuresOf } from "@/lib/entitlements";
 import { hasAny } from "@/lib/plans";
+import { DEMO_SLUG } from "@/lib/demo-mode";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -11,6 +12,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const [sv] = await db.select().from(surveys).where(eq(surveys.id, Number(id)));
     if (!sv || !sv.isActive) throw new HttpError(404, "نظرسنجی پیدا نشد");
     const [biz] = await db.select().from(businesses).where(eq(businesses.id, sv.businessId));
+    if (biz?.slug === DEMO_SLUG) throw new HttpError(403, "نظرسنجی نمونه فقط برای پیش‌نمایش است");
     if (!hasAny(await featuresOf(biz), "surveys")) throw new HttpError(403, "نظرسنجی فعال نیست");
     const b = await readJson(req);
     const answers = b.answers && typeof b.answers === "object" ? (b.answers as Record<string, unknown>) : {};

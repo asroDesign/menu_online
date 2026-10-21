@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { db } from "@/db";
 import * as S from "@/db/schema";
@@ -74,9 +75,51 @@ export async function seedExtras() {
     },
   }).where(eq(S.businesses.id, biz.id));
 
-  const prods = await db.select().from(S.products).where(eq(S.products.businessId, biz.id)).orderBy(asc(S.products.id));
-  const cats = await db.select().from(S.categories).where(eq(S.categories.businessId, biz.id)).orderBy(asc(S.categories.sortOrder));
-  const P = (n: string) => prods.find((p) => p.name === n)!;
+  let cats = await db.select().from(S.categories).where(eq(S.categories.businessId, biz.id)).orderBy(asc(S.categories.sortOrder));
+  const categoryNames = new Set(cats.map((category) => category.name));
+  const [categoryOrder] = await db.select({ value: max(S.categories.sortOrder) }).from(S.categories).where(eq(S.categories.businessId, biz.id));
+  let nextCategoryOrder = (categoryOrder?.value ?? -1) + 1;
+  for (const category of CATALOG) {
+    if (categoryNames.has(category.name)) continue;
+    const [inserted] = await db.insert(S.categories).values({
+      businessId: biz.id,
+      name: category.name,
+      emoji: category.emoji,
+      sortOrder: nextCategoryOrder++,
+    }).returning();
+    cats.push(inserted);
+    categoryNames.add(category.name);
+  }
+
+  let prods = await db.select().from(S.products).where(eq(S.products.businessId, biz.id)).orderBy(asc(S.products.id));
+  const productNames = new Set(prods.map((product) => product.name));
+  const categoryByName = new Map(cats.map((category) => [category.name, category]));
+  const missingProducts = CATALOG.flatMap((category) => category.items
+    .filter((product) => !productNames.has(product[0]))
+    .map((product) => ({
+      businessId: biz.id,
+      categoryId: categoryByName.get(category.name)!.id,
+      name: product[0],
+      description: product[1],
+      price: product[2],
+      emoji: product[3],
+      prepMinutes: product[4],
+      imageUrl: `/food/${category.img}.jpg`,
+      isFeatured: !!product[5]?.f,
+      oldPrice: product[5]?.old ?? null,
+      isAvailable: !product[5]?.off,
+    })));
+  for (let i = 0; i < missingProducts.length; i += 100) {
+    await db.insert(S.products).values(missingProducts.slice(i, i + 100));
+  }
+  if (missingProducts.length) {
+    prods = await db.select().from(S.products).where(eq(S.products.businessId, biz.id)).orderBy(asc(S.products.id));
+  }
+  const P = (name: string) => {
+    const product = prods.find((row) => row.name === name);
+    if (!product) throw new Error(`Demo seed invariant failed: catalog product "${name}" is missing for business ${biz.id}`);
+    return product;
+  };
   const bid = biz.id;
 
   // AR sample
@@ -181,7 +224,7 @@ export async function seedExtras() {
     ["برنج ایرانی", "کیلوگرم", 35, 15, 160_000, 0], ["تخم‌مرغ", "عدد", 120, 40, 7_500, 1], ["گوجه‌فرنگی", "کیلوگرم", 11, 6, 45_000, 1], ["نان همبرگر", "عدد", 18, 25, 12_000, 0],
     ["خامه", "لیتر", 5, 3, 210_000, 1], ["سیب‌زمینی", "کیلوگرم", 30, 12, 32_000, 0], ["لیمو ترش", "کیلوگرم", 4, 3, 90_000, 1], ["شکلات تلخ", "کیلوگرم", 2.5, 1.5, 480_000, 0],
   ];
-  const items = await db.insert(S.inventoryItems).values(itemDefs.map(([name, unit, stock, minStock, cost, w]) => ({ businessId: bid, name, unit, stock, minStock, costPerUnit: cost, warehouseId: wh[w].id }))).returning();
+  const items = await db.insert(S.inventoryItems).values(itemDefs.map(([name, unit, stock, minStock, cost, w]) => ({ businessId: bid, name, unit, recipeUnit: unit, recipeToStockFactor: 1, stock, minStock, costPerUnit: cost, lastPurchaseCost: cost, warehouseId: wh[w].id }))).returning();
   const I = (n: string) => items.find((i) => i.name === n)!;
   const rec: [string, [string, number][]][] = [
     ["اسپرسو", [["دانه قهوه عربیکا", 0.018]]], ["کاپوچینو", [["دانه قهوه عربیکا", 0.018], ["شیر", 0.15]]], ["لاته", [["دانه قهوه عربیکا", 0.018], ["شیر", 0.25]]], ["آیس لاته", [["دانه قهوه عربیکا", 0.018], ["شیر", 0.2]]],
@@ -275,7 +318,7 @@ export async function seedExtras() {
 async function lite(email: string, name: string, bizName: string, slug: string, plan: string, logo: string, color: string, catIdx: number[], withOrders: boolean) {
   const [exists] = await db.select({ id: S.users.id }).from(S.users).where(eq(S.users.email, email));
   if (exists) return;
-  const [user] = await db.insert(S.users).values({ name, email, passwordHash: hashPassword(email.startsWith("admin") ? "admin1234" : "demo1234"), role: email.startsWith("admin") ? "admin" : "owner" }).onConflictDoNothing().returning();
+  const [user] = await db.insert(S.users).values({ name, email, passwordHash: hashPassword(randomBytes(32).toString("hex")), role: email.startsWith("admin") ? "admin" : "owner" }).onConflictDoNothing().returning();
   if (!user) return;
   const [biz] = await db.insert(S.businesses).values({ userId: user.id, name: bizName, slug, plan, logoEmoji: logo, accentColor: color, description: "منوی دیجیتال " + bizName, phone: "۰۲۱-۲۲۳۳۴۴۵۵", address: "تهران، خیابان انقلاب", taxPercent: 10, servicePercent: 0 }).returning();
   if (!catIdx.length) return;
@@ -322,7 +365,7 @@ export async function seedPhase3() {
   const link = async (email: string, name: string, role: string, existing?: string) => {
     const [ex] = await db.select({ id: S.users.id }).from(S.users).where(eq(S.users.email, email));
     if (ex) return;
-    const [usr] = await db.insert(S.users).values({ name, email, passwordHash: hashPassword("demo1234"), role: "staff", businessId: bid, staffRole: role }).returning({ id: S.users.id });
+    const [usr] = await db.insert(S.users).values({ name, email, passwordHash: hashPassword(randomBytes(32).toString("hex")), role: "staff", businessId: bid, staffRole: role }).returning({ id: S.users.id });
     const row = existing ? stf.find((s) => s.name === existing) : undefined;
     if (row) await db.update(S.staff).set({ userId: usr.id, role, isActive: true }).where(eq(S.staff.id, row.id));
     else await db.insert(S.staff).values({ businessId: bid, name, role, userId: usr.id });
@@ -416,18 +459,18 @@ export async function seedPhase5() {
   if (!adm || !demoOwner) return;
   const [admBiz] = await db.select().from(S.businesses).where(eq(S.businesses.userId, adm.id));
   const [biz] = await db.select().from(S.businesses).where(eq(S.businesses.userId, demoOwner.id));
-  const pw = hashPassword("demo1234");
+  const pw = () => hashPassword(randomBytes(32).toString("hex"));
 
   // admin team (each department sees only what it needs)
   const [sup, fin] = await db.insert(S.users).values([
-    { name: "مریم پشتیبان", email: "support@menudigital.ir", passwordHash: pw, role: "admin", staffRole: "support", businessId: admBiz.id },
-    { name: "رضا حسابدار", email: "finance@menudigital.ir", passwordHash: pw, role: "admin", staffRole: "finance", businessId: admBiz.id },
+    { name: "مریم پشتیبان", email: "support@menudigital.ir", passwordHash: pw(), role: "admin", staffRole: "support", businessId: admBiz.id },
+    { name: "رضا حسابدار", email: "finance@menudigital.ir", passwordHash: pw(), role: "admin", staffRole: "finance", businessId: admBiz.id },
   ]).returning();
 
   // courier account for the demo restaurant
   const crs = await db.select().from(S.couriers).where(eq(S.couriers.businessId, biz.id)).orderBy(asc(S.couriers.id));
   if (crs[0]) {
-    const [cu] = await db.insert(S.users).values({ name: crs[0].name, email: "courier@menudigital.ir", passwordHash: pw, role: "courier", businessId: biz.id }).returning();
+    const [cu] = await db.insert(S.users).values({ name: crs[0].name, email: "courier@menudigital.ir", passwordHash: pw(), role: "courier", businessId: biz.id }).returning();
     await db.update(S.couriers).set({ userId: cu.id, status: "available" }).where(eq(S.couriers.id, crs[0].id));
     // a ready order for the courier to pick up right away
     await db.execute(sql`update orders set courier_id = ${crs[0].id} where business_id = ${biz.id} and type = 'delivery' and status = 'ready' and courier_id is null`);
@@ -438,7 +481,7 @@ export async function seedPhase5() {
 
   // extra demo tenants so the platform numbers look alive
   const mk = async (name: string, owner: string, email: string, plan: string, slug: string, months: number | null, daysAgo: number) => {
-    const [u] = await db.insert(S.users).values({ name: owner, email, passwordHash: pw }).returning();
+    const [u] = await db.insert(S.users).values({ name: owner, email, passwordHash: pw() }).returning();
     const [b] = await db.insert(S.businesses).values({ userId: u.id, name, slug, plan, description: `منوی دیجیتال ${name}`, logoEmoji: "", createdAt: ago(daysAgo), subscriptionEndsAt: months ? new Date(Date.now() + months * DAY) : null }).returning();
     return b;
   };

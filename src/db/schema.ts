@@ -11,8 +11,11 @@ import {
   customType,
   doublePrecision,
   bigint,
+  date,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { ProductOptionGroup, ProductOptionSnapshot } from "@/lib/product-options";
+import type { MembershipOrderSnapshot } from "@/lib/membership-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -78,7 +81,7 @@ export const businesses = pgTable("businesses", {
   address: text("address").notNull().default(""),
   instagram: text("instagram").notNull().default(""),
   logoUrl: text("logo_url").notNull().default(""),
-  accentColor: text("accent_color").notNull().default("#f97316"),
+  accentColor: text("accent_color").notNull().default("#2563eb"),
   logoEmoji: text("logo_emoji").notNull().default(""),
   taxPercent: integer("tax_percent").notNull().default(10),
   servicePercent: integer("service_percent").notNull().default(0),
@@ -94,6 +97,7 @@ export const businesses = pgTable("businesses", {
   subscriptionEndsAt: timestamp("subscription_ends_at", { withTimezone: true }),
   adminNote: text("admin_note").notNull().default(""),
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  setupTourCompletedAt: timestamp("setup_tour_completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("businesses_affiliate_idx").on(t.affiliateId)]);
 
@@ -126,16 +130,22 @@ export const products = pgTable(
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     price: integer("price").notNull().default(0),
+    sellingMode: text("selling_mode").notNull().default("count"), // count | weight; weight price is per kg
+    yieldRatio: doublePrecision("yield_ratio").notNull().default(1), // raw grams needed per cooked gram
     oldPrice: integer("old_price"),
     emoji: text("emoji").notNull().default(""),
     imageUrl: text("image_url").notNull().default(""),
     prepMinutes: integer("prep_minutes").notNull().default(10),
     isAvailable: boolean("is_available").notNull().default(true),
     isFeatured: boolean("is_featured").notNull().default(false),
-  arModelUrl: text("ar_model_url").notNull().default(""),
+    externalId: text("external_id"),
+    modifierGroups: jsonb("modifier_groups").$type<ProductOptionGroup[]>().notNull().default([]),
+    dietaryTags: jsonb("dietary_tags").$type<string[]>().notNull().default([]),
+    allergenTags: jsonb("allergen_tags").$type<string[]>().notNull().default([]),
+    arModelUrl: text("ar_model_url").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("products_business_idx").on(t.businessId)],
+  (t) => [index("products_business_idx").on(t.businessId), uniqueIndex("products_business_external_idx").on(t.businessId, t.externalId)],
 );
 
 export const diningTables = pgTable(
@@ -148,10 +158,23 @@ export const diningTables = pgTable(
     name: text("name").notNull(),
     zone: text("zone").notNull().default("سالن اصلی"),
     capacity: integer("capacity").notNull().default(4),
+    operationalStatus: text("operational_status").notNull().default("available"), // available | cleaning | out_of_service
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("tables_business_idx").on(t.businessId)],
 );
+
+export const tableStatusEvents = pgTable("table_status_events", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  tableId: integer("table_id").references(() => diningTables.id, { onDelete: "set null" }),
+  tableName: text("table_name").notNull().default(""),
+  fromStatus: text("from_status").notNull(),
+  toStatus: text("to_status").notNull(),
+  reason: text("reason").notNull().default(""),
+  actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("table_status_events_business_table_time_idx").on(t.businessId, t.tableId, t.createdAt)]);
 
 export const staff = pgTable(
   "staff",
@@ -170,6 +193,36 @@ export const staff = pgTable(
   (t) => [index("staff_business_idx").on(t.businessId)],
 );
 
+export const staffSchedules = pgTable("staff_schedules", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  location: text("location").notNull().default(""),
+  status: text("status").notNull().default("scheduled"), // scheduled | canceled
+  version: integer("version").notNull().default(1),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  updatedBy: integer("updated_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_schedules_business_time_idx").on(t.businessId, t.startsAt), index("staff_schedules_staff_time_idx").on(t.staffId, t.startsAt)]);
+
+export const staffLeaveRequests = pgTable("staff_leave_requests", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  kind: text("kind").notNull().default("personal"),
+  reason: text("reason").notNull().default(""),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decisionNote: text("decision_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_leave_business_time_idx").on(t.businessId, t.startsAt), index("staff_leave_staff_time_idx").on(t.staffId, t.startsAt)]);
+
 export const orders = pgTable(
   "orders",
   {
@@ -178,6 +231,9 @@ export const orders = pgTable(
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
+    trackingTokenHash: text("tracking_token_hash"),
+    trackingExpiresAt: timestamp("tracking_expires_at", { withTimezone: true }),
+    trackingRevokedAt: timestamp("tracking_revoked_at", { withTimezone: true }),
     tableId: integer("table_id").references(() => diningTables.id, {
       onDelete: "set null",
     }),
@@ -200,6 +256,9 @@ export const orders = pgTable(
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   discountCode: text("discount_code").notNull().default(""),
   discountAmount: integer("discount_amount").notNull().default(0),
+  membershipDiscount: integer("membership_discount").notNull().default(0),
+  membershipSnapshot: jsonb("membership_snapshot").$type<MembershipOrderSnapshot | null>(),
+  membershipAppliedBy: integer("membership_applied_by").references(() => users.id, { onDelete: "set null" }),
   cashbackUsed: integer("cashback_used").notNull().default(0),
   cashbackEarned: integer("cashback_earned").notNull().default(0),
   paymentMethod: text("payment_method"),
@@ -219,9 +278,22 @@ export const orders = pgTable(
   },
   (t) => [
     index("orders_business_idx").on(t.businessId, t.createdAt),
+    uniqueIndex("orders_tracking_token_hash_idx").on(t.trackingTokenHash),
     uniqueIndex("orders_business_number_idx").on(t.businessId, t.number),
   ],
 );
+
+export const orderStatusEvents = pgTable("order_status_events", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  orderId: integer("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // order | payment | delivery
+  fromValue: text("from_value"),
+  toValue: text("to_value").notNull(),
+  actorType: text("actor_type").notNull().default("system"),
+  actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("order_status_events_business_order_time_idx").on(t.businessId, t.orderId, t.createdAt)]);
 
 export const orderItems = pgTable(
   "order_items",
@@ -237,10 +309,63 @@ export const orderItems = pgTable(
     emoji: text("emoji").notNull().default(""),
     price: integer("price").notNull(),
     quantity: integer("quantity").notNull().default(1),
+    weightGrams: integer("weight_grams"), // net cooked/sold grams per unit, null for count products
+    tareGrams: integer("tare_grams").notNull().default(0),
+    yieldRatioSnapshot: doublePrecision("yield_ratio_snapshot").notNull().default(1),
+    lineTotal: integer("line_total").notNull().default(0),
     note: text("note").notNull().default(""),
+    optionSnapshot: jsonb("option_snapshot").$type<ProductOptionSnapshot[]>().notNull().default([]),
   },
   (t) => [index("order_items_order_idx").on(t.orderId)],
 );
+
+export const menuEvents = pgTable("menu_events", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  eventId: text("event_id").notNull(),
+  eventName: text("event_name").notNull(),
+  categoryId: integer("category_id"),
+  productId: integer("product_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("menu_events_business_event_idx").on(t.businessId, t.eventId),
+  index("menu_events_business_created_idx").on(t.businessId, t.createdAt),
+]);
+
+export type MenuImportRow = {
+  externalId: string;
+  category: string;
+  name: string;
+  description: string;
+  priceToman: number;
+  available: boolean;
+  errors: string[];
+  duplicate: boolean;
+};
+
+export const menuImportJobs = pgTable("menu_import_jobs", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  requestKey: text("request_key").notNull(),
+  sourceHash: text("source_hash").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  status: text("status").notNull().default("preview"), // preview | committed
+  rows: jsonb("rows").$type<MenuImportRow[]>().notNull().default([]),
+  result: jsonb("result").$type<{ created: number; skipped: number; productIds: number[]; categoryIds: number[] } | null>(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  committedAt: timestamp("committed_at", { withTimezone: true }),
+}, (t) => [uniqueIndex("menu_import_jobs_business_request_idx").on(t.businessId, t.requestKey), index("menu_import_jobs_business_created_idx").on(t.businessId, t.createdAt)]);
+
+export const platformEvents = pgTable("platform_events", {
+  id: serial("id").primaryKey(),
+  eventId: text("event_id").notNull(),
+  eventName: text("event_name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("platform_events_event_id_idx").on(t.eventId),
+  index("platform_events_created_idx").on(t.createdAt),
+]);
 
 const bizId = () =>
   integer("business_id")
@@ -269,6 +394,78 @@ export const customers = pgTable(
   (t) => [uniqueIndex("customers_biz_phone_idx").on(t.businessId, t.phone)],
 );
 
+/** Debtor accounts are tenant-scoped and may optionally link to a verified customer record. */
+export const receivableAccounts = pgTable("receivable_accounts", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("person"), // person | company
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  phone: text("phone").notNull().default(""),
+  note: text("note").notNull().default(""),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+});
+
+/** Receivables hold the invoice face value; the balance is derived from immutable receipts/reversals. */
+export const receivables = pgTable("receivables", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  accountId: integer("account_id").notNull().references(() => receivableAccounts.id, { onDelete: "restrict" }),
+  orderId: integer("order_id").references(() => orders.id, { onDelete: "restrict" }),
+  source: text("source").notNull().default("manual"), // manual | order
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  description: text("description").notNull().default(""),
+  accountingDocumentId: integer("accounting_document_id"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+});
+
+export const receivablePayments = pgTable("receivable_payments", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  receivableId: integer("receivable_id").notNull().references(() => receivables.id, { onDelete: "restrict" }),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  method: text("method").notNull(), // cash | bank | pos | transfer
+  bankAccountId: integer("bank_account_id").references(() => bankAccounts.id, { onDelete: "set null" }),
+  shiftId: integer("shift_id").references(() => cashShifts.id, { onDelete: "set null" }),
+  accountingDocumentId: integer("accounting_document_id"),
+  transactionId: integer("transaction_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  note: text("note").notNull().default(""),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+});
+
+export const receivablePaymentReversals = pgTable("receivable_payment_reversals", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  paymentId: integer("payment_id").notNull().references(() => receivablePayments.id, { onDelete: "restrict" }),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  method: text("method").notNull(),
+  bankAccountId: integer("bank_account_id").references(() => bankAccounts.id, { onDelete: "set null" }),
+  shiftId: integer("shift_id").references(() => cashShifts.id, { onDelete: "set null" }),
+  accountingDocumentId: integer("accounting_document_id"),
+  transactionId: integer("transaction_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  reason: text("reason").notNull(),
+  actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+});
+
+export const receivableEvents = pgTable("receivable_events", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  receivableId: integer("receivable_id").notNull().references(() => receivables.id, { onDelete: "restrict" }),
+  kind: text("kind").notNull(), // created | payment | payment_reversed
+  amount: bigint("amount", { mode: "number" }).notNull().default(0),
+  note: text("note").notNull().default(""),
+  actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+});
+
 export const walletEntries = pgTable("wallet_entries", {
   id: serial("id").primaryKey(),
   businessId: bizId(),
@@ -278,9 +475,10 @@ export const walletEntries = pgTable("wallet_entries", {
   orderId: integer("order_id"),
   kind: text("kind").notNull(), // earn | spend | refund | adjust
   amount: integer("amount").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().default(""),
   note: text("note").notNull().default(""),
   createdAt: created(),
-});
+}, (t) => [uniqueIndex("wallet_entries_biz_idempotency_idx").on(t.businessId, t.idempotencyKey).where(sql`${t.idempotencyKey} <> ''`)]);
 
 export const discountCodes = pgTable(
   "discount_codes",
@@ -385,17 +583,33 @@ export const warehouses = pgTable("warehouses", {
   createdAt: created(),
 });
 
+export const inventoryCategories = pgTable("inventory_categories", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  name: text("name").notNull(),
+  createdAt: created(),
+}, (t) => [uniqueIndex("inventory_categories_business_name_uq").on(t.businessId, sql`lower(${t.name})`)]);
+
 export const inventoryItems = pgTable("inventory_items", {
   id: serial("id").primaryKey(),
   businessId: bizId(),
   warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
+  categoryId: integer("category_id").references(() => inventoryCategories.id, { onDelete: "set null" }),
   name: text("name").notNull(),
+  sku: text("sku"),
   unit: text("unit").notNull().default("عدد"),
+  recipeUnit: text("recipe_unit").notNull().default("عدد"),
+  recipeToStockFactor: doublePrecision("recipe_to_stock_factor").notNull().default(1),
   stock: doublePrecision("stock").notNull().default(0),
   minStock: doublePrecision("min_stock").notNull().default(0),
+  reorderPoint: doublePrecision("reorder_point").notNull().default(0),
+  trackStock: boolean("track_stock").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  expiryDate: date("expiry_date", { mode: "string" }),
   costPerUnit: integer("cost_per_unit").notNull().default(0),
+  lastPurchaseCost: integer("last_purchase_cost").notNull().default(0),
   createdAt: created(),
-});
+}, (t) => [uniqueIndex("inventory_items_business_sku_uq").on(t.businessId, sql`lower(${t.sku})`).where(sql`${t.sku} IS NOT NULL AND ${t.sku} <> ''`)]);
 
 export const stockReceipts = pgTable("stock_receipts", {
   id: serial("id").primaryKey(),
@@ -408,10 +622,13 @@ export const stockReceipts = pgTable("stock_receipts", {
   subtotal: bigint("subtotal", { mode: "number" }).notNull().default(0),
   discount: bigint("discount", { mode: "number" }).notNull().default(0),
   extraCost: bigint("extra_cost", { mode: "number" }).notNull().default(0),
+  shippingCost: bigint("shipping_cost", { mode: "number" }).notNull().default(0),
+  taxAmount: bigint("tax_amount", { mode: "number" }).notNull().default(0),
   total: bigint("total", { mode: "number" }).notNull().default(0),
   paidAmount: bigint("paid_amount", { mode: "number" }).notNull().default(0),
   payFrom: text("pay_from").notNull().default("cash"),
   documentId: integer("document_id"),
+  wasteReason: text("waste_reason").notNull().default(""),
   note: text("note").notNull().default(""),
   createdBy: text("created_by").notNull().default(""),
   createdAt: created(),
@@ -440,6 +657,27 @@ export const stockMovements = pgTable(
   (t) => [index("stock_mov_biz_idx").on(t.businessId, t.createdAt)],
 );
 
+export const stockTransfers = pgTable("stock_transfers", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  requestKey: text("request_key").notNull(),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  note: text("note").notNull().default(""),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: created(),
+}, (t) => [uniqueIndex("stock_transfers_request_idx").on(t.businessId, t.requestKey), index("stock_transfers_business_status_idx").on(t.businessId, t.status, t.createdAt)]);
+
+export const stockTransferLines = pgTable("stock_transfer_lines", {
+  id: serial("id").primaryKey(),
+  transferId: integer("transfer_id").notNull().references(() => stockTransfers.id, { onDelete: "cascade" }),
+  sourceItemId: integer("source_item_id").notNull().references(() => inventoryItems.id),
+  destinationItemId: integer("destination_item_id").notNull().references(() => inventoryItems.id),
+  quantity: doublePrecision("quantity").notNull(),
+  unitCost: integer("unit_cost").notNull().default(0),
+});
+
 export const recipes = pgTable(
   "recipes",
   {
@@ -452,9 +690,26 @@ export const recipes = pgTable(
       .notNull()
       .references(() => inventoryItems.id, { onDelete: "cascade" }),
     quantity: doublePrecision("quantity").notNull(),
+    wastePercent: doublePrecision("waste_percent").notNull().default(0),
   },
   (t) => [uniqueIndex("recipes_uq").on(t.productId, t.itemId)],
 );
+
+export const productPriceAudits = pgTable("product_price_audits", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "restrict" }),
+  previousPrice: integer("previous_price").notNull(),
+  newPrice: integer("new_price").notNull(),
+  unitCost: bigint("unit_cost", { mode: "number" }).notNull(),
+  targetType: text("target_type").notNull(), // food_cost | gross_margin
+  targetPercent: integer("target_percent").notNull(),
+  yieldRatio: doublePrecision("yield_ratio").notNull(),
+  sourceSnapshotHash: text("source_snapshot_hash").notNull(),
+  costSnapshot: jsonb("cost_snapshot").$type<{ itemId: number; name: string; quantity: number; unit: string; costPerUnit: number; extendedCost: number }[]>().notNull(),
+  actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+}, (t) => [index("product_price_audits_business_product_time_idx").on(t.businessId, t.productId, t.createdAt)]);
 
 export const bankAccounts = pgTable("bank_accounts", {
   id: serial("id").primaryKey(),
@@ -466,6 +721,23 @@ export const bankAccounts = pgTable("bank_accounts", {
   createdAt: created(),
 });
 
+export const cashShifts = pgTable("cash_shifts", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  openedBy: integer("opened_by").notNull().references(() => users.id),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  openingCash: integer("opening_cash").notNull().default(0),
+  closedBy: integer("closed_by").references(() => users.id),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  closingCash: integer("closing_cash"),
+  expectedCash: integer("expected_cash"),
+  cashDifference: integer("cash_difference"),
+  note: text("note").notNull().default(""),
+}, (t) => [
+  index("cash_shifts_business_opened_idx").on(t.businessId, t.openedAt),
+  uniqueIndex("cash_shifts_business_open_idx").on(t.businessId).where(sql`${t.closedAt} IS NULL`),
+]);
+
 export const transactions = pgTable(
   "transactions",
   {
@@ -476,7 +748,12 @@ export const transactions = pgTable(
     category: text("category").notNull().default(""),
     amount: integer("amount").notNull(),
     bankAccountId: integer("bank_account_id").references(() => bankAccounts.id, { onDelete: "set null" }),
+    accountMoeinId: integer("account_moein_id"),
+    accountTafsiliId: integer("account_tafsili_id"),
     orderId: integer("order_id"),
+    shiftId: integer("shift_id").references(() => cashShifts.id, { onDelete: "set null" }),
+    settlementMethod: text("settlement_method"),
+    sourceRef: text("source_ref"),
     description: text("description").notNull().default(""),
     date: timestamp("date", { withTimezone: true }).notNull().defaultNow(),
     createdAt: created(),
@@ -507,6 +784,16 @@ export const couriers = pgTable("couriers", {
   userId: integer("user_id"),
   createdAt: created(),
 });
+
+export const courierLocations = pgTable("courier_locations", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  courierId: integer("courier_id").notNull().references(() => couriers.id, { onDelete: "cascade" }),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  accuracyMeters: doublePrecision("accuracy_meters").notNull(),
+  updatedAt: created(),
+}, (t) => [uniqueIndex("courier_locations_business_courier_idx").on(t.businessId, t.courierId), index("courier_locations_updated_idx").on(t.businessId, t.updatedAt)]);
 
 export const deliveryZones = pgTable("delivery_zones", {
   id: serial("id").primaryKey(),
@@ -578,6 +865,8 @@ export const payments = pgTable("payments", {
   status: text("status").notNull().default("pending"), // pending | paid | failed
   authority: text("authority").notNull().unique(),
   refId: text("ref_id").notNull().default(""),
+  settlementError: text("settlement_error").notNull().default(""),
+  settlementAttempts: integer("settlement_attempts").notNull().default(0),
   createdAt: created(),
 });
 
@@ -649,7 +938,7 @@ export const accDocuments = pgTable(
     number: integer("number").notNull(),
     date: timestamp("date", { withTimezone: true }).notNull(),
     kind: text("kind").notNull().default("general"), // general | opening | closing
-    source: text("source").notNull().default("manual"), // manual | order | inventory | expense | reversal | system
+    source: text("source").notNull().default("manual"), // manual | order | inventory | expense | reversal | system | cheque
     sourceRef: text("source_ref"),
     description: text("description").notNull().default(""),
     status: text("status").notNull().default("posted"), // draft | posted
@@ -713,6 +1002,64 @@ export const smsLogs = pgTable(
   },
   (t) => [index("sms_logs_biz_idx").on(t.businessId, t.createdAt)],
 );
+
+/** Re-engagement campaign rules reuse SMS templates/provider configuration. */
+export const smsRetentionRules = pgTable("sms_retention_rules", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  title: text("title").notNull(),
+  triggerType: text("trigger_type").notNull(), // inactive_days | segment_enter | segment_exit
+  inactiveDays: integer("inactive_days"),
+  segmentKey: text("segment_key"),
+  templateId: integer("template_id").notNull().references(() => smsTemplates.id, { onDelete: "restrict" }),
+  cooldownDays: integer("cooldown_days").notNull().default(30),
+  maxMarketingSms30Days: integer("max_marketing_sms_30_days").notNull().default(4),
+  sendHourTehran: integer("send_hour_tehran").notNull().default(10),
+  attributionDays: integer("attribution_days").notNull().default(7),
+  discountCode: text("discount_code").notNull().default(""),
+  discountLabel: text("discount_label").notNull().default(""),
+  isActive: boolean("is_active").notNull().default(true),
+  scanCursorCustomerId: integer("scan_cursor_customer_id").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: created(),
+  updatedAt: created(),
+}, (t) => [index("sms_retention_rules_business_active_idx").on(t.businessId, t.isActive, t.id)]);
+
+/** Last observed segment for transition triggers; contains no phone or message content. */
+export const smsRetentionMembers = pgTable("sms_retention_members", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  ruleId: integer("rule_id").notNull().references(() => smsRetentionRules.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  currentSegment: text("current_segment").notNull(),
+  updatedAt: created(),
+}, (t) => [
+  uniqueIndex("sms_retention_members_rule_customer_idx").on(t.businessId, t.ruleId, t.customerId),
+  index("sms_retention_members_customer_idx").on(t.businessId, t.customerId),
+]);
+
+/** Durable queue and status history for one rule/customer/trigger event. */
+export const smsRetentionDeliveries = pgTable("sms_retention_deliveries", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  ruleId: integer("rule_id").notNull().references(() => smsRetentionRules.id, { onDelete: "restrict" }),
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  triggerKey: text("trigger_key").notNull(),
+  triggerType: text("trigger_type").notNull(),
+  anchorOrderAt: timestamp("anchor_order_at", { withTimezone: true }),
+  expectedSegment: text("expected_segment"),
+  status: text("status").notNull().default("queued"), // queued | sending | sent | skipped | failed | uncertain
+  attempts: integer("attempts").notNull().default(0),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  detail: text("detail").notNull().default(""),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("sms_retention_delivery_trigger_idx").on(t.businessId, t.ruleId, t.customerId, t.triggerKey),
+  index("sms_retention_delivery_due_idx").on(t.businessId, t.status, t.scheduledAt),
+  index("sms_retention_delivery_customer_sent_idx").on(t.businessId, t.customerId, t.sentAt),
+]);
 
 export const suppliers = pgTable(
   "suppliers",
@@ -910,6 +1257,52 @@ export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
 });
+
+export const trialGrants = pgTable("trial_grants", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().unique().references(() => businesses.id, { onDelete: "cascade" }),
+  plan: text("plan").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  featureSetVersion: text("feature_set_version").notNull(),
+  featureSnapshot: jsonb("feature_snapshot").notNull(),
+  status: text("status").notNull().default("active"), // active | expired | converted | revoked
+  convertedAt: timestamp("converted_at", { withTimezone: true }),
+  createdAt: created(),
+}, (t) => [index("trial_grants_status_end_idx").on(t.status, t.endsAt)]);
+
+export const cheques = pgTable("cheques", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  direction: text("direction").notNull(), // payable | receivable
+  status: text("status").notNull(), // registered | passed | bounced | returned | assigned | voided
+  partnerName: text("partner_name").notNull().default(""),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
+  bank: text("bank").notNull().default(""),
+  sayadIdentifier: text("sayad_identifier").notNull().default(""),
+  note: text("note").notNull().default(""),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  accountingAccountId: integer("accounting_account_id").references(() => accAccounts.id),
+  accountingDocumentId: integer("accounting_document_id").references(() => accDocuments.id),
+  createdAt: created(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("cheques_business_due_idx").on(t.businessId, t.dueDate), index("cheques_business_status_idx").on(t.businessId, t.status)]);
+
+export const chequeEvents = pgTable("cheque_events", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  chequeId: integer("cheque_id").notNull().references(() => cheques.id, { onDelete: "cascade" }),
+  requestKey: text("request_key").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  note: text("note").notNull().default(""),
+  actorId: integer("actor_id").notNull().references(() => users.id),
+  accountingAccountId: integer("accounting_account_id").references(() => accAccounts.id),
+  reversalDocumentId: integer("reversal_document_id").references(() => accDocuments.id),
+  accountingDocumentId: integer("accounting_document_id").references(() => accDocuments.id),
+  createdAt: created(),
+}, (t) => [uniqueIndex("cheque_events_request_idx").on(t.businessId, t.requestKey), index("cheque_events_cheque_time_idx").on(t.chequeId, t.createdAt)]);
 
 /* ---------------- platform marketing content ---------------- */
 export const blogPosts = pgTable("blog_posts", {

@@ -1,8 +1,15 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses } from "@/db/schema";
+import { businesses, customers, devices } from "@/db/schema";
 import { HttpError, readJson, requireFeature, withAuth, type AuthContext } from "@/lib/auth";
 import { LANGS } from "@/lib/plans";
+import { membershipDiscountAmount, parseMembershipTierRules } from "@/lib/membership-core";
+import { currentMembership } from "@/lib/membership";
+import { normPhone, settingsOf } from "@/lib/orders";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { isManagerRole } from "@/lib/roles";
+import { cleanMenuPromoBanners } from "@/lib/menu-banners";
+import { normalizePrinterSettings, validatePrinterSelection } from "@/lib/printer-policy";
 
 function publicBiz<T extends { settings: unknown }>(b: T): T {
   const st = { ...((b.settings ?? {}) as Record<string, unknown>) };
@@ -13,11 +20,30 @@ function publicBiz<T extends { settings: unknown }>(b: T): T {
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async (_req, { business, user, features }) =>
-  Response.json({ item: publicBiz(business), user, features }),
-);
+export const GET = withAuth(async (req, auth) => {
+  const { business, user, features } = auth;
+  const url = new URL(req.url);
+  if (url.searchParams.get("membershipPreview") === "1") {
+    if (!isManagerRole(auth.role) && auth.role !== "cashier") throw new HttpError(403, "پیش‌نمایش عضویت فقط برای مدیر و صندوق مجاز است");
+    requireFeature(auth, "loyalty");
+    await enforceRateLimit(req, "membership-preview", `${business.id}:${user.id}`, 60, 60_000);
+    const phone = normPhone(url.searchParams.get("phone") ?? "");
+    const subtotal = Number(url.searchParams.get("subtotal"));
+    if (!/^09\d{9}$/.test(phone)) throw new HttpError(400, "شماره موبایل معتبر نیست");
+    if (!Number.isSafeInteger(subtotal) || subtotal < 0 || subtotal > 2_147_483_647) throw new HttpError(400, "جمع سفارش نامعتبر است");
+    const [customer] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.businessId, business.id), eq(customers.phone, phone))).limit(1);
+    if (!customer) return Response.json({ eligible: false, reason: "customer_not_found" }, { headers: { "Cache-Control": "no-store" } });
+    const tiers = parseMembershipTierRules(settingsOf(business).membershipTiers ?? []);
+    const membership = await currentMembership(business.id, customer.id, tiers);
+    if (!membership) return Response.json({ eligible: false, reason: "no_eligible_tier" }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ eligible: true, tier: { id: membership.tier.id, name: membership.tier.name }, discountAmount: membershipDiscountAmount(subtotal, membership.tier), discountPercent: membership.tier.discountPercent, maxDiscount: membership.tier.maxDiscount, expiresAt: membership.snapshot.expiresAt }, { headers: { "Cache-Control": "no-store" } });
+  }
+  return Response.json({ item: publicBiz(business), user, features });
+});
 
-const SETTING_FEATURE: Record<string, string> = {
+const SETTING_FEATURE: Record<string, string | null> = {
+  menuTemplate: null,
+  promoBanners: null,
   miniSite: "mini_site",
   languages: "translation",
   pointsPerToman: "loyalty",
@@ -37,6 +63,10 @@ const SETTING_FEATURE: Record<string, string> = {
   cashbackMaxRedeemPercent: "cashback",
   baleBot: "bale",
   crossSellAuto: "cross_sell",
+  orderTrackingDays: null,
+  orderWorkflowPreset: "cashier_pos",
+  printerSettings: "cloud_printer",
+  membershipTiers: "loyalty",
 };
 
 const s = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -44,6 +74,10 @@ const s = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, 
 function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<string, unknown>): unknown {
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
   switch (key) {
+    case "menuTemplate":
+      return ["classic", "editorial", "compact"].includes(String(v)) ? v : "classic";
+    case "promoBanners":
+      return cleanMenuPromoBanners(v);
     case "miniSite": {
       const custom = auth.features.mini_site === "custom";
       return {
@@ -103,6 +137,17 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
       const n = (x: unknown, d: number, max: number) => Math.min(max, Math.max(1, Math.round(Number(x)) || d));
       return { vipSpent: n(o.vipSpent, 5_000_000, 1e11), vipOrders: n(o.vipOrders, 8, 1000), loyalSpent: n(o.loyalSpent, 2_000_000, 1e11), loyalOrders: n(o.loyalOrders, 4, 1000), atRiskDays: n(o.atRiskDays, 45, 1000), lostDays: n(o.lostDays, 90, 3000) };
     }
+    case "membershipTiers": {
+      try { return parseMembershipTierRules(v); }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "قواعد عضویت نامعتبر است"); }
+    }
+    case "orderWorkflowPreset": {
+      const preset = Number(v);
+      if (![1, 2, 3, 4].includes(preset)) throw new HttpError(400, "تعداد مراحل نمایشی باید بین ۱ تا ۴ باشد");
+      return preset;
+    }
+    case "printerSettings":
+      return normalizePrinterSettings(v);
     case "ipg":
       return {
         provider: "zarinpal",
@@ -110,16 +155,28 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
         sandbox: o.sandbox !== false,
       };
     case "cardTransfer": {
-      const rawCard = s(o.cardNumber, 40);
-      const cardNumber = rawCard
+      const enabled = Boolean(o.enabled);
+      const normalizeCard = (value: unknown) => s(value, 40)
         .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
         .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
-        .replace(/\D/g, "");
-      const enabled = Boolean(o.enabled);
-      const accountHolder = s(o.accountHolder, 80);
-      if (enabled && !/^\d{16}$/.test(cardNumber)) throw new HttpError(400, "برای فعال‌سازی کارت‌به‌کارت، شماره کارت ۱۶ رقمی وارد کنید");
-      if (enabled && accountHolder.length < 2) throw new HttpError(400, "نام صاحب کارت را وارد کنید");
-      return { enabled, cardNumber: cardNumber.slice(0, 16), accountHolder, bankName: s(o.bankName, 60), instructions: s(o.instructions, 200) };
+        .replace(/\D/g, "").slice(0, 16);
+      const legacy = { cardNumber: normalizeCard(o.cardNumber), accountHolder: s(o.accountHolder, 80), bankName: s(o.bankName, 60), instructions: s(o.instructions, 200) };
+      const rows = Array.isArray(o.cards) ? o.cards.slice(0, 10).flatMap((raw, index) => {
+        if (!raw || typeof raw !== "object") return [];
+        const card = raw as Record<string, unknown>;
+        const cardNumber = normalizeCard(card.cardNumber);
+        const accountHolder = s(card.accountHolder, 80);
+        const bankName = s(card.bankName, 60);
+        const instructions = s(card.instructions, 200);
+        if (!cardNumber && !accountHolder && !bankName && !instructions) return [];
+        const rawId = s(card.id, 40);
+        const id = /^[a-zA-Z0-9_-]{1,40}$/.test(rawId) ? rawId : `card-${index + 1}`;
+        return [{ id, cardNumber, accountHolder, bankName, instructions }];
+      }) : legacy.cardNumber || legacy.accountHolder ? [{ id: "primary", ...legacy }] : [];
+      const validCards = rows.filter((card) => /^\d{16}$/.test(card.cardNumber) && card.accountHolder.length >= 2);
+      if (enabled && validCards.length === 0) throw new HttpError(400, "برای فعال‌سازی کارت‌به‌کارت، دست‌کم یک شماره کارت ۱۶ رقمی و نام صاحب کارت معتبر وارد کنید");
+      const primary = validCards[0] ?? rows[0] ?? { id: "primary", ...legacy };
+      return { enabled, ...primary, cards: rows };
     }
     case "installment":
       return { snappay: Boolean(o.snappay), digipay: Boolean(o.digipay) };
@@ -128,6 +185,11 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
       return s(v, 40);
     case "crossSellAuto":
       return Boolean(v);
+    case "orderTrackingDays": {
+      const days = Number(v);
+      if (!Number.isInteger(days) || days < 1 || days > 30) throw new HttpError(400, "مدت اعتبار لینک پیگیری باید بین ۱ تا ۳۰ روز باشد");
+      return days;
+    }
     case "reservations": {
       const amount = Math.round(Number(o.depositPerGuest) || 0);
       const duration = Math.round(Number(o.durationMinutes) || 90);
@@ -231,9 +293,21 @@ export const PATCH = withAuth(async (req, auth) => {
     const cur = { ...(business.settings as Record<string, unknown>) };
     for (const [k, v] of Object.entries(b.settings as Record<string, unknown>)) {
       const feature = SETTING_FEATURE[k];
-      if (!feature) continue;
-      requireFeature(auth, feature);
-      cur[k] = cleanSetting(k, v, auth, cur);
+      if (!(k in SETTING_FEATURE)) continue;
+      if (feature) requireFeature(auth, feature);
+      const cleaned = cleanSetting(k, v, auth, cur);
+      if (k === "printerSettings") {
+        const ids = new Set<number>();
+        for (const rule of Object.values((cleaned as ReturnType<typeof normalizePrinterSettings>).rules)) {
+          if (rule.customerPrinterId) ids.add(rule.customerPrinterId);
+          if (rule.cafePrinterId) ids.add(rule.cafePrinterId);
+          for (const id of rule.kitchenPrinterIds) ids.add(id);
+        }
+        const owned = ids.size ? await db.select({ id: devices.id }).from(devices).where(and(eq(devices.businessId, business.id), eq(devices.kind, "printer"), inArray(devices.id, [...ids]))) : [];
+        if (!validatePrinterSelection(cleaned as ReturnType<typeof normalizePrinterSettings>, new Set(owned.map((row) => row.id))))
+          throw new HttpError(400, "یکی از چاپگرهای انتخاب‌شده در این کسب‌وکار نیست");
+      }
+      cur[k] = cleaned;
     }
     set.settings = cur;
   }

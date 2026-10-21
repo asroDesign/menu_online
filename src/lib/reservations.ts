@@ -26,13 +26,13 @@ export async function createReservation(biz: Business, input: { name: string; ph
   const endAt = new Date(input.startsAt.getTime() + durationMinutes * 60_000);
   const checkFrom = new Date(input.startsAt.getTime() - 8 * 60 * 60_000);
   return db.transaction(async (tx) => {
-    const tables = await tx.select({ id: diningTables.id, capacity: diningTables.capacity })
+    const tables = await tx.select({ id: diningTables.id, capacity: diningTables.capacity, operationalStatus: diningTables.operationalStatus })
       .from(diningTables)
       .where(eq(diningTables.businessId, biz.id))
       .orderBy(asc(diningTables.capacity), asc(diningTables.id))
       .for("update");
-    const candidates = tables.filter((table) => table.capacity >= input.guestCount);
-    if (candidates.length === 0) throw new HttpError(400, "میزی با ظرفیت این تعداد نفر تعریف نشده است.");
+    const candidates = tables.filter((table) => table.capacity >= input.guestCount && table.operationalStatus === "available");
+    if (candidates.length === 0) throw new HttpError(400, "میز قابل رزرو با ظرفیت این تعداد نفر در سرویس نیست.");
     const booked = await tx.select({ tableId: reservations.tableId, startsAt: reservations.startsAt, durationMinutes: reservations.durationMinutes })
       .from(reservations)
       .where(and(

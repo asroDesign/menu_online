@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { couriers, orders, pagers } from "@/db/schema";
 import { can, HttpError, readJson, requireFeature, withAuth } from "@/lib/auth";
-import { listOrders, queuePrintJobs, refundCashback, settleOrder } from "@/lib/orders";
+import { listOrders, queuePrintJobs, recordOrderEvents, refundCashback, settleOrder } from "@/lib/orders";
 import { isManagerRole } from "@/lib/roles";
 
 const STATUSES = ["awaiting_payment", "pending", "preparing", "ready", "served", "paid", "canceled"];
@@ -22,6 +22,10 @@ export const PATCH = withAuth<{ id: string }>(
     }
     if (existing.deletedAt) throw new HttpError(404, "سفارش پیدا نشد");
     const set: Record<string, unknown> = { updatedAt: new Date() };
+    if (b.revokeTracking === true) {
+      if (!isManagerRole(auth.role)) throw new HttpError(403, "ابطال پیوند پیگیری فقط برای مدیر مجاز است");
+      set.trackingRevokedAt = new Date();
+    }
     if (typeof b.status === "string") {
       if (!STATUSES.includes(b.status)) throw new HttpError(400, "وضعیت نامعتبر است");
       if (b.status !== "paid") set.status = b.status;
@@ -48,11 +52,20 @@ export const PATCH = withAuth<{ id: string }>(
       // a returned (undelivered) order that is re-dispatched is ready for pick-up again
       if (b.courierId && ["not_home", "failed"].includes(existing.deliveryStatus) && existing.status === "served") set.status = "ready";
     }
-    await db.update(orders).set(set).where(eq(orders.id, oid));
+    await db.transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db;
+      await tx.update(orders).set(set).where(and(eq(orders.id, oid), eq(orders.businessId, business.id)));
+      const changes: Parameters<typeof recordOrderEvents>[3] = {};
+      if (typeof set.status === "string") changes.order = [existing.status, set.status];
+      if (typeof set.deliveryStatus === "string") changes.delivery = [existing.deliveryStatus, set.deliveryStatus];
+      await recordOrderEvents(tx, business.id, oid, changes, auth.role, auth.user.id);
+      if (existing.status !== "ready" && set.status === "ready")
+        await queuePrintJobs(business, oid, auth.features, false, undefined, tx, "completed");
+    });
 
     const status = typeof b.status === "string" ? b.status : null;
     if (status === "paid") {
-      await settleOrder(business, auth.features, oid, typeof b.paymentMethod === "string" ? b.paymentMethod : null, true);
+      await settleOrder(business, auth.features, oid, typeof b.paymentMethod === "string" ? b.paymentMethod : null, true, { actorId: auth.user.id, actorType: auth.role });
     }
     if (status === "canceled") await refundCashback(business, oid);
     if (existing.status === "awaiting_payment" && status && !["awaiting_payment", "canceled", "paid"].includes(status)) await queuePrintJobs(business, oid, auth.features, false);
@@ -70,7 +83,7 @@ export const PATCH = withAuth<{ id: string }>(
 export const DELETE = withAuth<{ id: string }>(
   async (_req, auth, { id }) => {
     const [row] = await db.update(orders)
-      .set({ deletedAt: new Date(), deletedBy: auth.user.name, updatedAt: new Date() })
+      .set({ deletedAt: new Date(), deletedBy: auth.user.name, trackingRevokedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(orders.id, Number(id)), eq(orders.businessId, auth.business.id), isNull(orders.deletedAt)))
       .returning({ id: orders.id });
     if (!row) throw new HttpError(404, "سفارش پیدا نشد");

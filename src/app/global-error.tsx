@@ -11,7 +11,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
     <main style={{ display: "grid", minHeight: "100dvh", placeItems: "center", padding: 20 }}>
       <section style={{ maxWidth: 420, borderRadius: 24, background: "white", padding: 32, textAlign: "center", boxShadow: "0 20px 50px #0001" }}>
         <h1>سامانه با خطا روبه‌رو شد</h1><p>صفحه را دوباره بارگذاری کنید. شناسه‌ی خطا: {error.digest ?? "—"}</p>
-        <button onClick={() => reset()} style={{ border: 0, borderRadius: 12, padding: "12px 20px", background: "#f97316", color: "white", cursor: "pointer" }}>تلاش دوباره</button>
+        <button onClick={() => reset()} style={{ border: 0, borderRadius: 12, padding: "12px 20px", background: "#2563eb", color: "white", cursor: "pointer" }}>تلاش دوباره</button>
       </section>
     </main>
   </body></html>;

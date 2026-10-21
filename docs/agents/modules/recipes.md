@@ -29,12 +29,24 @@ GET /api/products؛ GET /api/r/items؛ CRUD /api/r/recipes.
 
 ## مشخصات سطح پیاده‌سازی
 
-Recipe relation شامل `productId,itemId,quantity` به ازای یک واحد محصول. صفحه به هر سه مجموعه products, inventory items, recipes نیاز دارد؛ loading تا کامل‌شدن هر سه. اگر product یا item نداریم empty state می‌گوید هر دو را اول بساز. ستون product scroll تا ۶۰۰px، badge تعداد مواد؛ انتخاب یک محصول، سمت راست price و مجموع ingredient cost نشان می‌دهد. هر line ماده/مقدار+unit/cost تخمینی و remove؛ form فقط مواد مصرف‌نشده برای آن محصول را selectable می‌کند و مقدار >0 اجباری.
+Recipe relation شامل `productId,itemId,quantity,wastePercent` است؛ مقدار `quantity` به ازای یک واحد محصول و ضایعات با default صفر و سقف ۹۹٫۹٪ است. صفحه به هر سه مجموعه products, inventory items, recipes نیاز دارد؛ loading تا کامل‌شدن هر سه. اگر product یا item نداریم empty state می‌گوید هر دو را اول بساز. ستون product scroll تا ۶۰۰px، badge تعداد مواد؛ انتخاب یک محصول، سمت راست price و مجموع ingredient cost نشان می‌دهد. هر خط مقدار، واحد، درصد ضایعات، هزینهٔ جاری تخمینی و حذف دارد؛ مقدار/ضایعات با blur ذخیره می‌شوند. افزودن ماده فقط مواد استفاده‌نشدهٔ همان محصول را نمایش می‌دهد.
 
-API registry recipe write role `warehouse`, feature recipes؛ read role/feature می‌تواند costing هم باشد؛ validate ownership هر دو entity و quantity بین 0.0001 تا 100000. در هر order sale سرویس انبار باید به quantity فروش ضرب کند و `sale` movement بسازد؛ این صفحه فقط formula را مدیریت می‌کند.
+API registry recipe write role `warehouse`, feature recipes؛ read role/feature می‌تواند costing هم باشد؛ validate ownership هر دو entity و quantity بین 0.0001 تا 100000 و `wastePercent` بین ۰ تا ۹۹٫۹. ایجاد صفحهٔ محصولات مقدار batch را بر تعداد خروجی تقسیم می‌کند و quantity یک‌واحدی می‌فرستد. هزینهٔ خطوط در بهای تمام‌شده، آنالیز قیمت، بهای کالای فروش‌رفته و مصرف انبار از `quantity × (1 + wastePercent/100)` استفاده می‌کند. این صفحه فقط recipe را مدیریت می‌کند و stock را با CRUD قلم تغییر نمی‌دهد.
 
 **پذیرش:** product بدون formula، حذف recipe line، item یک‌بار در recipe، هزینه ناشی از unit cost تغییر، و مصرف موجودی هنگام sale. اگر کمبود موجودی رخ داد، تصمیم را مطابق منطق backend حفظ کن.
 
 ## مرجع بازسازی
 
 برای جزئیات دقیق فیلدها، ترتیب کنترل‌ها، پیام‌های فارسی و قرارداد typeها، فایل منبع بالا را همراه API route متناظر در `src/app/api` بخوان. این راهنما رفتار را مشخص می‌کند و جایگزین بررسی source-of-truth نیست.
+
+## ارتباط با ردیابی موجودی — ۲۰۲۶-۱۰-۲۰
+
+فرمول و بهای نظری مواد برای costing مستقل از ردیابی stock است. صفحه فرمول، کنار ماده خاموش برچسب «ردیابی فروش خاموش» نشان می‌دهد. هنگام تسویه، فقط مواد دارای `trackStock=true` از موجودی کم می‌شوند، movement نوع sale می‌گیرند و در COGS/سند فروش منظور می‌شوند. مواد خاموش در costing نظری دیده می‌شوند اما کسر موجودی و سند COGS ندارند.
+
+## تبدیل واحد خرید و مصرف — ۲۰۲۶-۱۰-۲۱
+
+- مقدار `recipes.quantity` با `inventory_items.recipe_unit` سنجیده می‌شود؛ موجودی و `costPerUnit` با واحد خرید/انبار یعنی `inventory_items.unit` سنجیده می‌شوند.
+- مصرف موجودی و COGS مقدار recipe را در `recipeToStockFactor` ضرب می‌کنند، سپس ضایعات و تعداد/وزن سفارش را اعمال می‌کنند. فرمول قیمت‌گذاری و نمایش مقدار دستور تهیه هم همین تبدیل را استفاده می‌کنند.
+- گرم↔کیلوگرم، میلی‌لیتر↔لیتر و واحدهای هم‌جنس استاندارد خودکار محاسبه می‌شوند؛ بسته/کارتن به‌خاطر تفاوت اندازه تبدیل استاندارد ندارند. عامل باید ضریب روشن و positive بگیرد، نه اینکه برابر بودن بسته با عدد را فرض کند.
+- مواد غیرفعال در انتخاب مادهٔ تازه و route create recipe پذیرفته نمی‌شوند. recipe موجود برای حفظ سابقه و هزینه قابل مشاهده/ویرایش است؛ برای توقف کسر موجودی ردیابی فروش را خاموش کنید یا recipe را حذف کنید.
+- در خط فرمول، مقدار مصرف با recipe unit و بهای ماده به ازای stock unit دیده می‌شود؛ cost به واحد انبار تبدیل می‌شود. تغییر factor بخشی از snapshot hash قیمت هدف است و پیش‌نمایش قدیمی را با پاسخ 409 بی‌اعتبار می‌کند.

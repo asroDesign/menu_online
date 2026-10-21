@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
+import { getSiteUrl } from "@/lib/site-url";
 
 export default function robots(): MetadataRoute.Robots {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://menupeak.ir").replace(/\/$/, "");
+  const base = getSiteUrl();
   return { rules: [{ userAgent: "*", allow: "/", disallow: ["/admin", "/api/", "/dashboard", "/affiliate/dashboard", "/affiliate/login"] }], sitemap: `${base}/sitemap.xml`, host: base };
 }

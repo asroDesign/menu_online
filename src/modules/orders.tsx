@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useCollection } from "@/lib/api";
 import {
   ACTIVE_STATUSES,
@@ -35,6 +35,7 @@ import { DELIVERY_STATUS } from "@/lib/admin-meta";
 import { MapPicker } from "@/components/map-picker";
 import { useFeatures } from "@/components/features";
 import { api } from "@/lib/api";
+import { workflowDisplayStageIndex, workflowDisplayStages } from "@/lib/order-workflow-core";
 
 const TABS = [
   { key: "active", label: "فعال" },
@@ -55,6 +56,7 @@ export default function OrdersPage() {
   const feat = useFeatures();
   const [tab, setTab] = useState("active");
   const archiveActive = tab === "deleted";
+  const receiptArchive = tab === "receipts";
   const orders = useCollection<Order>(archiveActive ? "/api/orders?deleted=true&limit=300" : "/api/orders?limit=300", { poll: 8000 });
   const staff = useCollection<StaffMember>("/api/staff");
   const couriers = useCollection<{ id: number; name: string; status: string; activeCount: number; vehicle: string }>("/api/r/couriers");
@@ -62,9 +64,21 @@ export default function OrdersPage() {
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<Order | null>(null);
+  const [revokingTracking, setRevokingTracking] = useState<Order | null>(null);
+  const [workflowPreset, setWorkflowPreset] = useState<1 | 2 | 3 | 4>(4);
+
+  useEffect(() => {
+    let live = true;
+    api<{ item: { settings?: { orderWorkflowPreset?: number } } }>("/api/business")
+      .then(({ item }) => { if (live && [1, 2, 3, 4].includes(item.settings?.orderWorkflowPreset ?? 4)) setWorkflowPreset((item.settings?.orderWorkflowPreset ?? 4) as 1 | 2 | 3 | 4); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  const workflowStages = useMemo(() => workflowDisplayStages(workflowPreset), [workflowPreset]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: archiveActive ? 0 : orders.items.length, active: 0, deleted: archiveActive ? orders.items.length : 0 };
+    const c: Record<string, number> = { all: archiveActive ? 0 : orders.items.length, active: 0, deleted: archiveActive ? orders.items.length : 0, receipts: 0 };
     for (const o of orders.items) {
       c[o.status] = (c[o.status] ?? 0) + 1;
       if (ACTIVE_STATUSES.includes(o.status)) c.active++;
@@ -72,9 +86,10 @@ export default function OrdersPage() {
     return c;
   }, [orders.items, archiveActive]);
 
-  const tabs = feat.isManager ? [...TABS, { key: "deleted", label: "حذف‌شده‌ها" }] : TABS;
+  const tabs = feat.isManager ? [...TABS, { key: "receipts", label: "آرشیو رسیدها" }, { key: "deleted", label: "حذف‌شده‌ها" }] : TABS;
 
   const filtered = useMemo(() => {
+    if (receiptArchive) return [];
     const term = q.trim();
     return orders.items.filter((o) => {
       if (tab === "deleted" ? !o.deletedAt : tab === "active" ? !ACTIVE_STATUSES.includes(o.status) : tab !== "all" && o.status !== tab) return false;
@@ -85,7 +100,7 @@ export default function OrdersPage() {
         o.customerName.includes(term)
       );
     });
-  }, [orders.items, tab, q]);
+  }, [orders.items, tab, q, receiptArchive]);
 
   const selected = orders.items.find((o) => o.id === selectedId) ?? null;
 
@@ -119,6 +134,17 @@ export default function OrdersPage() {
     }
   }
 
+  async function revokeTracking(o: Order) {
+    try {
+      await api(`/api/orders/${o.id}`, { method: "PATCH", body: { revokeTracking: true } });
+      await orders.reload(true);
+      setRevokingTracking(null);
+      toast("پیوند رهگیری مشتری باطل شد.");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       <PageHeader
@@ -138,7 +164,7 @@ export default function OrdersPage() {
           {tabs.map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => { setTab(t.key); setSelectedId(null); }}
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition",
                 tab === t.key ? "bg-stone-900 text-white shadow" : "bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50",
@@ -151,13 +177,13 @@ export default function OrdersPage() {
             </button>
           ))}
         </div>
-        <div className="relative w-full lg:w-64">
+        {!receiptArchive && <div className="relative w-full lg:w-64">
           <Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
           <Input className="ps-9" placeholder="جستجو: شماره، میز، مشتری" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
+        </div>}
       </div>
 
-      <IconText><div className="max-h-[65vh] overflow-y-auto overscroll-contain pe-1 lg:max-h-[calc(100dvh-20rem)]">
+      <IconText>{receiptArchive ? <ReceiptArchivePanel /> : <div className="max-h-[65vh] overflow-y-auto overscroll-contain pe-1 lg:max-h-[calc(100dvh-20rem)]">
       {orders.loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -184,6 +210,7 @@ export default function OrdersPage() {
           {filtered.map((o) => {
             const s = statusInfo(o.status);
             const pendingOpt = o.id < 0;
+            const stageIndex = workflowDisplayStageIndex(workflowPreset, o.status);
             return (
               <Card key={o.id} className={cn("relative flex flex-col overflow-hidden animate-pop", pendingOpt && "opacity-60")}>
                 <span className={cn("absolute inset-y-0 end-0 w-1", stripe[o.status])} />
@@ -213,6 +240,10 @@ export default function OrdersPage() {
                     {o.type === "delivery" && o.deliveryStatus !== "none" && <Badge color={DELIVERY_STATUS[o.deliveryStatus]?.[1]}>{<EmojiIcon emoji="" />} {DELIVERY_STATUS[o.deliveryStatus]?.[0]}{o.courierName ? ` · ${o.courierName}` : ""}</Badge>}
                     {o.type === "delivery" && o.deliveryStatus === "none" && !["paid", "canceled"].includes(o.status) && <Badge color="amber">{<EmojiIcon emoji="" />} پیک تعیین نشده</Badge>}
                   </div>
+                  {stageIndex >= 0 && <div className="mt-3" aria-label={`مرحله نمایشی ${workflowStages[stageIndex].label}، ${stageIndex + 1} از ${workflowStages.length}`}>
+                    <div className="mb-1 flex justify-between gap-2 text-[10px] text-stone-500"><span>مرحلهٔ نمایشی {toFa(stageIndex + 1)} از {toFa(workflowStages.length)}</span><span className="font-semibold text-stone-700">{workflowStages[stageIndex].label}</span></div>
+                    <div className="flex gap-1">{workflowStages.map((stage, index) => <span key={stage.label} title={stage.label} className={cn("h-1.5 flex-1 rounded-full", index <= stageIndex ? "bg-brand-500" : "bg-stone-100")} />)}</div>
+                  </div>}
                   <ul className="mt-3 flex-1 space-y-1 text-sm text-stone-600">
                     {o.items.slice(0, 3).map((i) => (
                       <li key={i.id} className="flex justify-between gap-2">
@@ -239,7 +270,7 @@ export default function OrdersPage() {
             );
           })}
         </div>
-      )}</div></IconText>
+      )}</div>}</IconText>
 
       {/* Detail modal */}
       <Modal
@@ -252,6 +283,9 @@ export default function OrdersPage() {
             selected.deletedAt ? <Button className="me-auto" onClick={() => restore(selected)}>بازگردانی سفارش</Button> : <>
               {feat.isManager && <Button variant="ghost" className="me-auto text-rose-600 hover:bg-rose-50" onClick={() => setDeleting(selected)}>
                 <Icon name="trash" className="size-4" /> حذف
+              </Button>}
+              {feat.isManager && ["customer", "kiosk"].includes(selected.source) && selected.trackingActive && <Button variant="secondary" onClick={() => setRevokingTracking(selected)}>
+                <Icon name="link" className="size-4" /> ابطال پیوند رهگیری
               </Button>}
               <a href={`/print/receipt/${selected.id}`} target="_blank"><Button variant="secondary"><IconText>{<EmojiIcon emoji="" />}</IconText> رسید</Button></a>
               <IconText>{feat.has("tablet_pos") && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
@@ -291,12 +325,13 @@ export default function OrdersPage() {
                   <span className="min-w-0 truncate">
                     {<EmojiIcon emoji={i.emoji} /> } {i.name} <span className="text-stone-400">×{toFa(i.quantity)}</span>
                   </span>
-                  <span className="shrink-0 font-semibold">{formatPrice(i.price * i.quantity)}</span>
+                  <span className="shrink-0 font-semibold">{formatPrice(i.lineTotal ?? i.price * i.quantity)}</span>
                 </div>
               ))}
               <div className="space-y-1.5 bg-stone-50 px-4 py-3 text-sm">
                 <Row label="جمع اقلام" value={formatPrice(selected.subtotal)} />
-                {selected.discountAmount > 0 && <Row label={`تخفیف (${selected.discountCode})`} value={`-${formatPrice(selected.discountAmount)}`} />}
+                {selected.membershipDiscount > 0 && <Row label={`مزیت عضویت (${selected.membershipSnapshot?.tierName ?? "سطح مشتری"})`} value={`-${formatPrice(selected.membershipDiscount)}`} />}
+                {selected.discountAmount > selected.membershipDiscount && <Row label={`تخفیف${selected.discountCode ? ` (${selected.discountCode})` : ""}`} value={`-${formatPrice(selected.discountAmount - selected.membershipDiscount)}`} />}
                 {selected.deliveryFee > 0 && <Row label="هزینه ارسال" value={formatPrice(selected.deliveryFee)} />}
                 {selected.cashbackUsed > 0 && <Row label="اعتبار کش‌بک" value={`-${formatPrice(selected.cashbackUsed)}`} />}
                 {selected.tax > 0 && <Row label="مالیات" value={formatPrice(selected.tax)} />}
@@ -371,6 +406,13 @@ export default function OrdersPage() {
         onConfirm={() => deleting && del(deleting)}
         onClose={() => setDeleting(null)}
       />
+      <ConfirmDialog
+        open={!!revokingTracking}
+        title="ابطال پیوند رهگیری"
+        message={revokingTracking ? `پیوند رهگیری سفارش #${toFa(revokingTracking.number)} دیگر برای مشتری قابل استفاده نخواهد بود.` : ""}
+        onConfirm={() => revokingTracking && revokeTracking(revokingTracking)}
+        onClose={() => setRevokingTracking(null)}
+      />
     </div>
   );
 }
@@ -382,4 +424,59 @@ function Row({ label, value }: { label: string; value: string }) {
       <span>{value}</span>
     </div>
   );
+}
+
+type ArchiveReceipt = { id: number; number: number; createdAt: string; status: string; paymentStatus: string; total: number; type: string };
+function ReceiptArchivePanel() {
+  const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [version, setVersion] = useState(0);
+  const [cursor, setCursor] = useState<number | null>(null);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [items, setItems] = useState<ArchiveReceipt[]>([]);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    const params = new URLSearchParams();
+    if (appliedQuery) params.set("q", appliedQuery);
+    if (cursor !== null) params.set("cursor", String(cursor));
+    api<{ items: ArchiveReceipt[]; nextCursor: number | null }>(`/api/receipt-archive?${params.toString()}`)
+      .then((result) => {
+        if (!live) return;
+        setItems((existing) => cursor === null ? result.items : [...existing, ...result.items]);
+        setNextCursor(result.nextCursor);
+        setError("");
+      })
+      .catch((cause) => { if (live) setError((cause as Error).message); })
+      .finally(() => { if (live) setBusy(false); });
+    return () => { live = false; };
+  }, [appliedQuery, cursor, version]);
+
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setItems([]);
+    setNextCursor(null);
+    setCursor(null);
+    setAppliedQuery(query.trim());
+    setVersion((current) => current + 1);
+  }
+
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div><h2 className="font-bold">آرشیو سفارش برای چاپ مجدد رسید</h2><p className="mt-1 text-xs text-stone-500">جست‌وجوی سروری در شماره سفارش یا اطلاعات ثبت‌شده؛ هر صفحه حداکثر ۵۰ رسید است.</p></div>
+      <form onSubmit={search} className="flex w-full gap-2 sm:w-auto"><Input className="min-w-0 sm:w-72" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="شماره سفارش، نام یا موبایل" /><Button type="submit" variant="secondary"><Icon name="search" className="size-4" /> جست‌وجو</Button></form>
+    </div>
+    {error ? <ErrorState message={error} onRetry={() => { setBusy(true); setVersion((current) => current + 1); }} /> : items.length === 0 && !busy ? <EmptyState icon="receipt" title="رسیدی پیدا نشد" description="عبارت جست‌وجو را تغییر دهید یا شماره سفارش را وارد کنید." /> : <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <Card key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div><p className="font-extrabold">سفارش #{toFa(item.number)}</p><p className="mt-1 text-xs text-stone-500">{formatDate(item.createdAt)} · {formatTime(item.createdAt)} · {statusInfo(item.status).label}</p><p className="mt-1 text-sm font-bold">{formatPrice(item.total)}{item.paymentStatus === "paid" ? " · پرداخت‌شده" : " · تسویه‌نشده"}</p></div>
+        <Link href={`/print/receipt/${item.id}?reprint=1`} target="_blank"><Button size="sm" variant="secondary"><Icon name="printer" className="size-4" /> چاپ مجدد</Button></Link>
+      </Card>)}</div>
+      {busy && <Skeleton className="h-20 rounded-2xl" />}
+      {!busy && nextCursor !== null && <div className="flex justify-center"><Button variant="secondary" onClick={() => { setBusy(true); setCursor(nextCursor); }}>رسیدهای قدیمی‌تر</Button></div>}
+    </>}
+    <p className="text-xs leading-6 text-stone-500">رسید از snapshot نام و قیمت ذخیره‌شده در اقلام سفارش ساخته می‌شود؛ بازچاپ وضعیت سفارش/پرداخت را تغییر نمی‌دهد و روی خود رسید به‌عنوان نسخهٔ چاپ مجدد مشخص است.</p>
+  </div>;
 }

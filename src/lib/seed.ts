@@ -1,6 +1,7 @@
+import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { DEMO_ENABLED } from "@/lib/demo-mode";
+import { DEMO_ENABLED, DEMO_SLUG } from "@/lib/demo-mode";
 import {
   businesses,
   categories,
@@ -14,8 +15,7 @@ import {
 import { hashPassword } from "@/lib/auth";
 
 export const DEMO_EMAIL = "demo@menudigital.ir";
-export const DEMO_PASSWORD = "demo1234";
-export const DEMO_SLUG = "niloofar";
+export { DEMO_SLUG };
 
 type P = [string, string, number, string, number, { f?: boolean; old?: number; off?: boolean }?];
 
@@ -127,7 +127,7 @@ async function seedDemo() {
 
   const [user] = await db
     .insert(users)
-    .values({ name: "سارا نیلوفری", email: DEMO_EMAIL, passwordHash: hashPassword(DEMO_PASSWORD) })
+    .values({ name: "سارا نیلوفری", email: DEMO_EMAIL, passwordHash: hashPassword(randomBytes(32).toString("hex")) })
     .onConflictDoNothing()
     .returning();
   if (!user) return;
@@ -144,7 +144,7 @@ async function seedDemo() {
       phone: "۰۲۱-۸۸۱۲۳۴۵۶",
       address: "تهران، خیابان ولیعصر، بالاتر از پارک ساعی، پلاک ۱۲۴",
       instagram: "niloofar.cafe",
-      accentColor: "#f97316",
+      accentColor: "#2563eb",
       logoEmoji: "",
       taxPercent: 10,
       servicePercent: 5,
@@ -291,6 +291,7 @@ async function seedDemo() {
       emoji: x.p.emoji,
       price: x.p.price,
       quantity: x.q,
+      lineTotal: x.p.price * x.q,
     })),
   );
   for (let i = 0; i < itemValues.length; i += 300) {

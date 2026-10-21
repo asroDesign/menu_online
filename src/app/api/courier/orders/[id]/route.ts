@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { orders } from "@/db/schema";
 import { HttpError, readJson, withAuth } from "@/lib/auth";
-import { settleOrder } from "@/lib/orders";
+import { recordOrderEvents, settleOrder } from "@/lib/orders";
 import { myCourier } from "@/lib/courier";
 
 /** Courier actions on one of their deliveries: pickup · delivered · not_home · failed */
@@ -20,8 +20,13 @@ export const POST = withAuth<{ id: string }>(
     if (action === "pickup") {
       if (o.deliveryStatus !== "assigned") throw new HttpError(400, "وضعیت این سفارش برای تحویل‌گرفتن مناسب نیست");
       if (!["ready", "served"].includes(o.status)) throw new HttpError(400, "سفارش هنوز آماده نیست؛ پس از آماده‌شدن می‌توانید آن را تحویل بگیرید");
-      const [r] = await db.update(orders).set({ deliveryStatus: "picked_up", pickedUpAt: now, status: "served", updatedAt: now }).where(and(eq(orders.id, o.id), eq(orders.deliveryStatus, "assigned"))).returning({ id: orders.id });
-      if (!r) throw new HttpError(409, "وضعیت سفارش تغییر کرده است؛ صفحه را تازه کنید");
+      const changed = await db.transaction(async (rawTx) => {
+        const tx = rawTx as unknown as typeof db;
+        const [r] = await tx.update(orders).set({ deliveryStatus: "picked_up", pickedUpAt: now, status: "served", updatedAt: now }).where(and(eq(orders.id, o.id), eq(orders.businessId, auth.business.id), eq(orders.deliveryStatus, "assigned"))).returning({ id: orders.id });
+        if (r) await recordOrderEvents(tx, auth.business.id, o.id, { order: [o.status, "served"], delivery: ["assigned", "picked_up"] }, "courier", auth.user.id);
+        return !!r;
+      });
+      if (!changed) throw new HttpError(409, "وضعیت سفارش تغییر کرده است؛ صفحه را تازه کنید");
       return Response.json({ ok: true });
     }
 
@@ -29,8 +34,13 @@ export const POST = withAuth<{ id: string }>(
     if (o.deliveryStatus !== "picked_up") throw new HttpError(400, o.deliveryStatus === "assigned" ? "ابتدا سفارش را تحویل بگیرید" : "این سفارش قبلاً نتیجه‌گیری شده است");
     if (action === "failed" && !note) throw new HttpError(400, "دلیل عدم تحویل را بنویسید");
 
-    const [r] = await db.update(orders).set({ deliveryStatus: action, deliveryFinishedAt: now, courierNote: note, updatedAt: now }).where(and(eq(orders.id, o.id), eq(orders.deliveryStatus, "picked_up"))).returning({ id: orders.id });
-    if (!r) throw new HttpError(409, "وضعیت سفارش تغییر کرده است؛ صفحه را تازه کنید");
+    const changed = await db.transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db;
+      const [r] = await tx.update(orders).set({ deliveryStatus: action, deliveryFinishedAt: now, courierNote: note, updatedAt: now }).where(and(eq(orders.id, o.id), eq(orders.businessId, auth.business.id), eq(orders.deliveryStatus, "picked_up"))).returning({ id: orders.id });
+      if (r) await recordOrderEvents(tx, auth.business.id, o.id, { delivery: ["picked_up", action] }, "courier", auth.user.id);
+      return !!r;
+    });
+    if (!changed) throw new HttpError(409, "وضعیت سفارش تغییر کرده است؛ صفحه را تازه کنید");
 
     if (action === "delivered") {
       // cash-on-delivery: the courier reports how the money was collected; prepaid orders are simply closed
@@ -38,7 +48,7 @@ export const POST = withAuth<{ id: string }>(
       if (o.paymentStatus !== "paid") {
         method = ["cash", "pos", "card"].includes(String(b.paymentMethod)) ? String(b.paymentMethod) : "cash";
       }
-      await settleOrder(auth.business, auth.planFeatures, o.id, method, true);
+      await settleOrder(auth.business, auth.planFeatures, o.id, method, true, { actorId: auth.user.id, actorType: "courier" });
     }
     return Response.json({ ok: true });
   },

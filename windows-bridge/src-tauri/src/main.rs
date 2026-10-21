@@ -99,6 +99,30 @@ fn status_of(state: &AppState) -> Status {
     }
 }
 
+/// Discovery only: no printer receives a station or a print job until the user maps it.
+#[tauri::command]
+fn installed_printers() -> Result<serde_json::Value, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Printer | Select-Object Name,PortName,Default,WorkOffline)"])
+            .creation_flags(0x08000000)
+            .output().map_err(|e| format!("خواندن فهرست چاپگرها ناموفق بود: {e}"))?;
+        if !output.status.success() {
+            return Err("سرویس چاپ ویندوز یا دسترسی به فهرست چاپگرها در دسترس نیست".to_string());
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}').trim())
+            .map_err(|_| "پاسخ فهرست چاپگرها معتبر نیست".to_string())?;
+        if !value.is_array() { return Err("پاسخ فهرست چاپگرها آرایه نیست".to_string()); }
+        Ok(value)
+    }
+    #[cfg(not(windows))]
+    { Err("کشف چاپگرهای نصب‌شده فقط در ویندوز فعال است".to_string()) }
+}
+
 #[tauri::command]
 fn bridge_status(state: State<'_, AppState>) -> Status {
     status_of(&state)
@@ -193,6 +217,7 @@ fn main() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             bridge_status,
+            installed_printers,
             import_config,
             start_bridge,
             stop_bridge,

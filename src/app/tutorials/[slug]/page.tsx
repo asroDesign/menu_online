@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { getSiteUrl } from "@/lib/site-url";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPublicTutorial } from "@/lib/marketing-content";
 import { RichContent, SiteFooter } from "@/components/marketing/rich-content";
 export const dynamic = "force-dynamic";
-const base = process.env.NEXT_PUBLIC_SITE_URL || "https://menudigital.ir";
+const base = getSiteUrl();
 export async function generateMetadata({params}:{params:Promise<{slug:string}>}):Promise<Metadata>{const {slug}=await params;const t=await getPublicTutorial(slug);if(!t)return{title:"آموزش پیدا نشد"};const title=t.metaTitle||t.title;return{metadataBase:new URL(base),title,description:t.metaDescription||t.summary,alternates:{canonical:new URL(`/tutorials/${t.slug}`,base).toString()},robots:t.noIndex?{index:false,follow:true}:undefined,openGraph:{title,description:t.metaDescription||t.summary,url:new URL(`/tutorials/${t.slug}`,base).toString(),images:t.coverImage?[t.coverImage]:[]},twitter:{card:"summary_large_image",title,description:t.metaDescription||t.summary,images:t.coverImage?[t.coverImage]:[]}}}
 export default async function TutorialPage({params}:{params:Promise<{slug:string}>}){const {slug}=await params;const t=await getPublicTutorial(slug);if(!t)notFound();return <main className="min-h-dvh bg-base-100"><article className="mx-auto max-w-4xl px-5 py-10 sm:py-16"><Link href="/tutorials" className="text-sm font-bold text-primary">← همه آموزش‌ها</Link><header className="mt-7"><span className="badge badge-primary badge-outline">{t.category}</span><h1 className="mt-4 text-3xl font-black sm:text-5xl">{t.title}</h1><p className="mt-4 text-lg leading-8 text-base-content/70">{t.summary}</p>{t.coverImage&&<img src={t.coverImage} alt={t.title} className="mt-7 w-full rounded-3xl object-cover"/>}</header>{t.videoUrl&&<video className="mt-8 w-full rounded-3xl bg-black" controls preload="metadata" poster={t.coverImage||undefined}><source src={t.videoUrl}/>مرورگر شما از پخش ویدیو پشتیبانی نمی‌کند.</video>}<div className="mt-10"><RichContent content={t.content}/></div></article><SiteFooter/></main>}

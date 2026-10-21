@@ -7,8 +7,10 @@ import { createOrder, parseOrderInput, settleOrder, startOnlinePayment } from "@
 import { cancelHeldOrder, createPosRequest, posOnline } from "@/lib/pos";
 import { hasAny, type Settings } from "@/lib/plans";
 import { isOpenAt } from "@/lib/business-time";
+import { activeTransferCards } from "@/lib/card-transfer";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { logInfo } from "@/lib/logger";
+import { isReadOnlyDemoSlug } from "@/lib/demo-mode";
 
 const originOf = (req: Request) => {
   const h = req.headers;
@@ -20,6 +22,7 @@ const originOf = (req: Request) => {
 export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await ctx.params;
+    if (isReadOnlyDemoSlug(slug)) throw new HttpError(403, "منوی نمونه فقط برای پیش‌نمایش است و سفارش نمی‌پذیرد");
     const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
     if (!biz || biz.isSuspended) throw new HttpError(404, "کسب‌وکار پیدا نشد");
     await enforceRateLimit(req, "public-order", slug, 8, 60_000);
@@ -48,7 +51,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     }
     const pay = input.payment ?? "cash";
     const transfer = st.cardTransfer;
-    const cardTransferReady = can("card_transfer") && !!transfer?.enabled && /^\d{16}$/.test(transfer.cardNumber) && !!transfer.accountHolder?.trim();
+    const transferCards = activeTransferCards(transfer);
+    const cardTransferReady = can("card_transfer") && transferCards.length > 0;
     if (!["cash", "ipg", "pos", "card_to_card"].includes(pay)) throw new HttpError(400, "این روش پرداخت پشتیبانی نمی‌شود");
     if (pay === "ipg" && !(can("ipg") && st.ipg?.merchantId)) throw new HttpError(403, "پرداخت آنلاین فعال نیست");
     if (pay === "card_to_card" && (kiosk || !cardTransferReady)) throw new HttpError(403, "پرداخت کارت‌به‌کارت برای این رستوران فعال نیست");
@@ -75,9 +79,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     }
     return Response.json({ item: {
       id: order.id, number: order.number, total: order.total, payUrl, pos,
+      trackingUrl: order.trackingToken ? `/m/${encodeURIComponent(slug)}/track#${order.trackingToken}` : null,
       paymentMethod: order.total === 0 ? (order.cashbackUsed > 0 ? "cashback" : "cash") : pay,
       ...(pay === "card_to_card" && order.total > 0 && cardTransferReady ? { cardTransfer: {
-        cardNumber: transfer!.cardNumber, accountHolder: transfer!.accountHolder, bankName: transfer!.bankName, instructions: transfer!.instructions,
+        ...transferCards[0], cards: transferCards,
       } } : {}),
     } }, { status: 201 });
   } catch (e) {

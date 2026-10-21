@@ -12,6 +12,8 @@ import { cn, Icon, ToastProvider, EmojiIcon } from "@/components/ui";
 import { hasAny, planName, type FeatureMap } from "@/lib/plans";
 import { MODULE_ONLY, STAFF_ROLE_LABELS } from "@/lib/roles";
 import { DashboardBanners } from "@/components/dashboard-banners";
+import { brandThemeStyle } from "@/lib/brand-color";
+import { RestaurantSetupTour } from "@/components/restaurant-setup-tour";
 
 type Item = { href: string; label: string; icon: string; feature?: string | string[] };
 const NAV: { title?: string; items: Item[] }[] = [
@@ -26,6 +28,7 @@ const NAV: { title?: string; items: Item[] }[] = [
     { href: "/dashboard/reservations", label: "رزرو میز", icon: "calendar", feature: "reservations" },
     { href: "/dashboard/payments", label: "درگاه پرداخت", icon: "bank", feature: ["ipg", "installment"] },
     { href: "/dashboard/staff", label: "کارمندان", icon: "users", feature: "cashier_pos" },
+    { href: "/dashboard/staff-schedule", label: "شیفت و مرخصی", icon: "calendar", feature: "staff_scheduling" },
   ] },
   { title: "منو و وب‌سایت", items: [
     { href: "/dashboard/products", label: "منو و محصولات", icon: "utensils" },
@@ -46,25 +49,28 @@ const NAV: { title?: string; items: Item[] }[] = [
   ] },
   { title: "مالی و حسابداری", items: [
     { href: "/dashboard/accounting", label: "حسابداری (دوطرفه)", icon: "book", feature: "accounting" },
+    { href: "/dashboard/receivables", label: "مطالبات مشتریان", icon: "wallet", feature: "accounting" },
     { href: "/dashboard/income-expense", label: "درآمد و هزینه", icon: "wallet", feature: "income_expense" },
     { href: "/dashboard/reports", label: "گزارش فروش", icon: "chart", feature: "sales_reports" },
     { href: "/dashboard/profit-loss", label: "سود و زیان", icon: "trend", feature: "profit_loss" },
     { href: "/dashboard/bank", label: "گزارش بانک", icon: "bank", feature: "bank_report" },
     { href: "/dashboard/assets", label: "اموال و استهلاک", icon: "building", feature: "assets" },
+    { href: "/dashboard/cheques", label: "دفتر چک", icon: "file", feature: "cheque_register" },
   ] },
   { title: "انبار و تولید", items: [
     { href: "/dashboard/inventory", label: "انبارداری", icon: "box", feature: "inventory" },
     { href: "/dashboard/stock-movements", label: "گردش انبار", icon: "refresh", feature: "stock_movements" },
     { href: "/dashboard/stock-control", label: "کنترل انبار", icon: "search", feature: "stock_control" },
+    { href: "/dashboard/purchase-suggestions", label: "پیشنهاد خرید", icon: "chart", feature: "purchase_suggestions" },
     { href: "/dashboard/suppliers", label: "تأمین‌کنندگان و بدهی", icon: "truck", feature: ["inventory", "accounting"] },
     { href: "/dashboard/recipes", label: "فرمول ساخت", icon: "book", feature: "recipes" },
-    { href: "/dashboard/costing", label: "بهای تمام‌شده", icon: "calculator", feature: "costing" },
+    { href: "/dashboard/pricing", label: "قیمت‌گذاری هوشمند", icon: "calculator", feature: "costing" },
   ] },
   { title: "سخت‌افزار و ارسال", items: [
     { href: "/dashboard/couriers", label: "مدیریت پیک", icon: "motorcycle", feature: "courier" },
     { href: "/dashboard/zones", label: "محدوده‌های ارسال", icon: "map", feature: "zones" },
     { href: "/dashboard/devices", label: "تبلت و پوز", icon: "mobile", feature: "tablet_pos" },
-    { href: "/dashboard/printers", label: "پرینتر ابری", icon: "print", feature: "cloud_printer" },
+    { href: "/dashboard/settings/printers/devices", label: "پرینترها و چاپ خودکار", icon: "print", feature: "cloud_printer" },
     { href: "/dashboard/caller-id", label: "کالر آیدی", icon: "phone", feature: "caller_id" },
     { href: "/dashboard/scale", label: "ترازوی دیجیتال", icon: "scale", feature: "scale" },
     { href: "/dashboard/voice-pager", label: "پیجر صوتی", icon: "bell", feature: "pager_voice" },
@@ -78,13 +84,14 @@ const NAV: { title?: string; items: Item[] }[] = [
 ];
 const ALL = NAV.flatMap((g) => g.items);
 
-export function DashboardShell({ business, user, features, planFeatures, role, plan, isAdmin, impersonating, children }: {
-  business: { name: string; slug: string; logoEmoji: string; logoUrl: string };
+export function DashboardShell({ business, user, features, planFeatures, role, plan, isAdmin, impersonating, setupTourAutoStart, children }: {
+  business: { name: string; slug: string; logoEmoji: string; logoUrl: string; accentColor: string; type: string; phone: string; address: string; description: string; instagram: string };
   user: { name: string; email: string };
   features: FeatureMap; planFeatures: FeatureMap; role: string; plan: string;
-  isAdmin: boolean; impersonating?: string; children: ReactNode;
+  isAdmin: boolean; impersonating?: string; setupTourAutoStart: boolean; children: ReactNode;
 }) {
   const pathname = usePathname();
+  const cashierWorkspace = pathname === "/dashboard/cashier";
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -208,19 +215,20 @@ export function DashboardShell({ business, user, features, planFeatures, role, p
     </div>
   );
   return <ToastProvider><FeaturesProvider features={features} role={role}>
-    <div className="min-h-dvh bg-base-200/70">
+    <div className={cn("min-h-dvh bg-base-200/70", cashierWorkspace && "cashier-shell")} style={brandThemeStyle(business.accentColor)}>
       <aside className="no-print fixed inset-y-0 start-0 z-30 hidden w-72 lg:block">{sidebar}</aside>
       {open && <div className="fixed inset-0 z-40 lg:hidden">
         <button type="button" aria-label="بستن منو" onClick={() => setOpen(false)} className="absolute inset-0 animate-fade-in bg-base-content/45 backdrop-blur-sm" />
         <aside ref={drawerRef} id="restaurant-navigation-drawer" role="dialog" aria-modal="true" aria-label="منوی پنل رستوران" tabIndex={-1} className="absolute inset-y-0 start-0 w-80 max-w-[90vw] animate-slide-up outline-none">{sidebar}</aside>
       </div>}
       <div className="lg:ps-72 print:ps-0">
-        <header className="no-print sticky top-0 z-20 flex h-[4.25rem] items-center gap-3 border-b border-base-300/80 bg-base-100/90 px-4 backdrop-blur-xl sm:px-6">
+        <header className="no-print sticky top-0 z-20 flex h-[4.5rem] items-center gap-3 border-b border-base-300/70 bg-base-100/90 px-4 shadow-sm shadow-slate-900/[0.02] backdrop-blur-xl sm:px-6">
           <button ref={menuTriggerRef} type="button" aria-label="منو" aria-expanded={open} aria-controls="restaurant-navigation-drawer" onClick={() => setOpen(true)} className="btn btn-ghost btn-square btn-sm inline-flex size-9 items-center justify-center rounded-xl text-base-content/65 transition hover:bg-base-200 hover:text-base-content lg:hidden"><Icon name="menuBurger" className="size-[18px]" /></button>
           <div className="min-w-0"><p className="text-[10px] font-bold text-base-content/45">پنل مدیریت کسب‌وکار</p><h2 className="truncate text-sm font-extrabold sm:text-base">{current?.label ?? "داشبورد"}</h2></div>
-          <div className="ms-auto flex items-center gap-2"><span className="hidden items-center gap-2 rounded-full bg-success/10 px-3 py-2 text-xs font-bold text-success sm:inline-flex"><span className="size-1.5 rounded-full bg-success" />سامانه فعال</span><Link href={"/m/" + business.slug} target="_blank" className="btn btn-primary btn-sm rounded-xl px-3"><Icon name="external" className="size-4" /><span className="hidden sm:inline">نمایش منو</span></Link></div>
+          <div className="ms-auto flex items-center gap-1.5 sm:gap-2"><span className="hidden items-center gap-2 rounded-full bg-success/10 px-3 py-2 text-xs font-bold text-success xl:inline-flex"><span className="size-1.5 rounded-full bg-success" />سامانه فعال</span>{role === "owner" && !isAdmin && !impersonating && <RestaurantSetupTour features={planFeatures} plan={plan} autoStart={setupTourAutoStart} />}<Link href={"/m/" + business.slug} target="_blank" className="btn btn-primary btn-sm rounded-xl px-3"><Icon name="external" className="size-4" /><span className="hidden sm:inline">نمایش منو</span></Link></div>
         </header>
-        <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8"><div className="mb-5 empty:hidden"><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></div>{children}</main>
+        <main className={cashierWorkspace ? "cashier-main" : "mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8"}>
+          {cashierWorkspace ? <details className="cashier-notices"><summary>اعلان‌های سامانه</summary><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></details> : <div className="mb-5 empty:hidden"><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></div>}{children}</main>
       </div>
     </div>
   </FeaturesProvider></ToastProvider>;

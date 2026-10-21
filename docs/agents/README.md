@@ -2,6 +2,18 @@
 
 این پوشه مشخصات رفتاری صفحات و ماژول‌های قابل مشاهده کاربر را برای بازسازی مستقل نگه می‌دارد. هر فایل، محدوده یک ماژول/صفحه را توضیح می‌دهد؛ فایل‌های منبع پیوندخورده منبع حقیقت برای جزئیات نهایی هستند. محتوای READMEها و توضیح‌های داخل کد بخشی از محصول‌اند و جای درخواست کاربر را نمی‌گیرند.
 
+برای تطبیق با پوشه منبع و وضعیت دقیق قابلیت‌های انجام‌شده/ناقص، ابتدا [دفتر وضعیت پیاده‌سازی در ریشه پروژه](../../IMPLEMENTATION_STATUS.md) را بخوان. این دفتر و راهنماهای مرتبط باید با هر تغییر کد به‌روز شوند.
+
+برای دید کلی قابلیت‌ها و کاربردهای ماژول‌های موجود، ابتدا [کاتالوگ قابلیت‌ها و کاربرد ماژول‌ها](module-capabilities.md) را ببین؛ سپس راهنمای تفصیلی ماژول مربوط را بخوان.
+
+سیستم طراحی مشترک، tokenهای رنگ سازمانی، منبع رنگ پیش‌فرض و جداسازی رنگ رستوران/سامانه در [راهنمای تم و رنگ سازمانی](modules/brand-theme.md) ثبت شده است. برای بازتولید همین ظاهر در ماژول تازه، آن راهنما و `src/components/ui.tsx` را مبنا قرار بده.
+
+رفتار ورود نخست مالک رستوران، ذخیرهٔ وضعیت پایان/رد راهنما و ساخت گام‌ها بر مبنای entitlementهای پلن در [راهنمای تور راه‌اندازی](modules/onboarding-tour.md) مستند شده است.
+
+## قاعده ثبت تغییرات
+
+هر تغییر کد باید در همان کار با به‌روزرسانی Markdown مرتبط ثبت شود. در راهنمای مربوط، رفتار تغییرکرده، نقش و کاربرد ماژول، فایل‌ها و API/داده‌های درگیر، کنترل دسترسی و آزمون‌های اجراشده را دقیق بنویس. اگر ماژول تازه‌ای اضافه می‌شود، راهنمای بازسازی مستقل بساز، قابلیت و کاربردش را در [کاتالوگ ماژول‌ها](module-capabilities.md) و فهرست مسیرهای همین README ثبت کن و نقش، entitlement، API و داده‌اش را توضیح بده. برای تغییر مشترک معماری، [راهنمای معماری](architecture.md) و در صورت نیاز ADR/تصمیم را نیز به‌روز کن. فقط قابلیت‌هایی را مستند کن که با کد فعلی یا آزمون تأیید شده‌اند؛ محدودیت‌ها و کارهای اجرا‌نشده را روشن بنویس.
+
 ## شروع کار عامل
 
 پیش از شروع یک ماژول، راهنمای [معماری مشترک](architecture.md) را هم بخوان؛ آن سند قرارداد route، نقش، API/CRUD، تقویم، پول و امنیت را توضیح می‌دهد.
@@ -17,7 +29,7 @@
 ## معماری مسیر داشبورد
 
 - `/dashboard` صفحه overview و بر اساس role به خانه مجاز هدایت می‌شود.
-- `/dashboard/products`, `/dashboard/categories`, `/dashboard/settings` صفحات ثابت مدیریتی هستند؛ راهنمای هریک در `modules/`.
+- `/dashboard/products`, `/dashboard/products/create`, `/dashboard/categories`, `/dashboard/settings` صفحات ثابت مدیریتی هستند؛ راهنمای هریک در `modules/`.
 - سایر صفحات در `src/app/dashboard/[module]/page.tsx` registry شده‌اند. registry احراز هویت، `MODULE_ONLY`, `ROLE_HOME` و entitlement هر slug را بررسی می‌کند. URL slug نام فایل راهنما است.
 - `src/modules/*.tsx` قطعات اصلی ماژول هستند؛ بعضی فایل‌ها چند ماژول را export می‌کنند (growth-a, growth-b, finance, inventory, hardware). یک فایل راهنمای جدا برای هر route وجود دارد.
 
@@ -25,7 +37,7 @@
 
 | مسیر | راهنما |
 |---|---|
-| `/dashboard/orders` | [modules/orders.md](modules/orders.md) — سفارش‌ها |
+| `/dashboard/orders` | [modules/orders.md](modules/orders.md) — سفارش‌ها و آرشیو رسید |
 | `/dashboard/suppliers` | [modules/suppliers.md](modules/suppliers.md) — تأمین‌کنندگان |
 | `/dashboard/kiosk` | [modules/kiosk.md](modules/kiosk.md) — تنظیم کیوسک |
 | `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون |
@@ -38,7 +50,7 @@
 | `/dashboard/reservations` | [modules/reservations.md](modules/reservations.md) — رزرو میز |
 | `/dashboard/surveys` | [modules/surveys.md](modules/surveys.md) — نظرسنجی |
 | `/dashboard/cross-sell` | [modules/cross-sell.md](modules/cross-sell.md) — پیشنهاد مکمل |
-| `/dashboard/sms` | [modules/sms.md](modules/sms.md) — پیامک |
+| `/dashboard/sms` | [modules/sms.md](modules/sms.md) و [modules/sms-retention.md](modules/sms-retention.md) — پیامک و بازگشت مشتری |
 | `/dashboard/bale` | [modules/bale.md](modules/bale.md) — پنل بله (اطلاعات/راهنما) |
 | `/dashboard/translations` | [modules/translations.md](modules/translations.md) — ترجمه منو |
 | `/dashboard/mini-site` | [modules/mini-site.md](modules/mini-site.md) — ویرایش سایت کوچک |
@@ -49,28 +61,36 @@
 | `/dashboard/tickets` | [modules/tickets.md](modules/tickets.md) — تیکت پشتیبانی |
 | `/dashboard/plan` | [modules/plan.md](modules/plan.md) — تعرفه و اشتراک |
 | `/dashboard/accounting` | [modules/accounting.md](modules/accounting.md) — حسابداری دوطرفه |
+| `/dashboard/receivables` | [modules/receivables.md](modules/receivables.md) — دفتر مطالبات و دریافتنی مشتریان |
 | `/dashboard/income-expense` | [modules/income-expense.md](modules/income-expense.md) — درآمد و هزینه |
-| `/dashboard/reports` | [modules/reports.md](modules/reports.md) — گزارش فروش |
+| `/dashboard/cheques` | [modules/cheques.md](modules/cheques.md) — دفتر چک و ثبت خودکار اسناد حسابداری |
+| `/dashboard/reports` | [modules/reports.md](modules/reports.md) — گزارش فروش، بازهٔ شمسی و CSV |
 | `/dashboard/profit-loss` | [modules/profit-loss.md](modules/profit-loss.md) — سود و زیان |
 | `/dashboard/bank` | [modules/bank.md](modules/bank.md) — گزارش بانک و صندوق |
 | `/dashboard/assets` | [modules/assets.md](modules/assets.md) — دارایی‌ها |
-| `/dashboard/inventory` | [modules/inventory.md](modules/inventory.md) — انبارداری |
+| `/dashboard/inventory`, `/dashboard/inventory/add` | [modules/inventory.md](modules/inventory.md) — موجودی، کمبود/نقطه سفارش، گردش سریع و فرم چهارمرحله‌ای افزودن کالا با SKU، تاریخ شمسی، واحد خرید/مصرف، افتتاحیهٔ حسابداری و پیش‌نمایش ریسپانسیو |
+| `/dashboard/inventory/waste` | [modules/inventory.md](modules/inventory.md) — ثبت اختصاصی چندقلمی ضایعات، دلیل، فیلتر شمسی، تحلیل روند/هزینه، چاپ گزارش و خروجی CSV |
 | `/dashboard/stock-movements` | [modules/stock-movements.md](modules/stock-movements.md) — گردش و فاکتور انبار |
 | `/dashboard/stock-control` | [modules/stock-control.md](modules/stock-control.md) — کنترل موجودی |
 | `/dashboard/recipes` | [modules/recipes.md](modules/recipes.md) — فرمول ساخت |
-| `/dashboard/costing` | [modules/costing.md](modules/costing.md) — بهای تمام‌شده |
+| `/dashboard/pricing` و `/dashboard/costing` | [modules/costing.md](modules/costing.md) — قیمت‌گذاری هوشمند؛ مسیر قدیمی costing حفظ شده است |
 | `/dashboard/couriers` | [modules/couriers.md](modules/couriers.md) — پیک‌ها |
 | `/dashboard/zones` | [modules/zones.md](modules/zones.md) — مناطق ارسال |
 | `/dashboard/devices` | [modules/devices.md](modules/devices.md) — تبلت و POS |
 | `/dashboard/printers` | [modules/printers.md](modules/printers.md) — چاپگرها |
+| `/dashboard/settings/printers/devices` | [modules/printers.md](modules/printers.md) — اتصال دستگاه‌ها، Agent ویندوزی و تنظیم سربرگ/پابرگ فیش |
+| `/dashboard/settings/printers/workflows` | [modules/printers.md](modules/printers.md) — سیاست چاپ خودکار ثبت، تسویه و تکمیل سفارش |
+| `/dashboard/settings/printers/categories` | [modules/printers.md](modules/printers.md) — تفکیک چاپگرها بر اساس دستهٔ محصول |
 | `/dashboard/caller-id` | [modules/caller-id.md](modules/caller-id.md) — شناسه تماس |
 | `/dashboard/scale` | [modules/scale.md](modules/scale.md) — ترازو |
 | `/dashboard/voice-pager` | [modules/voice-pager.md](modules/voice-pager.md) — اعلام صوتی سفارش |
 | `/dashboard/food-court-pager` | [modules/food-court-pager.md](modules/food-court-pager.md) — پیجر فودکورت |
 | `/dashboard` | [modules/dashboard-overview.md](modules/dashboard-overview.md) — داشبورد اصلی |
 | `/dashboard/products` | [modules/products.md](modules/products.md) — محصولات منو |
+| `/dashboard/products/create` | [modules/products.md](modules/products.md) — ساخت محصول، تنوع قیمت، recipe و آنالیز مواد اولیه |
 | `/dashboard/categories` | [modules/categories.md](modules/categories.md) — دسته‌بندی منو |
-| `/dashboard/settings` | [modules/settings.md](modules/settings.md) — تنظیمات کسب‌وکار |
+| `/dashboard/settings` | [modules/settings.md](modules/settings.md) — مرکز پنج‌گروهی تنظیمات کافه، هویت، ساعت/منو، بنر، سفارش/تسویه و امنیت |
+| راهنمای راه‌اندازی | [modules/onboarding-tour.md](modules/onboarding-tour.md) — تور نخستین ورود مالک و گام‌های متناسب با پلن |
 
 ## صفحه اصلی و صفحات عملیاتی
 
@@ -79,6 +99,8 @@
 | راهنما | کارکرد |
 |---|---|
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
+| [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه و تنظیم برند |
+| [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
 | [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی و ثبت سفارش |
 | [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو میز سمت مشتری |
 | [core-pages/kiosk-client.md](core-pages/kiosk-client.md) | کیوسک مشتری |
@@ -87,7 +109,7 @@
 | [core-pages/survey-response.md](core-pages/survey-response.md) | فرم عمومی نظرسنجی |
 | [core-pages/mini-site-public.md](core-pages/mini-site-public.md) | سایت کوچک عمومی |
 | [core-pages/restaurant-directory.md](core-pages/restaurant-directory.md) | فهرست رستوران‌ها |
-| [core-pages/auth-pages.md](core-pages/auth-pages.md) | ورود و ثبت‌نام |
+| [core-pages/auth-pages.md](core-pages/auth-pages.md) | ورود، ثبت‌نام، trial و ساخت منو/دسته‌بندی آغازین بر اساس نوع کسب‌وکار |
 | [core-pages/platform-admin.md](core-pages/platform-admin.md) | پنل مدیر سامانه |
 | [core-pages/payment-result.md](core-pages/payment-result.md) | نتیجه پرداخت |
 | [core-pages/print-views.md](core-pages/print-views.md) | رسیدها و اسناد چاپی |
@@ -110,8 +132,14 @@
 
 - `/dashboard/bale` در نسخه فعلی فرم ارسال کمپین نیست؛ صفحه توضیح می‌دهد ارسال بله هنوز متصل نیست و به پنل پیامک هدایت می‌کند.
 - در `/dashboard/payments` فقط تنظیم درگاه زرین‌پال و فهرست تراکنش‌ها فعال‌اند؛ اسنپ‌پی/دیجی‌پی در UI فعلی توضیح اتصال آتی دارند و برای مشتری ارائه نمی‌شوند.
-- `/dashboard/accounting` همان دفتر double-entry در `src/modules/accounting.tsx` است؛ `/dashboard/income-expense` دفتر ساده تراکنش‌ها در `src/modules/finance.tsx` است و این دو جریان را با هم اشتباه نگیر.
+- `/dashboard/accounting` همان دفتر double-entry در `src/modules/accounting.tsx` است؛ `/dashboard/income-expense` دفتر ساده تراکنش‌ها در `src/modules/finance.tsx` است و `/dashboard/receivables` دفتر طلب‌های تسویه‌نشده است. فروش نسیه باید از ماژول دریافتنی ثبت شود تا وجه نقد/درآمد وصول‌نشده به‌عنوان دریافتی صندوق ثبت نشود.
 
 ## پوشش مستندات
 
-فهرست بالا همه ۴۲ slug ثبت‌شده در `MODULES` و چهار صفحه ثابت داشبورد را پوشش می‌دهد. `home-page.md` صفحه `/` و `core-pages/` مسیرهای عمومی/سیستمی اصلی و نقشه قراردادهای API را مستند می‌کند. مجموعه فعلی ۴۲ ماژول registry، چهار صفحه ثابت داشبورد، صفحه اصلی، ۱۴ صفحه عمومی/سیستمی، معماری مشترک و نقشه قراردادهای API را پوشش می‌دهد. برای هر resource API سند جداگانه نمی‌سازد؛ schema نهایی در route TypeScript است.
+فهرست بالا slugهای جاری `MODULES` و چهار صفحه ثابت داشبورد را پوشش می‌دهد؛ تعداد را پیش از کار از registry زنده بررسی کن. `home-page.md` صفحه `/` و `core-pages/` مسیرهای عمومی/سیستمی اصلی و نقشه قراردادهای API را مستند می‌کند. برای هر resource API سند جداگانه نمی‌سازد؛ schema نهایی در route TypeScript است.
+
+برای گزینه محصول، [فروش وزنی](modules/weighted-sales.md)، رهگیری خصوصی سفارش، funnel، قالب منو، شیفت صندوق، [ورود CSV](modules/menu-import.md)، [زمان‌بندی کارکنان](modules/staff-schedule.md)، [انتقال انبار](modules/stock-transfers.md)، [سیاست trial](modules/trial-policy.md)، [دفتر چک](modules/cheques.md) و [پیشنهاد خرید](modules/purchase-suggestions.md)، سند ماژول متناظر و [معماری](architecture.md) را ببین. تصمیم‌های هنوز تصویب‌نشده در `../decisions/` و `../adr/` ثبت شده‌اند. فروش وزنی M09 در checkout محلی پیاده شده و migration آن هنوز اجرا نشده؛ M11 چندشعبه و M12 صندوق آفلاین هنوز پیاده نشده‌اند.
+
+> اصلاح تور راه‌اندازی (۲۰۲۶-۱۰-۱۹): راهنما اکنون روی کنترل‌های صفحات واقعی است؛ فرم مستقل ندارد. مشخصات فعلی و مسیر بازسازی در [مستند تور](modules/onboarding-tour.md) ثبت شده است.
+
+برای ادامهٔ درخواست صندوق و پرینترهای مرجع، [گزارش تطبیق صندوق/چاپ](../../POS_REFERENCE_PARITY.md) را بخوانید؛ این فایل امکانات کدنویسی‌شده، آزمون‌شده و باقی‌مانده را جدا ثبت می‌کند.

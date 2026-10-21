@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ProductThumb, Button, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
+import { ProductThumb, Button, cn, useToast, Icon } from "@/components/ui";
 
 const MAX_SIDE = 1200;
 
@@ -59,7 +59,7 @@ export function ImageUpload({ value, emoji, onChange, uploadUrl = "/api/upload",
         <p className="text-xs leading-6 text-stone-500">{description}</p>
         <div className="flex flex-wrap gap-2">
           <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" capture={undefined} className="hidden" disabled={disabled || busy} onChange={(e) => void upload(e.target.files?.[0])} />
-          <Button type="button" size="sm" loading={busy} disabled={disabled || busy} onClick={() => input.current?.click()}><IconText>{<EmojiIcon emoji="" />}</IconText> {value ? "تغییر تصویر" : "انتخاب فایل تصویر"}</Button>
+          <Button type="button" size="sm" loading={busy} disabled={disabled || busy} onClick={() => input.current?.click()}><Icon name="image" className="size-4"/> {value ? "تغییر تصویر" : "انتخاب فایل تصویر"}</Button>
           {value && <Button type="button" size="sm" variant="ghost" disabled={disabled} className="text-rose-600" onClick={() => onChange("")}>حذف تصویر</Button>}
         </div>
       </div>

@@ -2,6 +2,7 @@
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
 import { Button, Field, Input, PersianDateInput, Textarea } from "@/components/ui";
+import { trackPlatformEvent } from "@/lib/platform-analytics";
 
 type LeadKind = "contact" | "consultation" | "demo";
 export function LeadForm({ kind, title = "", compact = false, initialSubject = "" }: { kind: LeadKind; title?: string; compact?: boolean; initialSubject?: string }) {
@@ -11,6 +12,7 @@ export function LeadForm({ kind, title = "", compact = false, initialSubject = "
   const [done, setDone] = useState(false);
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError("");
+    if (kind === "demo") trackPlatformEvent("demo_request_start");
     try { const preferredAt = form.preferredAt ? new Date(form.preferredAt).toISOString() : undefined; await api("/api/public/lead", { method: "POST", body: { ...form, preferredAt, kind, subject: form.subject || title } }); setDone(true); }
     catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
@@ -28,6 +30,6 @@ export function LeadForm({ kind, title = "", compact = false, initialSubject = "
     {(kind === "consultation" || kind === "demo") && <Field label="زمان پیشنهادی برای تماس (شمسی، اختیاری)"><PersianDateInput value={form.preferredAt} withTime onChange={(preferredAt) => setForm({ ...form, preferredAt })} placeholder="انتخاب روز و ساعت" /></Field>}
     <Field label={kind === "demo" ? "چه زمانی برای نمایش مناسب است؟" : "توضیحات"}><Textarea rows={compact ? 3 : 5} maxLength={3000} value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder={kind === "demo" ? "ساعت مناسب تماس یا جلسه را بنویسید…" : "پیام شما…"} /></Field>
     {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
-    <Button type="submit" loading={busy} className="w-full sm:w-auto">{kind === "demo" ? "درخواست دموی رایگان" : kind === "consultation" ? "درخواست مشاوره" : "ارسال پیام"}</Button>
+    <Button type="submit" loading={busy} className="w-full sm:w-auto">{kind === "demo" ? "ارسال درخواست نمایش" : kind === "consultation" ? "درخواست مشاوره" : "ارسال پیام"}</Button>
   </form>;
 }

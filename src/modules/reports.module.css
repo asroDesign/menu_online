@@ -1,0 +1,41 @@
+@font-face {
+  font-family: "MenuVex Report Yekan";
+  src: url("/fonts/menuvex/YekanBakh-Regular.woff") format("woff");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "MenuVex Report Yekan";
+  src: url("/fonts/menuvex/YekanBakh-SemiBold.woff") format("woff");
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "MenuVex Report Yekan";
+  src: url("/fonts/menuvex/YekanBakh-Bold.woff") format("woff");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "MenuVex Report Yekan";
+  src: url("/fonts/menuvex/YekanBakh-ExtraBold.woff") format("woff");
+  font-style: normal;
+  font-weight: 800 900;
+  font-display: swap;
+}
+
+.page {
+  font-family: "MenuVex Report Yekan", "Vazirmatn Variable", sans-serif;
+}
+
+.page :global(button),
+.page :global(input),
+.page :global(select) {
+  font-family: inherit;
+}

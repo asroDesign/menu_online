@@ -33,7 +33,7 @@ export function TableManager({ open, onClose, tables, onRemoved }: { open: boole
     const name = form.name.trim() || nextName();
     const payload = { name, zone: form.zone.trim() || zones[0] || "سالن اصلی", capacity: cap(form.capacity) };
     try {
-      await tables.create(payload, { ...payload, openOrder: null });
+      await tables.create(payload, { ...payload, operationalStatus: "available", status: "available", openOrder: null });
       toast(`«${name}» اضافه شد`);
       setForm({ name: "", zone: form.zone, capacity: form.capacity });
     } catch (e) { fail(e); }

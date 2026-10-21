@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { businesses, calls, devices, orders, pagers, posRequests, printJobs } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
 import { featuresOf } from "@/lib/entitlements";
-import { listOrders, normPhone } from "@/lib/orders";
+import { listOrders, normPhone, queuePrintJobs, recordOrderEvents } from "@/lib/orders";
 import { approvePosRequest, expirePosRequests } from "@/lib/pos";
 import { hasAny } from "@/lib/plans";
 
@@ -62,8 +62,18 @@ async function handle(req: Request, ctx: Ctx) {
         if (req.method === "POST") {
           const st = String(body.status);
           if (!["preparing", "ready", "served"].includes(st)) throw new HttpError(400, "وضعیت نامعتبر است");
-          const [r] = await db.update(orders).set({ status: st, updatedAt: new Date() }).where(and(eq(orders.id, Number(body.orderId)), eq(orders.businessId, biz.id))).returning({ id: orders.id });
-          if (!r) throw new HttpError(404, "سفارش پیدا نشد");
+          const changed = await db.transaction(async (rawTx) => {
+            const tx = rawTx as unknown as typeof db;
+            const [current] = await tx.select({ status: orders.status }).from(orders).where(and(eq(orders.id, Number(body.orderId)), eq(orders.businessId, biz.id))).for("update");
+            if (!current) return false;
+            const [r] = await tx.update(orders).set({ status: st, updatedAt: new Date() }).where(and(eq(orders.id, Number(body.orderId)), eq(orders.businessId, biz.id))).returning({ id: orders.id });
+            if (r) {
+              await recordOrderEvents(tx, biz.id, r.id, { order: [current.status, st] }, "device");
+              if (current.status !== "ready" && st === "ready") await queuePrintJobs(biz, r.id, features, false, undefined, tx, "completed");
+            }
+            return !!r;
+          });
+          if (!changed) throw new HttpError(404, "سفارش پیدا نشد");
           return Response.json({ ok: true });
         }
         const list = await listOrders(biz.id, { statuses: ["pending", "preparing", "ready"], limit: 60 });

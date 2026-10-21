@@ -13,18 +13,18 @@
 1. host از `headers()` خوانده، port حذف و lowercase می‌شود. localhost و 127.0.0.1 دامنه مشتری محسوب نمی‌شوند.
 2. در host اختصاصی، رکورد business با `customDomain=host` و `domainStatus=verified` جست‌وجو می‌شود.
 3. اگر business وجود دارد و suspended نیست، `featuresOf` بررسی می‌شود. با entitlement دامنه، mini-site در صورت فعال بودن `mini_site` وگرنه منوی مشتری از `buildPublicMenu`/`MenuClient` نمایش داده می‌شود.
-4. اگر مسیر custom-domain سرو نشد، demo data با `ensureDemoData()` آماده و `getAuth()` بررسی می‌شود. CTA ورود به `/dashboard` برای کاربر واردشده و `/register` برای مهمان است.
+4. اگر مسیر custom-domain سرو نشد، demo data با `ensureDemoData()` آماده و `getAuth()` بررسی می‌شود. CTA ورود به `/dashboard` برای کاربر واردشده است؛ CTA دموی رایگان مهمان به `/register?trial=demo` می‌رود.
 
 ## ساختار صفحه بازاریابی
 
 - Navbar sticky: نشان محصول، anchor امکانات/تعرفه/FAQ، لینک login برای مهمان و CTA اصلی.
-- Hero: ارزش پیشنهادی منوی QR و سفارش گارسون؛ CTA ثبت‌نام/داشبورد، `/restaurants` و منوی نمونه `/m/${DEMO_SLUG}?table=3`؛ اعداد social proof.
+- Hero: ارزش پیشنهادی منوی QR و سفارش گارسون؛ CTA داشبورد/دموی تعاملی، دموی رایگان `/register?trial=demo` و درخواست نمایش همراه کارشناس؛ منوی نمونه `/m/${DEMO_SLUG}?table=3`.
 - Phone mock: کارت‌های نمونه منو و سفارش/فروش؛ نمایشی است و نباید مثل data واقعی مشتری معرفی شود.
 - Features: شش feature cards در grid responsive.
 - مراحل شروع: ثبت‌نام و ساخت منو، چاپ QR و دریافت سفارش.
 - Pricing: سه کارت پلن، قیمت زنده از `getPlanList()` بر مبنای ترتیب موجود در `PLANS`، old price، bulletها و CTA.
 - FAQ: چهار disclosure/native details.
-- CTA نهایی و footer.
+- CTA نهایی دموی رایگان و درخواست نمایش با کارشناس، به‌علاوه footer.
 
 ## داده و محتوا
 

@@ -6,6 +6,8 @@ import { formatPrice, toFa } from "@/lib/format";
 import type { PublicMenu } from "@/lib/public-menu";
 import { cn, ProductThumb, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { BrandLogo } from "@/components/brand";
+import { ProductOptionPicker } from "@/components/product-option-picker";
+import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, type CartState } from "@/lib/order-cart";
 
 type Prod = PublicMenu["products"][number];
 type Step = "welcome" | "type" | "menu" | "review" | "pospay" | "done";
@@ -19,7 +21,8 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   const cats = useMemo(() => categories.filter((c) => products.some((p) => p.categoryId === c.id)), [categories, products]);
   const [step, setStep] = useState<Step>("welcome");
   const [type, setType] = useState<"dine_in" | "takeaway">("dine_in");
-  const [cart, setCart] = useState<Record<number, number>>({});
+  const [cart, setCart] = useState<CartState>({});
+  const [optionProduct, setOptionProduct] = useState<Prod | null>(null);
   const [cat, setCat] = useState<number>(cats[0]?.id ?? 0);
   const [tableId, setTableId] = useState("");
   const [phone, setPhone] = useState("");
@@ -27,8 +30,8 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   const [pay, setPay] = useState<"cash" | "ipg" | "pos">(cfg.allowCounter ? "cash" : cfg.allowPos ? "pos" : "ipg");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [done, setDone] = useState<{ number: number; total: number; paid: boolean } | null>(null);
-  const [posJob, setPosJob] = useState<{ id: number; token: string; number: number; total: number } | null>(null);
+  const [done, setDone] = useState<{ number: number; total: number; paid: boolean; trackingUrl: string | null } | null>(null);
+  const [posJob, setPosJob] = useState<{ id: number; token: string; number: number; total: number; trackingUrl: string | null } | null>(null);
   const [posV, setPosV] = useState<PosView | null>(null);
   const [posAvail, setPosAvail] = useState(cfg.posOnline);
   const [posBusy, setPosBusy] = useState(false);
@@ -61,10 +64,14 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
     return () => clearInterval(t);
   }, [step, reset]);
 
-  const add = (id: number, d = 1) => setCart((c) => { const n = { ...c }; const v = (n[id] ?? 0) + d; if (v <= 0) delete n[id]; else n[id] = Math.min(30, v); return n; });
-  const lines = Object.entries(cart).map(([id, qty]) => ({ p: products.find((x) => x.id === Number(id))!, qty })).filter((l) => l.p);
+  const add = (p: Prod, d = 1) => {
+    if (d > 0 && (p.sellingMode === "weight" || p.modifierGroups?.some((group) => group.active))) setOptionProduct(p);
+    else setCart((current) => changeAnyCartVariant(current, p.id, d, 30));
+  };
+  const addVariant = (p: Prod, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => setCart((current) => changeCartVariant(current, p.id, optionIds, delta, 30, weightGrams, tareGrams));
+  const lines = cartLines(products, cart).map((line) => ({ ...line, p: line.product }));
   const count = lines.reduce((s, l) => s + l.qty, 0);
-  const subtotal = lines.reduce((s, l) => s + l.p.price * l.qty, 0);
+  const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
   const tax = Math.round((subtotal * biz.taxPercent) / 100);
   const svc = Math.round((subtotal * biz.servicePercent) / 100);
   const total = subtotal + tax + svc;
@@ -93,7 +100,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
     const tick = () => api<PosView>(`/api/public/${biz.slug}/pos/${posJob.id}?t=${posJob.token}`).then((v) => {
       if (!live) return;
       setPosV(v);
-      if (v.paid || v.status === "approved") { setDone({ number: v.number, total: v.total, paid: true }); setStep("done"); }
+      if (v.paid || v.status === "approved") { setDone({ number: v.number, total: v.total, paid: true, trackingUrl: posJob.trackingUrl }); setStep("done"); }
     }).catch(() => {});
     tick();
     const t = setInterval(tick, 1500);
@@ -107,7 +114,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
     try {
       const r = await api<{ token?: string; id?: number; ok?: boolean; number?: number; total?: number }>(`/api/public/${biz.slug}/pos/${posJob.id}`, { method: "POST", body: { t: posJob.token, action } });
       if (action === "retry" && r.token && r.id) { setPosJob({ ...posJob, id: r.id, token: r.token }); setPosV(null); setSentFor(0); }
-      else if (action === "cash") { setDone({ number: posJob.number, total: posJob.total, paid: false }); setStep("done"); }
+      else if (action === "cash") { setDone({ number: posJob.number, total: posJob.total, paid: false, trackingUrl: posJob.trackingUrl }); setStep("done"); }
       else if (action === "cancel") reset();
     } catch (e) { setErr((e as Error).message); } finally { setPosBusy(false); }
   }
@@ -115,13 +122,13 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   async function submit() {
     setBusy(true); setErr("");
     try {
-      const { item } = await api<{ item: { id: number; number: number; total: number; payUrl: string | null; pos: { id: number; token: string } | null } }>(`/api/public/${biz.slug}/orders`, {
+      const { item } = await api<{ item: { id: number; number: number; total: number; payUrl: string | null; trackingUrl: string | null; pos: { id: number; token: string } | null } }>(`/api/public/${biz.slug}/orders`, {
         method: "POST",
-        body: { kiosk: true, items: lines.map((l) => ({ productId: l.p.id, quantity: l.qty })), type, tableId: type === "dine_in" && tableId ? Number(tableId) : null, customerPhone: phone, payment: pay },
+        body: { kiosk: true, items: lines.map((l) => ({ productId: l.p.id, quantity: l.qty, optionIds: l.optionIds, weightGrams: l.weightGrams, tareGrams: l.tareGrams })), type, tableId: type === "dine_in" && tableId ? Number(tableId) : null, customerPhone: phone, payment: pay },
       });
       if (item.payUrl) { location.href = item.payUrl; return; }
-      if (item.pos) { setPosJob({ ...item.pos, number: item.number, total: item.total }); setPosV(null); setStep("pospay"); return; }
-      setDone({ number: item.number, total: item.total, paid: false });
+      if (item.pos) { setPosJob({ ...item.pos, number: item.number, total: item.total, trackingUrl: item.trackingUrl }); setPosV(null); setStep("pospay"); return; }
+      setDone({ number: item.number, total: item.total, paid: false, trackingUrl: item.trackingUrl });
       setStep("done");
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   }
@@ -131,15 +138,15 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   const card = dark ? "bg-[#17171f] ring-1 ring-white/10" : "bg-white ring-1 ring-stone-200";
 
   const stepper = (p: Prod, big?: boolean) => {
-    const q = cart[p.id] ?? 0;
+    const q = cartProductQuantity(cart, p.id);
     const sz = big ? "size-16 text-3xl" : "size-12 text-2xl";
     return q === 0 ? (
-      <button onClick={(e) => { e.stopPropagation(); add(p.id); }} aria-label="افزودن" style={{ background: accent }} className={cn("flex items-center justify-center rounded-2xl font-black text-white shadow-lg active:scale-90", sz)}>＋</button>
+      <button onClick={(e) => { e.stopPropagation(); add(p); }} aria-label="افزودن" style={{ background: accent }} className={cn("flex items-center justify-center rounded-2xl font-black text-white shadow-lg active:scale-90", sz)}>＋</button>
     ) : (
       <div onClick={(e) => e.stopPropagation()} className={cn("flex items-center gap-1 rounded-2xl p-1 shadow-lg", dark ? "bg-white/10" : "bg-white ring-1 ring-stone-200")} style={{ borderColor: accent }}>
-        <button onClick={() => add(p.id, -1)} aria-label="کم" className={cn("flex items-center justify-center rounded-xl bg-stone-200 font-black text-stone-800 active:scale-90", sz)}>−</button>
+        <button onClick={() => add(p, -1)} aria-label="کم" className={cn("flex items-center justify-center rounded-xl bg-stone-200 font-black text-stone-800 active:scale-90", sz)}>−</button>
         <span className={cn("min-w-9 text-center font-black", big ? "text-3xl" : "text-2xl")}>{toFa(q)}</span>
-        <button onClick={() => add(p.id)} aria-label="زیاد" style={{ background: accent }} className={cn("flex items-center justify-center rounded-xl font-black text-white active:scale-90", sz)}>＋</button>
+        <button onClick={() => add(p)} aria-label="زیاد" style={{ background: accent }} className={cn("flex items-center justify-center rounded-xl font-black text-white active:scale-90", sz)}>＋</button>
       </div>
     );
   };
@@ -147,29 +154,29 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
 
   /* -------- product tiles per template -------- */
   const gridTile = (p: Prod) => (
-    <div key={p.id} onClick={() => p.isAvailable && add(p.id)} className={cn("relative flex cursor-pointer flex-col overflow-hidden rounded-3xl shadow-sm active:scale-[0.98]", card, (cart[p.id] ?? 0) > 0 && "ring-4")} style={(cart[p.id] ?? 0) > 0 ? { ["--tw-ring-color" as string]: accent } : undefined}>
+    <div key={p.id} onClick={() => p.isAvailable && add(p)} className={cn("relative flex cursor-pointer flex-col overflow-hidden rounded-3xl shadow-sm active:scale-[0.98]", card, cartProductQuantity(cart, p.id) > 0 && "ring-4")} style={cartProductQuantity(cart, p.id) > 0 ? { ["--tw-ring-color" as string]: accent } : undefined}>
       {unavail(p)}
       <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="h-40 w-full text-6xl" />
       <div className="flex flex-1 flex-col p-4">
         <h3 className="text-xl font-extrabold leading-8">{p.name}</h3>
-        <div className="mt-auto flex items-center justify-between gap-2 pt-3"><b className="text-xl" style={{ color: dark ? "#fff" : accent }}>{formatPrice(p.price)}</b>{stepper(p)}</div>
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3"><b className="text-xl" style={{ color: dark ? "#fff" : accent }}>{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className="ms-1 text-sm">/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className="ms-1 text-sm">از</span>}</b>{stepper(p)}</div>
       </div>
     </div>
   );
   const photoTile = (p: Prod) => (
-    <div key={p.id} onClick={() => p.isAvailable && add(p.id)} className="relative h-72 cursor-pointer overflow-hidden rounded-3xl shadow-md active:scale-[0.98]">
+    <div key={p.id} onClick={() => p.isAvailable && add(p)} className="relative h-72 cursor-pointer overflow-hidden rounded-3xl shadow-md active:scale-[0.98]">
       {unavail(p)}
       <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="absolute inset-0 size-full text-8xl" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-      {(cart[p.id] ?? 0) > 0 && <span style={{ background: accent }} className="absolute start-3 top-3 flex size-12 items-center justify-center rounded-full text-2xl font-black text-white shadow-lg">{toFa(cart[p.id])}</span>}
-      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4 text-white"><div><h3 className="text-2xl font-black leading-9">{p.name}</h3><b className="text-xl">{formatPrice(p.price)}</b></div>{stepper(p, true)}</div>
+      {cartProductQuantity(cart, p.id) > 0 && <span style={{ background: accent }} className="absolute start-3 top-3 flex size-12 items-center justify-center rounded-full text-2xl font-black text-white shadow-lg">{toFa(cartProductQuantity(cart, p.id))}</span>}
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4 text-white"><div><h3 className="text-2xl font-black leading-9">{p.name}</h3><b className="text-xl">{formatPrice(p.price)}{p.sellingMode === "weight" ? "/کیلو" : ""}</b></div>{stepper(p, true)}</div>
     </div>
   );
   const rowTile = (p: Prod) => (
     <div key={p.id} className="relative flex items-center gap-5 rounded-3xl border-2 border-stone-200 bg-white p-4">
       {unavail(p)}
       <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="size-24 shrink-0 rounded-2xl text-5xl" />
-      <div className="min-w-0 flex-1"><h3 className="text-2xl font-black leading-9">{p.name}</h3>{p.description && <p className="line-clamp-1 text-base text-stone-500">{p.description}</p>}<b className="mt-1 block text-2xl" style={{ color: accent }}>{formatPrice(p.price)}</b></div>
+      <div className="min-w-0 flex-1"><h3 className="text-2xl font-black leading-9">{p.name}</h3>{p.description && <p className="line-clamp-1 text-base text-stone-500">{p.description}</p>}<b className="mt-1 block text-2xl" style={{ color: accent }}>{formatPrice(p.price)}{p.sellingMode === "weight" ? "/کیلو" : ""}</b></div>
       {stepper(p, true)}
     </div>
   );
@@ -261,6 +268,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
         <p className="text-3xl">شماره سفارش شما</p>
         <div className="rounded-[2rem] bg-white px-20 py-8 text-9xl font-black shadow-2xl" style={{ color: accent }}>{toFa(done.number)}</div>
         <p className="max-w-2xl text-3xl leading-relaxed">{done.paid ? "پرداخت با کارت انجام شد. لطفاً شماره‌ی سفارش را تا زمان تحویل نگه دارید." : `لطفاً مبلغ ${formatPrice(done.total)} را با ارائه این شماره در صندوق پرداخت کنید.`}</p>
+        {done.trackingUrl && <a href={done.trackingUrl} className="rounded-full bg-white/15 px-6 py-3 text-xl font-bold underline">پیگیری وضعیت سفارش</a>}
         <button onClick={reset} className="mt-4 rounded-full bg-white px-14 py-6 text-3xl font-black shadow-xl" style={{ color: accent }}>سفارش جدید ({toFa(back)})</button>
       </div>
     );
@@ -332,11 +340,11 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
       <div className={cn("flex h-dvh flex-col", bg)}>
         {header("مرور و تأیید سفارش", () => setStep("menu"))}
         <main className="flex-1 space-y-5 overflow-y-auto p-5">
-          <div className="space-y-3">{lines.map(({ p, qty }) => (
-            <div key={p.id} className={cn("flex items-center gap-4 rounded-3xl p-4", card)}>
+          <div className="space-y-3">{lines.map(({ key, p, qty, lineTotal, weightGrams, netWeightGrams, tareGrams, optionIds, optionSnapshot }) => (
+            <div key={key} className={cn("flex items-center gap-4 rounded-3xl p-4", card)}>
               <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="size-20 shrink-0 rounded-2xl text-4xl" />
-              <div className="min-w-0 flex-1"><h3 className="text-2xl font-black">{p.name}</h3><p className="text-xl opacity-70">{formatPrice(p.price * qty)}</p></div>
-              {stepper(p, true)}
+              <div className="min-w-0 flex-1"><h3 className="text-2xl font-black">{p.name}</h3>{netWeightGrams != null && <p className="text-sm opacity-65">{toFa(netWeightGrams)} گرم خالص{tareGrams ? ` · ظرف ${toFa(tareGrams)} گرم` : ""}</p>}{optionSnapshot.length > 0 && <p className="text-base opacity-60">{optionSnapshot.map((option) => option.optionName).join("، ")}</p>}<p className="text-xl opacity-70">{formatPrice(lineTotal)}</p></div>
+              {weightGrams == null ? stepper(p, true) : <div className="flex gap-2"><button onClick={() => addVariant(p, optionIds, -1, weightGrams, tareGrams)} className="btn btn-circle btn-ghost" aria-label="حذف وزن">−</button><button onClick={() => setOptionProduct(p)} className="btn btn-circle btn-ghost" aria-label="وزن جدید">+</button></div>}
             </div>
           ))}</div>
           {lines.length === 0 && <p className="py-16 text-center text-3xl opacity-60">سبد سفارش خالی است</p>}
@@ -397,6 +405,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
         </footer>
       ) : null}
       {overlay}
+      {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams); setOptionProduct(null); }} />}
     </div>
   );
 }

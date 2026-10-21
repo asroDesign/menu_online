@@ -18,7 +18,7 @@ type Props = {
 
 const TEHRAN: [number, number] = [35.6892, 51.389];
 const pin = (kind: "destination" | "restaurant", size = 34) => {
-  const color = kind === "restaurant" ? "#13805e" : "#f97316";
+  const color = kind === "restaurant" ? "#2563eb" : "#f97316";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path fill="white" d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5" fill="${color}" stroke="white"/></svg>`;
   return L.divIcon({ className: "", html: `<div style="width:${size}px;height:${size}px;transform:translate(-50%,-100%);filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))">${svg}</div>`, iconSize: [0, 0] });
 };

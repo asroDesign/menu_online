@@ -34,3 +34,7 @@ GET /api/courier/orders؛ POST /api/courier/orders/:id actions؛ PATCH /api/cour
 
 سرور تنها سفارش‌های همین پیک را برگرداند و انتقال وضعیت/پول/assignment را validate کند. PII به کارهای تخصیص‌یافته محدود است. با پایان شیفت کار جدید نباید دریافت شود؛ پاسخ duplicate نباید دوبار پرداخت یا تحویل ثبت کند. صفحه برای موبایل، صفحه‌کلید و اینترنت ضعیف مناسب باشد؛ polling در tab مخفی متوقف/کم شود و کارت با خطای یک سفارش کل صفحه را از کار نیندازد.
 
+### اشتراک اختیاری موقعیت
+
+opt-in صریح پیک، `POST /api/courier/location` با courier auth، feature `courier`، شیفت غیر off و حداقل یک سفارش active assigned/picked_up لازم دارد. مختصات/accuracy اعتبارسنجی و آخرین موقعیت tenant/courier upsert می‌شود؛ rate limit ۳۰ در دقیقه است. `DELETE /api/courier/location` در stop/unmount نقطه را پاک می‌کند. مشتری فقط از طریق token رهگیری M01، هنگام تحویل فعال و با timestamp حداکثر سه دقیقه، نقطه را می‌گیرد. مرورگر در پس‌زمینه ردیابی پایدار را تضمین نمی‌کند.
+

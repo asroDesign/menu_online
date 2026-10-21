@@ -1,6 +1,8 @@
 "use client";
 import { TERM_LABELS, type BillingTerm, type PricedPlan } from "@/lib/plan-pricing";
 
+import { notifySetupSaved } from "@/lib/onboarding-tour";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api, useCollection } from "@/lib/api";
@@ -165,7 +167,7 @@ export function Bale() {
       <Card className="space-y-3 p-6">
         <p className="text-sm leading-8 text-stone-700">ربات‌های بله فقط می‌توانند به کاربرانی پیام بدهند که قبلاً ربات را استارت کرده‌اند و برای هر کاربر باید <b>شناسه‌ی گفتگو (chat_id)</b> ذخیره شود؛ ارسال انبوه با «شماره موبایل» در بله ممکن نیست.</p>
         <p className="text-sm leading-8 text-stone-700">به همین دلیل در این نسخه، ارسال تبلیغ در بله به سرویس بله متصل <b>نیست</b> و هیچ پیام ساختگی‌ای ثبت نمی‌شود. برای اطلاع‌رسانی گروهی از <b>پنل پیامک</b> (کاوه‌نگار / sms.ir با روش پترن) استفاده کنید.</p>
-        <a href="/dashboard/sms" className="inline-block rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-bold text-white">رفتن به پنل پیامک</a>
+        <Link href="/dashboard/sms" className="inline-block rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-bold text-white">رفتن به پنل پیامک</Link>
       </Card>
     </div>
   );
@@ -246,11 +248,11 @@ export function MiniSiteEditor() {
   const f = useFeatures();
   const custom = f.level("mini_site") === "custom";
   const [biz, setBiz] = useBiz();
-  const [ms, setMs] = useState<NonNullable<Settings["miniSite"]> | null>(null);
+  const [msOverride, setMsOverride] = useState<NonNullable<Settings["miniSite"]> | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (biz && !ms) setMs({ showMenuButton: true, gallery: [], sections: [], ...(biz.settings.miniSite ?? {}) }); }, [biz, ms]);
+  const ms = msOverride ?? (biz ? { showMenuButton: true, gallery: [], sections: [], ...(biz.settings.miniSite ?? {}) } : null);
   if (!biz || !ms) return <Skeleton className="h-96 rounded-2xl" />;
-  const set = (p: Partial<typeof ms>) => setMs({ ...ms, ...p });
+  const set = (p: Partial<typeof ms>) => setMsOverride({ ...ms, ...p });
   async function save() {
     setBusy(true);
     try { const r = await saveSetting("miniSite", ms); setBiz(r.item); toast("مینی وبسایت ذخیره شد"); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(false); }
@@ -420,21 +422,23 @@ export function AiPage() {
 }
 
 /* ---------------- Payments ---------------- */
-type Pay = { id: number; provider: string; amount: number; status: string; authority: string; orderNumber: number; createdAt: string };
+type Pay = { id: number; provider: string; amount: number; status: string; authority: string; settlementError: string; settlementAttempts: number; orderNumber: number; createdAt: string };
 const PROV: Record<string, string> = { ipg: "زرین‌پال", snappay: "اسنپ‌پی", digipay: "دیجی‌پی" };
 export function Payments() {
   const f = useFeatures();
   const toast = useToast();
   const [biz] = useBiz();
-  const [ipg, setIpg] = useState<NonNullable<Settings["ipg"]> | null>(null);
-  const [inst, setInst] = useState<NonNullable<Settings["installment"]> | null>(null);
+  const [ipgOverride, setIpgOverride] = useState<NonNullable<Settings["ipg"]> | null>(null);
+  const [instOverride, setInstOverride] = useState<NonNullable<Settings["installment"]> | null>(null);
   const pays = useCollection<Pay>("/api/r/payments");
-  useEffect(() => { if (biz) { setIpg(biz.settings.ipg ?? { provider: "zarinpal", merchantId: "", sandbox: true }); setInst(biz.settings.installment ?? { snappay: false, digipay: false }); } }, [biz]);
+  const ipg = ipgOverride ?? (biz ? biz.settings.ipg ?? { provider: "zarinpal" as const, merchantId: "", sandbox: true } : null);
+  const inst = instOverride ?? (biz ? biz.settings.installment ?? { snappay: false, digipay: false } : null);
   if (!ipg || !inst) return <Skeleton className="h-80 rounded-2xl" />;
-  async function saveIpg() { try { await saveSetting("ipg", ipg); toast("تنظیمات درگاه ذخیره شد"); } catch (e) { toast((e as Error).message, "error"); } }
+  async function saveIpg() { try { await saveSetting("ipg", ipg); toast("تنظیمات درگاه ذخیره شد"); notifySetupSaved("online-payment"); } catch (e) { toast((e as Error).message, "error"); } }
   async function toggleInst(k: "snappay" | "digipay", v: boolean) {
-    const next = { ...inst!, [k]: v }; setInst(next);
-    try { await saveSetting("installment", next); } catch (e) { setInst(inst); toast((e as Error).message, "error"); }
+    const current = inst ?? { snappay: false, digipay: false };
+    const next: NonNullable<Settings["installment"]> = { snappay: current.snappay ?? false, digipay: current.digipay ?? false, [k]: v }; setInstOverride(next);
+    try { await saveSetting("installment", next); } catch (e) { setInstOverride(current); toast((e as Error).message, "error"); }
   }
   return (
     <div className="animate-fade-in">
@@ -443,11 +447,11 @@ export function Payments() {
         <IconText>{f.has("ipg") && (
           <Card className="space-y-4 p-5">
             <h3 className="font-bold">{<EmojiIcon emoji="" />} درگاه پرداخت بانکی (IPG)</h3>
-            <Field label="ارائه‌دهنده"><Select value={ipg.provider} onChange={(e) => setIpg({ ...ipg, provider: e.target.value })}><option value="zarinpal">زرین‌پال (Zarinpal)</option></Select></Field>
+            <Field label="ارائه‌دهنده"><Select data-tour="ipg-provider" value={ipg.provider} onChange={(e) => setIpgOverride({ ...ipg, provider: e.target.value })}><option value="zarinpal">زرین‌پال (Zarinpal)</option></Select></Field>
             {!ipg.merchantId && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-800">تا «شناسه پذیرنده» وارد نشود، گزینه‌ی پرداخت آنلاین به مشتری نمایش داده نمی‌شود. پرداخت پس از بازگشت از درگاه با فراخوانی Verify زرین‌پال تأیید و سفارش پرداخت‌شده می‌شود.</p>}
-            <Field label="شناسه پذیرنده (Merchant ID — ۳۶ کاراکتر)"><Input dir="ltr" className="text-left" value={ipg.merchantId} onChange={(e) => setIpg({ ...ipg, merchantId: e.target.value })} /></Field>
-            <div className="flex items-center justify-between rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">حالت تست زرین‌پال (sandbox.zarinpal.com)</p><p className="text-xs text-stone-500">فقط برای تست قبل از راه‌اندازی؛ برای دریافت وجه واقعی خاموش کنید</p></div><Switch checked={ipg.sandbox} onChange={(v) => setIpg({ ...ipg, sandbox: v })} label="sandbox" /></div>
-            <Button onClick={saveIpg}>ذخیره</Button>
+            <Field label="شناسه پذیرنده (Merchant ID — ۳۶ کاراکتر)"><Input data-tour="ipg-merchant" dir="ltr" className="text-left" value={ipg.merchantId} onChange={(e) => setIpgOverride({ ...ipg, merchantId: e.target.value })} /></Field>
+            <div className="flex items-center justify-between rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">حالت تست زرین‌پال (sandbox.zarinpal.com)</p><p className="text-xs text-stone-500">فقط برای تست قبل از راه‌اندازی؛ برای دریافت وجه واقعی خاموش کنید</p></div><span data-tour="ipg-sandbox"><Switch checked={ipg.sandbox} onChange={(v) => setIpgOverride({ ...ipg, sandbox: v })} label="sandbox" /></span></div>
+            <Button data-tour="ipg-save" onClick={saveIpg}>ذخیره</Button>
           </Card>
         )}</IconText>
         <IconText>{f.has("installment") && (
@@ -460,7 +464,7 @@ export function Payments() {
       </div>
       <h3 className="mb-3 mt-8 font-bold">تراکنش‌های آنلاین</h3>
       <IconText>{pays.loading ? <Skeleton className="h-32 rounded-2xl" /> : pays.items.length === 0 ? <EmptyState emoji="" title="هنوز تراکنش آنلاینی ثبت نشده" description="وقتی مشتری از منو با پرداخت آنلاین سفارش دهد، تراکنش اینجا نمایش داده می‌شود." /> : (
-        <Card className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="border-b bg-stone-50/70 text-xs text-stone-500"><th className="p-3 text-start">سفارش</th><th className="p-3 text-start">روش</th><th className="p-3 text-start">مبلغ</th><th className="p-3 text-start">وضعیت</th><th className="p-3 text-start">زمان</th></tr></thead><tbody className="divide-y divide-stone-100">{pays.items.map((p) => <tr key={p.id}><td className="p-3 font-bold">#{toFa(p.orderNumber)}</td><td className="p-3">{PROV[p.provider]}</td><td className="p-3">{formatPrice(p.amount)}</td><td className="p-3"><Badge color={p.status === "paid" ? "emerald" : p.status === "failed" ? "rose" : "amber"}>{p.status === "paid" ? "موفق" : p.status === "failed" ? "ناموفق" : "در انتظار"}</Badge></td><td className="p-3 text-xs text-stone-500">{timeAgo(p.createdAt)}</td></tr>)}</tbody></table></Card>
+        <Card className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="border-b bg-stone-50/70 text-xs text-stone-500"><th className="p-3 text-start">سفارش</th><th className="p-3 text-start">روش</th><th className="p-3 text-start">مبلغ</th><th className="p-3 text-start">وضعیت</th><th className="p-3 text-start">زمان</th></tr></thead><tbody className="divide-y divide-stone-100">{pays.items.map((p) => <tr key={p.id}><td className="p-3 font-bold">#{toFa(p.orderNumber)}</td><td className="p-3">{PROV[p.provider]}</td><td className="p-3">{formatPrice(p.amount)}</td><td className="p-3"><Badge color={p.status === "paid" ? "emerald" : p.status === "failed" ? "rose" : "amber"}>{p.status === "paid" ? "موفق" : p.status === "failed" ? "ناموفق" : "در انتظار"}</Badge>{p.settlementError && <p className="mt-1 max-w-64 text-[11px] leading-5 text-rose-700">{p.settlementError} · تلاش {toFa(p.settlementAttempts)}</p>}</td><td className="p-3 text-xs text-stone-500">{timeAgo(p.createdAt)}</td></tr>)}</tbody></table></Card>
       )}</IconText>
     </div>
   );

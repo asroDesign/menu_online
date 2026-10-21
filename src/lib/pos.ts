@@ -3,7 +3,7 @@ import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, devices, orders, posRequests } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
-import { queuePrintJobs, refundCashback, settleOrder } from "@/lib/orders";
+import { queuePrintJobs, recordOrderEvents, refundCashback, settleOrder } from "@/lib/orders";
 import type { FeatureMap } from "@/lib/plans";
 
 type Biz = typeof businesses.$inferSelect;
@@ -40,19 +40,39 @@ export async function createPosRequest(biz: Biz, orderId: number, deviceId?: num
 
 /** Terminal confirmed the payment (also valid late: after a timeout/cancel, money was already taken). */
 export async function approvePosRequest(biz: Biz, features: FeatureMap, r: Req, refNo: string) {
-  await db.update(posRequests).set({ status: "approved", refNo: refNo.slice(0, 40), detail: "", updatedAt: new Date() }).where(eq(posRequests.id, r.id));
   await settleOrder(biz, features, r.orderId, "pos", false, { reopen: true });
+  await db.update(posRequests).set({ status: "approved", refNo: refNo.slice(0, 40), detail: "", updatedAt: new Date() }).where(eq(posRequests.id, r.id));
 }
 
 /** Customer chose to pay at the counter instead: the held order is released to the kitchen, payment stays open. */
 export async function releaseHeldOrder(biz: Biz, features: FeatureMap, orderId: number) {
-  const [o] = await db.update(orders).set({ status: "pending", updatedAt: new Date() }).where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id), eq(orders.status, "awaiting_payment"))).returning({ id: orders.id });
-  if (o) await queuePrintJobs(biz, orderId, features, false);
+  const released = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    const [current] = await tx.select({ status: orders.status }).from(orders).where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id), eq(orders.status, "awaiting_payment"))).for("update");
+    if (!current) return false;
+    const [o] = await tx.update(orders).set({ status: "pending", updatedAt: new Date() }).where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id), eq(orders.status, "awaiting_payment"))).returning({ id: orders.id });
+    if (o) await recordOrderEvents(tx, biz.id, orderId, { order: [current.status, "pending"] });
+    return !!o;
+  });
+  if (released) await queuePrintJobs(biz, orderId, features, false);
 }
 
 export async function cancelHeldOrder(biz: Biz, orderId: number) {
-  const [o] = await db.update(orders).set({ status: "canceled", updatedAt: new Date() }).where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id), eq(orders.status, "awaiting_payment"), sql`${orders.paymentStatus} <> 'paid'`)).returning({ id: orders.id });
-  if (o) await refundCashback(biz, orderId);
+  await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    const [o] = await tx.update(orders).set({ status: "canceled", updatedAt: new Date() })
+      .where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id), eq(orders.status, "awaiting_payment"), sql`${orders.paymentStatus} <> 'paid'`))
+      .returning({ id: orders.id });
+    if (o) {
+      await recordOrderEvents(tx, biz.id, orderId, { order: ["awaiting_payment", "canceled"] });
+      await refundCashback(biz, orderId, tx);
+    }
+    else {
+      const [canceled] = await tx.select({ id: orders.id }).from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id), eq(orders.status, "canceled"))).for("update");
+      if (canceled) await refundCashback(biz, orderId, tx);
+    }
+  });
 }
 
 export async function cancelPendingRequests(orderId: number, detail: string) {

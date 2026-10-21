@@ -33,6 +33,8 @@ export function Overview({ go }: { go: Nav }) {
         <Stat icon="" label="تیکت‌های باز" value={formatNumber(openN)} tone={openN ? "text-amber-600" : "text-stone-900"} sub={`${toFa(unassigned)} بدون کارشناس`} />
       </div>
 
+      <MarketingFunnel />
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2"><h3 className="mb-4 font-bold">فروش روزانه‌ی کل کسب‌وکارها (۱۴ روز)</h3>
           <Bars data={(d.daily as any[]).map((x) => ({ label: toFa(formatShortDate(x.d).replace(/\D+/g, " ").trim().split(" ").pop() ?? ""), value: x.gmv }))} fmt={formatPrice} />
@@ -65,4 +67,35 @@ export function Overview({ go }: { go: Nav }) {
       )}
     </div>
   );
+}
+
+type MarketingFunnelData = {
+  days: number;
+  homeViews: number;
+  pricingViews: number;
+  demoRequestViews: number;
+  demoPreviewViews: number;
+  demoRequestStarts: number;
+  demoRequestCompletes: number;
+  signupStarts: number;
+  signupCompletes: number;
+  checkoutStarts: number;
+  trialStarts: number;
+  definition: string;
+};
+
+function MarketingFunnel() {
+  const { data, error, reload } = useGet<MarketingFunnelData>("/api/admin/marketing-funnel?days=30", 60_000);
+  if (error) return <Card className="p-5"><h2 className="font-bold">قیف ورودی سایت</h2><ErrorState message={error} onRetry={() => reload()} /></Card>;
+  if (!data) return <Skeleton className="h-36 rounded-2xl" />;
+  const rows = [
+    ["بازدید خانه", data.homeViews], ["بازدید تعرفه", data.pricingViews], ["دموی تعاملی", data.demoPreviewViews],
+    ["شروع درخواست نمایش", data.demoRequestStarts], ["درخواست نمایش ثبت‌شده", data.demoRequestCompletes],
+    ["شروع ثبت‌نام", data.signupStarts], ["ثبت‌نام تکمیل‌شده", data.signupCompletes], ["شروع پرداخت", data.checkoutStarts], ["شروع trial", data.trialStarts],
+  ] as const;
+  return <Card className="space-y-4 p-5">
+    <div><h2 className="font-bold">قیف ورودی سایت</h2><p className="mt-1 text-xs text-stone-500">رویدادهای خام {toFa(data.days)} روز اخیر؛ بدون شمارش کاربر یکتا یا اتصال فردی بین مراحل.</p></div>
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{rows.map(([label, value]) => <div key={label} className="rounded-xl bg-stone-50 p-3"><p className="text-xs text-stone-500">{label}</p><p className="mt-1 text-lg font-extrabold">{formatNumber(value)}</p></div>)}</div>
+    <p className="text-xs leading-6 text-stone-500">{data.definition} trial ثبت نشده چون در محصول فعال نیست.</p>
+  </Card>;
 }

@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { and, eq, gt, or } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, couriers, sessions, staff, users } from "@/db/schema";
-import { featuresOf } from "@/lib/entitlements";
+import { activeTrialOf, featuresOf } from "@/lib/entitlements";
 import { hasAny, type FeatureMap } from "@/lib/plans";
 import { isManagerRole, restrictByRole } from "@/lib/roles";
 import { permsOf, type AdminPerm } from "@/lib/admin-meta";
@@ -11,6 +11,7 @@ import { logError } from "@/lib/logger";
 
 const COOKIE = "sid";
 const SESSION_DAYS = 30;
+const secureCookie = process.env.NODE_ENV === "production";
 
 export type Business = typeof businesses.$inferSelect;
 export type AuthContext = {
@@ -21,6 +22,9 @@ export type AuthContext = {
   features: FeatureMap;
   /** features of the plan before the role restriction (used to decide lock icons) */
   planFeatures: FeatureMap;
+  trialActive: boolean;
+  trialEndsAt: Date | null;
+  trialPlan: string | null;
 };
 
 export function hashPassword(password: string) {
@@ -44,7 +48,7 @@ export async function createSession(userId: number, ttlMs = SESSION_DAYS * 86400
   const expiresAt = new Date(Date.now() + ttlMs);
   await db.insert(sessions).values({ id: sha(token), userId, expiresAt });
   const jar = await cookies();
-  jar.set(COOKIE, token, { httpOnly: true, sameSite: "lax", path: "/", expires: expiresAt });
+  jar.set(COOKIE, token, { httpOnly: true, sameSite: "lax", secure: secureCookie, path: "/", expires: expiresAt });
 }
 
 export async function destroySession() {
@@ -61,7 +65,7 @@ export async function startImpersonation(userId: number) {
   const jar = await cookies();
   const cur = jar.get(COOKIE)?.value;
   if (!cur) throw new HttpError(401, "ابتدا وارد شوید");
-  if (!jar.get(ADMIN_COOKIE)) jar.set(ADMIN_COOKIE, cur, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 8 * 3600 });
+  if (!jar.get(ADMIN_COOKIE)) jar.set(ADMIN_COOKIE, cur, { httpOnly: true, sameSite: "lax", secure: secureCookie, path: "/", maxAge: 8 * 3600 });
   await createSession(userId, 2 * 3600_000);
 }
 export async function endImpersonation() {
@@ -74,7 +78,7 @@ export async function endImpersonation() {
   if (cur) await db.delete(sessions).where(eq(sessions.id, sha(cur)));
   jar.delete(ADMIN_COOKIE);
   if (!s) { jar.delete(COOKIE); return false; }
-  jar.set(COOKIE, adm, { httpOnly: true, sameSite: "lax", path: "/", expires: s.expiresAt });
+  jar.set(COOKIE, adm, { httpOnly: true, sameSite: "lax", secure: secureCookie, path: "/", expires: s.expiresAt });
   return true;
 }
 export async function isImpersonating() {
@@ -108,9 +112,10 @@ export async function getAuth(): Promise<AuthContext | null> {
     role = "courier";
   }
   if (!row.user.role) role = "owner";
+  const trial = row.business.plan === "pending" ? await activeTrialOf(row.business.id) : undefined;
   const planFeatures = await featuresOf(row.business);
   const { active: _a, ...user } = row.user;
-  return { user, business: row.business, role, planFeatures, features: restrictByRole(planFeatures, role) };
+  return { user, business: row.business, role, planFeatures, features: restrictByRole(planFeatures, role), trialActive: !!trial, trialEndsAt: trial?.endsAt ?? null, trialPlan: trial?.plan ?? null };
 }
 
 export class HttpError extends Error {
@@ -149,7 +154,7 @@ export function withAuth<P = Record<string, string>>(
       if (!auth) throw new HttpError(401, "ابتدا وارد حساب کاربری شوید");
       if (auth.business.isSuspended && auth.user.role !== "admin")
         throw new HttpError(403, "حساب شما توسط مدیر سامانه مسدود شده است");
-      if (auth.business.plan === "pending" && auth.user.role !== "admin" && !opts.allowUnpaid)
+      if (auth.business.plan === "pending" && auth.user.role !== "admin" && !auth.trialActive && !opts.allowUnpaid)
         throw new HttpError(402, "برای دسترسی به پنل، ابتدا پلن را انتخاب و پرداخت کنید");
       if (auth.role === "courier" && !opts.courierOk) throw new HttpError(403, "دسترسی پیک فقط به پنل پیک محدود است");
       if (opts.admin) requireAdmin(auth);
@@ -172,11 +177,37 @@ export function errorResponse(e: unknown) {
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });
 }
 
-export async function readJson(req: Request): Promise<Record<string, unknown>> {
+async function readRequestText(req: Request, maxBytes?: number) {
+  if (!maxBytes) return req.text();
+  const length = Number(req.headers.get("content-length"));
+  if (Number.isFinite(length) && length > maxBytes) throw new HttpError(413, "اندازه درخواست بیش از حد مجاز است");
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      try { await reader.cancel(); } catch { /* the size limit already determines the response */ }
+      throw new HttpError(413, "اندازه درخواست بیش از حد مجاز است");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
+export async function readJson(req: Request, maxBytes?: number): Promise<Record<string, unknown>> {
   try {
-    const body = await req.json();
+    const text = await readRequestText(req, maxBytes);
+    const body = JSON.parse(text);
     return body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  } catch {
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
     throw new HttpError(400, "درخواست نامعتبر است");
   }
 }

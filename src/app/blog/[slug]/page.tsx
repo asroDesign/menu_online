@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { getSiteUrl } from "@/lib/site-url";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPublicPost } from "@/lib/marketing-content";
 import { RichContent, SiteFooter } from "@/components/marketing/rich-content";
 
 export const dynamic = "force-dynamic";
-const base = process.env.NEXT_PUBLIC_SITE_URL || "https://menudigital.ir";
+const base = getSiteUrl();
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params; const post = await getPublicPost(slug); if (!post) return { title: "مقاله پیدا نشد" };
   const title = post.metaTitle || post.title, description = post.metaDescription || post.excerpt;

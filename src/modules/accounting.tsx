@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import headerStyles from "./accounting-header.module.css";
 import { JalaliInput } from "@/components/jalali-input";
@@ -17,7 +18,7 @@ type DocLine = { id?: number; accountId: number; code: string; name: string; lev
 type DocFull = Doc & { yearTitle: string; yearClosed: boolean; lines: DocLine[] };
 
 const KIND: Record<string, string> = { general: "عمومی", opening: "افتتاحیه", closing: "اختتامیه" };
-const SRC: Record<string, [string, string]> = { manual: ["دستی", "stone"], order: ["فروش", "emerald"], inventory: ["انبار", "blue"], expense: ["درآمد/هزینه", "amber"], reversal: ["برگشتی", "rose"], system: ["سیستمی", "violet"] };
+const SRC: Record<string, [string, string]> = { manual: ["دستی", "stone"], order: ["فروش", "emerald"], inventory: ["انبار", "blue"], expense: ["درآمد/هزینه", "amber"], cheque: ["دفتر چک", "blue"], reversal: ["برگشتی", "rose"], system: ["سیستمی", "violet"] };
 const TYPE: Record<string, string> = { asset: "دارایی", liability: "بدهی", equity: "حقوق صاحبان سرمایه", revenue: "درآمد", expense: "هزینه" };
 const faToEn = (s: string) => s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "");
 const num = (n: number) => (n ? formatNumber(n) : "—");
@@ -117,10 +118,11 @@ export function Accounting() {
 /* ---------------------------------------------------------------- docs */
 function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; accounts: Acc[]; year?: Year; openDoc: (id: number) => void; changed: () => void }) {
   const toast = useToast();
+  const router = useRouter();
   const [items, setItems] = useState<Doc[] | null>(null);
   const [err, setErr] = useState("");
   const [kind, setKind] = useState(""), [source, setSource] = useState(""), [status, setStatus] = useState(""), [q, setQ] = useState("");
-  const [editor, setEditor] = useState<DocFull | "new" | null>(null);
+  const [editor, setEditor] = useState<DocFull | null>(null);
   const [del, setDel] = useState<Doc | null>(null);
   const load = useCallback(() => {
     setItems(null);
@@ -142,9 +144,9 @@ function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; ac
         <Select className="w-40" value={source} onChange={(e) => setSource(e.target.value)}><option value="">همه منابع</option>{Object.entries(SRC).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}</Select>
         <Select className="w-36" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">همه وضعیت‌ها</option><option value="posted">قطعی</option><option value="draft">پیش‌نویس</option></Select>
         <div className="relative w-56"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder="شماره یا شرح سند…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <Button className="ms-auto" onClick={() => setEditor("new")} disabled={year?.isClosed}><Icon name="plus" className="size-4" /> سند جدید</Button>
+        <Button className="ms-auto" onClick={() => router.push("/dashboard/accounting/new")} disabled={year?.isClosed}><Icon name="plus" className="size-4" /> سند جدید</Button>
       </div>
-      <IconText>{err ? <ErrorState message={err} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="" title="سندی یافت نشد" description="اسناد فروش و انبار خودکار ثبت می‌شوند؛ برای ثبت دستی روی «سند جدید» بزنید." action={<Button onClick={() => setEditor("new")}>سند جدید</Button>} /> : (
+      <IconText>{err ? <ErrorState message={err} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="" title="سندی یافت نشد" description="اسناد فروش و انبار خودکار ثبت می‌شوند؛ برای ثبت دستی روی «سند جدید» بزنید." action={<Button disabled={year?.isClosed} onClick={() => router.push("/dashboard/accounting/new")}>سند جدید</Button>} /> : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[820px] text-sm">
             <thead><tr className="border-b bg-stone-50/70 text-xs text-stone-500"><th className="p-3 text-start">شماره</th><th className="p-3 text-start">تاریخ</th><th className="p-3 text-start">نوع</th><th className="p-3 text-start">منبع</th><th className="p-3 text-start">شرح</th><th className="p-3 text-start">مبلغ</th><th className="p-3 text-start">وضعیت</th><th className="no-print p-3" /></tr></thead>
@@ -169,7 +171,7 @@ function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; ac
           </table>
         </Card>
       )}</IconText>
-      <DocEditor open={!!editor} doc={editor === "new" ? null : editor} accounts={accounts} onClose={() => setEditor(null)} saved={() => { setEditor(null); load(); changed(); }} />
+      <DocEditor open={!!editor} doc={editor} accounts={accounts} onClose={() => setEditor(null)} saved={() => { setEditor(null); load(); changed(); }} />
       <ConfirmDialog open={!!del} title="حذف پیش‌نویس" message="این پیش‌نویس حذف می‌شود." onClose={() => setDel(null)} onConfirm={async () => { if (!del) return; try { await api(`/api/acc/documents/${del.id}`, { method: "DELETE" }); toast("حذف شد"); load(); } catch (e) { toast((e as Error).message, "error"); } }} />
     </div>
   );
@@ -194,7 +196,7 @@ export function AccountSelect({ accounts, value, onChange, allowKol, className }
 }
 
 type EdLine = { accountId: string; debit: string; credit: string; description: string };
-function DocEditor({ open, doc, accounts, onClose, saved }: { open: boolean; doc: DocFull | null; accounts: Acc[]; onClose: () => void; saved: () => void }) {
+function DocEditor({ open, doc, accounts, onClose, saved, standalone = false }: { open: boolean; doc: DocFull | null; accounts: Acc[]; onClose: () => void; saved: () => void; standalone?: boolean }) {
   const toast = useToast();
   const [date, setDate] = useState(new Date().toISOString());
   const [kind, setKind] = useState("general");
@@ -226,8 +228,8 @@ function DocEditor({ open, doc, accounts, onClose, saved }: { open: boolean; doc
       saved();
     } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(""); }
   }
-  return (
-    <Modal open={open} onClose={onClose} title={doc ? `ویرایش پیش‌نویس سند ${toFa(doc.number)}` : "سند حسابداری جدید"} size="lg" footer={<><Button variant="ghost" onClick={onClose}>انصراف</Button><Button variant="secondary" loading={busy === "draft"} onClick={() => save("draft")}>ذخیره پیش‌نویس</Button><Button loading={busy === "posted"} disabled={diff !== 0 || td === 0} onClick={() => save("posted")}>ثبت قطعی</Button></>}>
+  const footer = <><Button variant="ghost" onClick={onClose}>انصراف</Button><Button variant="secondary" loading={busy === "draft"} disabled={!!busy} onClick={() => save("draft")}>ذخیره پیش‌نویس</Button><Button loading={busy === "posted"} disabled={!!busy || diff !== 0 || td === 0} onClick={() => save("posted")}>ثبت قطعی</Button></>;
+  const content = (
       <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="تاریخ سند (شمسی)"><JalaliInput value={date} onChange={(v) => v && setDate(v)} /></Field>
@@ -255,8 +257,48 @@ function DocEditor({ open, doc, accounts, onClose, saved }: { open: boolean; doc
           <span><IconText>{diff === 0 && td > 0 ? " سند تراز است" : diff === 0 ? "مبلغی وارد نشده" : `اختلاف: ${formatNumber(Math.abs(diff))} ${diff > 0 ? "(بدهکار بیشتر)" : "(بستانکار بیشتر)"}`}</IconText></span>
         </div>
       </div>
-    </Modal>
   );
+  if (standalone) return (
+    <div className="mx-auto max-w-5xl animate-fade-in space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div><p className="text-xs font-semibold text-stone-500">حسابداری دوطرفه / اسناد</p><h1 className="mt-1 text-xl font-extrabold">سند حسابداری جدید</h1><p className="mt-1 text-sm text-stone-500">تاریخ، شرح و ردیف‌های بدهکار و بستانکار را وارد کنید.</p></div>
+        <Button variant="ghost" onClick={onClose}><Icon name="arrowRight" className="size-4" />بازگشت به اسناد</Button>
+      </header>
+      <Card className="p-4 sm:p-6">
+        <div className="mb-5 flex flex-wrap justify-end gap-2">{footer}</div>
+        {content}
+        <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-stone-200 pt-4">{footer}</div>
+      </Card>
+    </div>
+  );
+  return <Modal open={open} onClose={onClose} title={doc ? `ویرایش پیش‌نویس سند ${toFa(doc.number)}` : "سند حسابداری جدید"} size="lg" footer={footer}>{content}</Modal>;
+}
+
+export function NewAccountingDocumentPage() {
+  const router = useRouter();
+  const [accounts, setAccounts] = useState<Acc[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api<{ items: Acc[] }>("/api/acc/accounts"),
+      api<{ years: Year[]; currentYearId: number }>("/api/acc/meta"),
+    ]).then(([chart, meta]) => {
+      if (active) {
+        setAccounts(chart.items);
+        const currentYear = meta.years.find((year) => year.id === meta.currentYearId);
+        if (currentYear?.isClosed) setError("سال مالی جاری بسته شده است و امکان ثبت سند جدید وجود ندارد.");
+      }
+    }).catch((cause) => { if (active) setError((cause as Error).message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  const back = () => router.push("/dashboard/accounting");
+  if (loading) return <Skeleton className="h-96 rounded-2xl" />;
+  if (error) return <div className="space-y-4"><ErrorState message={error} onRetry={() => router.refresh()} /><Button variant="secondary" onClick={back}>بازگشت به اسناد</Button></div>;
+  return <DocEditor open doc={null} accounts={accounts} standalone onClose={back} saved={back} />;
 }
 
 function DocView({ id, onClose, changed, toast }: { id: number | null; onClose: () => void; changed: () => void; toast: (m: string, t?: "success" | "error") => void }) {

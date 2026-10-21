@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { appSettings, couponRedemptions, subscriptionInvoices, subscriptionPayments } from "@/db/schema";
 import { withAuth, HttpError } from "@/lib/auth";
+import { recordPlatformEvent } from "@/lib/platform-events";
 
 export const dynamic = "force-dynamic";
 type PaymentsConfig = { zarinpalEnabled: boolean; zarinpalMerchantId: string; zibalEnabled: boolean; zibalMerchantId: string };
@@ -61,6 +62,7 @@ export const POST = withAuth(async (req, { business }) => {
       token = String(data.trackId); url = `https://gateway.zibal.ir/start/${encodeURIComponent(token)}`;
     }
     await db.update(subscriptionPayments).set({ token }).where(eq(subscriptionPayments.id, id));
+    await recordPlatformEvent("checkout_start").catch(() => false);
     return Response.json({ url });
   } catch (error) {
     await db.update(subscriptionPayments).set({ status: definitiveFailure ? "failed" : "pending", detail: (error as Error).message.slice(0, 300) }).where(eq(subscriptionPayments.id, id));

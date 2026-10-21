@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, campaigns, customers, smsLogs, smsTemplates } from "@/db/schema";
@@ -7,6 +6,8 @@ import { toJ } from "@/lib/jalali";
 import { hasAny, type Settings } from "@/lib/plans";
 import { mergeSeg, segmentOf } from "@/lib/segments";
 import { expireUnpaid } from "@/lib/pos";
+import { sendPattern } from "@/lib/sms-provider";
+import { runRetentionAutomations } from "@/lib/sms-retention";
 
 type Biz = typeof businesses.$inferSelect;
 type Tpl = typeof smsTemplates.$inferSelect;
@@ -23,37 +24,7 @@ function render(tpl: Tpl, vars: Record<string, string>) {
   return tpl.sampleText.replace(/\{(\w+)\}|#(\w+)#|%(\w+)/g, (m, a, b, c) => map[a ?? b ?? c] ?? m);
 }
 
-export async function sendPattern(cfg: { provider: string; apiKey: string }, tpl: Tpl, receptor: string, vars: Record<string, string>) {
-  if (!cfg.apiKey) return { status: "failed" as const, detail: "کلید API پنل پیامک تنظیم نشده است" };
-  try {
-    if (cfg.provider === "smsir") {
-      const res = await fetch("https://api.sms.ir/v1/send/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json", "x-api-key": cfg.apiKey },
-        body: JSON.stringify({
-          mobile: receptor,
-          templateId: Number(tpl.templateId),
-          parameters: tpl.params.map((p) => ({ name: p.name, value: String(vars[p.var] ?? "").slice(0, 25) })),
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-      const j: any = await res.json().catch(() => ({}));
-      return j?.status === 1 ? { status: "sent" as const, detail: `messageId: ${j?.data?.messageId ?? "-"}` } : { status: "failed" as const, detail: `sms.ir: ${j?.message ?? res.status}` };
-    }
-    // Kavenegar verify/lookup: token, token2, token3 (no spaces) + token10, token20 (spaces allowed)
-    const keys = ["token", "token2", "token3", "token10", "token20"];
-    const body = new URLSearchParams({ receptor, template: tpl.templateId });
-    tpl.params.slice(0, 5).forEach((p, i) => {
-      const v = String(vars[p.var] ?? "");
-      body.set(keys[i], i < 3 ? v.replace(/\s+/g, "\u200c") : v.slice(0, 100));
-    });
-    const res = await fetch(`https://api.kavenegar.com/v1/${encodeURIComponent(cfg.apiKey)}/verify/lookup.json`, { method: "POST", body, signal: AbortSignal.timeout(15000) });
-    const j: any = await res.json().catch(() => ({}));
-    return j?.return?.status === 200 ? { status: "sent" as const, detail: `messageid: ${j?.entries?.[0]?.messageid ?? "-"}` } : { status: "failed" as const, detail: `کاوه‌نگار: ${j?.return?.message ?? res.status}` };
-  } catch (e) {
-    return { status: "failed" as const, detail: `خطای شبکه: ${(e as Error).message}` };
-  }
-}
+export { sendPattern } from "@/lib/sms-provider";
 
 function varsFor(biz: Biz, c: Cust, extras: Record<string, string>) {
   const origin = extras.origin || smsCfgOf(biz).origin || "";
@@ -135,9 +106,9 @@ export async function sendReservationStatusSms(biz: Biz, phone: string, status: 
 let running = false;
 /** Scheduled campaigns + birthday messages. Safe to call often (idempotent). */
 export async function runAutomations() {
-  if (running) return { campaigns: 0, birthdays: 0, expired: 0 };
+  if (running) return { campaigns: 0, birthdays: 0, retention: 0, expired: 0 };
   running = true;
-  let nC = 0, nB = 0, nX = 0;
+  let nC = 0, nB = 0, nR = 0, nX = 0;
   try {
     nX = await expireUnpaid();
     const due = await db.update(campaigns).set({ status: "sending" }).where(and(eq(campaigns.status, "scheduled"), sql`${campaigns.scheduledAt} <= now()`)).returning();
@@ -162,11 +133,12 @@ export async function runAutomations() {
       const todo = cs.filter((c) => !skip.has(c.id));
       if (todo.length) { await deliver(biz, tpl, todo, { kind: "birthday", extras: { code: cfg.birthdayCode ?? "", discount: cfg.birthdayDiscount ?? "" } }); nB += todo.length; }
     }
+    nR = await runRetentionAutomations();
   } catch (e) {
     console.error("automation failed", e);
   } finally {
     running = false;
   }
-  return { campaigns: nC, birthdays: nB, expired: nX };
+  return { campaigns: nC, birthdays: nB, retention: nR, expired: nX };
 }
 void desc;

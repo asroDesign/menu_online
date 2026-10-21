@@ -75,3 +75,19 @@
 3. لیست endpointهای واقعی را با registry یا route source تطبیق بده؛ برای polling cleanup، optimistic rollback و وابستگی بین collectionها را حفظ کن.
 4. flow معمول، خطا، empty، نقش غیرمجاز، entitlement قفل‌شده، ورودی فارسی، صفحه کوچک و confirmation عملیات حساس را مرور کن.
 5. typecheck و lint/build متناسب تغییر را اجرا کن. برای تغییر مستندات، لینک‌های نسبی و وجود فایل‌های اشاره‌شده را کنترل کن.
+
+## افزوده‌های رقابتی و مرزهای تصمیم
+
+- گزینه‌های محصول در `products.modifier_groups` و snapshot تاریخی در `order_items.option_snapshot` ذخیره می‌شوند؛ داده‌ی قیمت client منبع معتبر نیست.
+- رهگیری عمومی با hash token برای سفارش‌های جدید است؛ token خام فقط در پاسخ ساخت سفارش و fragment لینک وجود دارد. route رهگیری read-only و بدون شماره/PII می‌ماند.
+- funnel در `menu_events` فقط eventهای allowlist دارد؛ client اجازه‌ی ثبت `order_created` ندارد و server آن را همراه سفارش در یک تراکنش درج می‌کند.
+- قیف وب‌سایت در `platform_events` فقط event ID تصادفی، نام allowlist و زمان را ذخیره می‌کند؛ شروع‌های حساس مثل ثبت demo، signup تکمیل‌شده و checkout از server ثبت می‌شوند، و هیچ user/session یا PII به رویداد وصل نمی‌شود.
+- فروش cashier/waiter به شیفت باز وصل می‌شود؛ settle و close روی سطر شیفت قفل می‌گیرند و unique partial index یک شیفت باز برای هر business را تضمین می‌کند.
+- تصمیم دوره آزمایشی، multi-branch و offline POS در `docs/decisions/trial-policy.md` و `docs/adr/` است؛ این اسناد مجوز فعال‌سازی یا تبلیغ این قابلیت‌ها نیستند.
+
+## تم و رنگ سازمانی
+
+- tokenهای پایه‌ی سایت از `src/app/globals.css` می‌آیند؛ پیش‌فرض platform آبی `#2563eb` است. صفحات عمومی با `PlatformBrandingRuntime` در صورت تنظیم، رنگ `platformBranding.brandColor` را روی root اعمال می‌کنند.
+- رنگ tenant مستقل و در `businesses.accentColor` است. `DashboardShell`، منوی عمومی و چاپ QR میز باید همین رنگ را مصرف کنند.
+- shellها برای رنگ scope محلی از `brandThemeStyle()` استفاده کنند؛ رنگ admin از platform و رنگ restaurant از tenant می‌آید. API و جزئیات فرم در [راهنمای تم و رنگ سازمانی](modules/brand-theme.md) است.
+- ورودی رنگ فقط hex شش‌رقمی باشد. تغییر palette هرگز سطح نقش/permission، tenant ownership یا رنگ معنی‌دار وضعیت را تغییر نمی‌دهد.

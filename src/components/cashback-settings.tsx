@@ -37,7 +37,7 @@ export function CashbackSettingsCard() {
   return (
     <Card className="p-5">
       <div className="flex items-start justify-between gap-4">
-        <div><h2 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> کش‌بک مشتریان</h2><p className="mt-1 text-xs leading-6 text-stone-500">درصدی از مبلغ هر سفارش پرداخت‌شده به کیف پول مشتری (با شماره موبایل) برمی‌گردد و در سفارش بعدی قابل استفاده است. خاموش‌بودن آن هم کسب اعتبار و هم استفاده از اعتبار را متوقف می‌کند.</p></div>
+        <div><h2 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> کش‌بک مشتریان</h2><p className="mt-1 text-xs leading-6 text-stone-500">درصدی از مبلغ هر سفارش پرداخت‌شده به کیف پول مشتری اضافه می‌شود. مصرف اعتبار تا راه‌اندازی تأیید پیامکی شماره مشتری غیرفعال است. خاموش‌بودن این گزینه کسب اعتبار جدید را هم متوقف می‌کند.</p></div>
         <Switch checked={st.on} onChange={(v) => setSt({ ...st, on: v })} label="کش‌بک" />
       </div>
       <div className={`mt-4 grid gap-4 sm:grid-cols-3 transition ${st.on ? "" : "pointer-events-none opacity-40"}`}>

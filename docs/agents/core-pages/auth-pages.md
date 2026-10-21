@@ -1,39 +1,39 @@
-# ورود و ثبت‌نام
+# ورود، ثبت‌نام و شروع دموی رایگان
 
-> مشخصات بازسازی عامل برای صفحه/جریان عمومی یا سیستمی.
+## نقش و مسیرها
 
-- مسیر: `/login, /register`
-- منبع فعلی: `src/app/login/page.tsx, src/app/register/page.tsx + src/components/auth-form.tsx`
-- هدف: احراز هویت مدیر/کارمند/پیک و ایجاد حساب.
+- صفحات: `/login`, `/register`; فرم مشترک در `src/components/auth-form.tsx`.
+- هدف: ورود مالک/کارمند/مدیر/پیک با موبایل و OTP، ورود جایگزین ایمیلی برای حساب موجود، و ایجاد کسب‌وکار تازه پس از تأیید شماره.
+- `next` فقط با `src/lib/safe-next-path.ts` به مسیر داخلی محدود می‌شود. پارامتر `trial=demo` برای معرفی CTA حفظ می‌شود و شرط دریافت trial نیست.
+- CTA «شروع دموی رایگان» صفحه خانه به `/register?trial=demo` می‌رود. `/demo` همچنان درخواست تماس/نمایش همراه کارشناس است و با حساب آزمایشی یکی نیست.
 
-## رابط و جریان
+## جریان ثبت‌نام و ورود
 
-فرم ورود با email/password و ثبت‌نام با نام، نام کسب‌وکار، email/password؛ validation، busy، error، لینک بین login/register؛ بازگشت امن به dashboard/role home.
+ثبت‌نام سه مرحلهٔ client دارد: واردکردن موبایل و درخواست کد؛ تأیید OTP؛ ثبت نام فرد و فروشگاه. تا OTP موفق، نام/اطلاعات فروشگاه به سرور ارسال و user/business ساخته نمی‌شوند. پس از OTP، API یک حالت registration را برمی‌گرداند تا فرم اطلاعات نمایش داده شود. ارسال اطلاعات نهایی به `/api/auth/register/complete` انجام می‌شود.
 
-## API و داده
+ورود با OTP در همان فرم است؛ شماره ثبت‌نشده پیام خطای امن و انتقال شمارش‌دار به `/register` دارد. ورود ایمیل/رمز فقط برای حساب‌های موجود است. ثبت‌نام legacy ایمیل/رمز در `/api/auth/register` با 410 رد می‌شود. ورود demo account در `/api/auth/demo` مستقل است و با `NEXT_PUBLIC_DEMO_MODE` کنترل می‌شود.
 
-POST /api/auth/login؛ POST /api/auth/register؛ POST /api/auth/demo؛ POST `/api/auth/return` برای بازگشت از impersonation و POST `/api/auth/logout` برای خروج.
+## قرارداد API
 
-## قواعد بازسازی
+- `POST /api/auth/otp/request`: body `{ phone, purpose: "register"|"login" }`; پاسخ `{ challengeId, expiresIn, resendAfter }`. هنگام ثبت‌نام، کوکی HMAC فقط challenge ID را نگه می‌دارد.
+- `POST /api/auth/otp/verify`: body `{ challengeId, code }`; ورود عادی با موفقیت session می‌سازد. برای ثبت‌نام با OTP صحیح، `{ ok:true, registrationRequired:true }` می‌دهد و هنوز account/session نمی‌سازد. هنگام ورود مالک یک business قدیمی با `pending` و بدون هیچ trial history، grant تنظیم‌شده را یک‌بار با transaction بازیابی می‌کند و `trialGranted` برمی‌گرداند.
+- `POST /api/auth/register/complete`: body `{ name, businessName, businessType, address? }`; نوع کسب‌وکار باید یکی از `cafe|restaurant|fastfood|bakery|shop` باشد. شماره از challenge تأییدشده و کوکی امضاشده می‌آید. تراکنش user/business و grant Premium Plus را می‌سازد، سپس session ایجاد می‌شود.
+- `POST /api/auth/login`: ورود ایمیل/رمز حساب موجود، با rate limit و پاسخ خطای یکسان.
+- `POST /api/auth/register`: endpoint قدیمی با HTTP 410؛ فقط OTP ثبت‌نام معتبر است.
+- `POST /api/auth/demo`, `/api/auth/return`, `/api/auth/logout`: ورود حساب نمونه، پایان impersonation و خروج؛ guard واقعی route را حفظ کن.
 
-اعتبارسنجی credential فقط backend؛ rate limit؛ عدم افشای وجود حساب/رمز؛ role routing به ROLE_HOME.
+همهٔ ثبت‌نام‌های تازه پس از OTP معتبر و تکمیل اطلاعات فروشگاه grant Premium Plus می‌گیرند؛ درخواست به URL `/register?trial=demo` وابسته نیست. کوکی `registration_flow` در `src/lib/registration-flow.ts` HMAC دارد، HttpOnly/SameSite=Lax است و در تولید Secure می‌شود؛ به challenge ID مقید و ۲۰ دقیقه معتبر است. complete باید challenge ثبت‌نام مصرف‌شده را بررسی کند. نام پلن/مدت از body client پذیرفته نمی‌شود.
 
-برای schema دقیق و شرط‌های موجود، فایل‌های source و API بالا را بخوان. UI عمومی باید tenant-isolated، RTL و responsive باشد.
+پس از تکمیل ثبت‌نام، grant Premium Plus به‌مدت تنظیم‌شده در تنظیمات مدیر ایجاد می‌شود (پیش‌فرض ۱۴ روز؛ مقدار نامعتبر به ۱۴ روز برمی‌گردد). کاربر ابتدا به داشبورد می‌رود تا تور مالک تازه خودکار اجرا شود؛ اگر `next` داخلی دیگری داشته باشد بعد از اتمام یا رد تور به آن مقصد می‌رود. grant داخل تراکنش ساخت حساب ثبت می‌شود و خطای grant حساب نیمه‌فعال نمی‌سازد. حساب‌های pending قدیمی بدون trial history هنگام ورود OTP یا بازکردن داشبورد نیز بازیابی می‌شوند. مشخصات تنظیم و تبدیل پلن بعد از خرید در [سیاست trial](../modules/trial-policy.md) هستند.
 
-## مشخصات سطح پیاده‌سازی
+در همان transaction ثبت‌نام، `seedBusinessMenuTemplate` با نوع کسب‌وکار انتخاب‌شده اجرا می‌شود. templateهای کافه، رستوران، فست‌فود، نانوایی و فروشگاه دسته‌بندی‌های متفاوت و چند محصول نمونهٔ قابل ویرایش می‌سازند. محصولات اولیه با قیمت صفر و `isAvailable=false` ذخیره می‌شوند تا پیش از تکمیل قیمت و اطلاعات در منوی عمومی یا صندوق فروخته نشوند؛ مدیر پس از بازبینی می‌تواند آن‌ها را ویرایش و فعال کند. ساخت category، product، کسب‌وکار و trial اتمیک است؛ شکست هر بخش کل ثبت‌نام را rollback می‌کند. طرح‌ها در `src/lib/business-menu-template.ts` و نویسندهٔ DB در `src/lib/business-menu-seed.ts` قرار دارند. هیچ migration لازم نیست.
 
-### فیلد و مسیر
+## حالت‌ها و بازسازی
 
-فرم ورود ایمیل و گذرواژه می‌گیرد؛ ثبت‌نام نام شخص، نام کسب‌وکار، ایمیل و گذرواژه می‌گیرد. فرم حالت login/register مشترک، نمایش خطای API، busy، لینک تعویض صفحه و دکمه‌های ورود demo دارد. پس از ورود نقش کاربر به خانه تعریف‌شده در `ROLE_HOME` هدایت می‌شود؛ اگر کاربر از مسیر بازگشت امن مجاز آمده باشد، مقصد معتبر رعایت شود.
+صفحه RTL و responsive است. OTP timer پنج دقیقه است و resend تا ۶۰ ثانیه بسته می‌ماند؛ state موقت challenge/phone/expiry فقط در `sessionStorage` است، ولی اثبات احراز هویت در کوکی HttpOnly قرار دارد. ورود/ثبت‌نام باید busy/error را نشان دهد و اطلاعات حساس را در URL یا log قرار ندهد. پاسخ خطای login نباید وجود حساب یا درستی password را لو بدهد. کد SMS یا demo credential را تست واقعی نکن؛ ارسال provider فقط با mock تست شود.
 
-Endpoints واقعی شامل `POST /api/auth/login`, `/register`, `/demo`, `/return`, `/logout` هستند؛ login/register body را از route واقعی بخوان و اطلاعات حساب را در query/صفحه خطا قرار نده. session/cookie، hash password و role از سرور می‌آید. وجود/عدم وجود ایمیل را با پیام قابل سوءاستفاده افشا نکن؛ rate limit و validation backend الزامی‌اند.
+برای رفتار دقیق trial، آزمون‌های تغییر و قرارداد API، [راهنمای سیاست دوره آزمایشی](../modules/trial-policy.md) و `tests/security-regressions.test.cjs` را بخوان. تست browser باید ترتیب OTP→اطلاعات→داشبورد/تور، فرم موبایل، حفظ `next` و رد OTP نامعتبر را پوشش دهد.
 
-### حالت‌ها و پذیرش
+### ورود نمونه در سایت
 
-بارگذاری صفحه اگر کاربر session دارد باید redirect کند. در فرم، submit تکراری جلوگیری شود، خطای شبکه حفظ ورودی‌های کم‌خطر را از بین نبرد و password در state/render/log چاپ نشود. `next` یا redirect URI فقط مقصد داخلی allowlist شده باشد. صفحه RTL، موبایل‌محور و label/aria برای inputها داشته باشد.
-
-
-
-### کنترل نمایش دمو
-
-کلید عمومی `NEXT_PUBLIC_DEMO_MODE` در `.env` بخش دمو را کنترل می‌کند. مقدار `true` دکمه‌های ورود دمو، حساب‌های آزمایشی و رستوران نمونه را فعال نگه می‌دارد؛ مقدار `false` یا `0` آنها را مخفی می‌کند، endpoint ورود دمو را با 404 می‌بندد و مسیرهای منوی نمونه را پنهان می‌کند. برای اعمال تغییر `.env` سرور را دوباره راه‌اندازی کنید. فرم «درخواست دموی رایگان» درخواست فروش برای نمایش محصول است و با ورود به حساب نمونه تفاوت دارد.
+کلید عمومی `NEXT_PUBLIC_DEMO_MODE` فقط حساب‌ها/داده‌های نمونه و endpoint ورود نمونه را کنترل می‌کند. دوره trial ثبت‌نام جدید، حساب نمونه نیست و برای همهٔ شماره‌های تازه پس از تأیید شماره فعال می‌شود. فرم درخواست نمایش مشاور نیز حساب نمی‌سازد.

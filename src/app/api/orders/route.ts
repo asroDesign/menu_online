@@ -1,7 +1,9 @@
+import { parseCashierDebt } from "@/lib/cashier-debt-input";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { staff } from "@/db/schema";
-import { createOrder, listOrders, parseOrderInput, settleOrder } from "@/lib/orders";
+import { createOrder, listOrders, parseOrderInput, settleOrder, type OrderTransaction } from "@/lib/orders";
+import { ensureAccounting } from "@/lib/accounting";
 import { HttpError, readJson, withAuth } from "@/lib/auth";
 import { isManagerRole } from "@/lib/roles";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -25,11 +27,14 @@ export const POST = withAuth(
   async (req, auth) => {
     await enforceRateLimit(req, "staff-order", `${auth.business.id}:${auth.user.id}`, 30, 60_000);
     const raw = await readJson(req);
-    const input = parseOrderInput(raw);
-    if (input.payNow && !["cash", "pos", "card"].includes(input.payNow)) throw new HttpError(400, "روش پرداخت نامعتبر است");
+    let creditDetails: ReturnType<typeof parseCashierDebt> | undefined;
+    if (raw.creditDetails) { try { creditDetails = parseCashierDebt(raw.creditDetails); } catch (error) { throw new HttpError(400, (error as Error).message); } }
+    const input = parseOrderInput(creditDetails ? { ...raw, customerName: creditDetails.name, customerPhone: creditDetails.phone } : raw);
+    if (input.payNow && !["cash", "pos", "card", "credit"].includes(input.payNow)) throw new HttpError(400, "روش پرداخت نامعتبر است");
     const requestedCashier = raw.source === "cashier";
     const source = auth.role === "cashier" || (requestedCashier && isManagerRole(auth.role)) ? "cashier" : "waiter";
-    if (source === "waiter" && (input.payNow || input.discountCode || input.manualDiscountAmount || input.useCashback)) {
+    if (input.payNow === "credit" && source !== "cashier") throw new HttpError(403, "ثبت فروش نسیه فقط از صندوق مجاز است");
+    if (source === "waiter" && (input.payNow || input.discountCode || input.manualDiscountAmount || input.useCashback || input.useMembership)) {
       throw new HttpError(403, "پنل گارسون فقط مجاز به ثبت سفارش است؛ پرداخت و تخفیف در صندوق انجام می‌شود");
     }
     if (input.manualDiscountAmount && source !== "cashier") throw new HttpError(403, "تخفیف دستی فقط در سفارش‌گیر صندوق در دسترس است");
@@ -37,8 +42,21 @@ export const POST = withAuth(
       const [member] = await db.select({ id: staff.id }).from(staff).where(and(eq(staff.businessId, auth.business.id), eq(staff.userId, auth.user.id), eq(staff.isActive, true)));
       input.waiterId = member?.id ?? null;
     }
-    const order = await createOrder(auth.business, input, source, auth.features);
-    if (input.payNow) await settleOrder(auth.business, auth.features, order.id, input.payNow, false);
+    if (input.payNow === "credit" && input.appendTo) throw new HttpError(400, "ثبت نسیه برای افزودن به سفارش جاری ممکن نیست؛ ابتدا سفارش را جداگانه ثبت کنید");
+    const order = input.payNow
+      ? await (async () => {
+        // Initialize the chart before opening the order transaction so no second connection waits on its advisory lock.
+        await ensureAccounting(auth.business);
+        return db.transaction(async (rawTx) => {
+          const executor = rawTx as unknown as OrderTransaction;
+          const created = await createOrder(auth.business, input, source, auth.features, { actorId: auth.user.id, executor });
+          await settleOrder(auth.business, auth.features, created.id, input.payNow!, false, {
+            creditSale: input.payNow === "credit", creditDetails, actorId: auth.user.id, actorType: auth.role, executor,
+          });
+          return created;
+        });
+      })()
+      : await createOrder(auth.business, input, source, auth.features, { actorId: auth.user.id });
     logInfo("order.created", { businessId: auth.business.id, orderId: order.id, source });
     const [item] = await listOrders(auth.business.id, { id: order.id });
     return Response.json({ item }, { status: 201 });

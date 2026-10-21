@@ -7,12 +7,14 @@ import { hasAny } from "@/lib/plans";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { createReservation, reservationPhone } from "@/lib/reservations";
 import { logInfo } from "@/lib/logger";
+import { isReadOnlyDemoSlug } from "@/lib/demo-mode";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await ctx.params;
+    if (isReadOnlyDemoSlug(slug)) throw new HttpError(403, "منوی نمونه فقط برای پیش‌نمایش است و رزرو نمی‌پذیرد");
     const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
     if (!biz || biz.isSuspended) throw new HttpError(404, "رستوران پیدا نشد");
     const features = await featuresOf(biz);

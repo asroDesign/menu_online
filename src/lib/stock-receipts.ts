@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, inventoryItems, stockMovements, stockReceipts, suppliers, warehouses } from "@/db/schema";
+import { accAccounts, inventoryCategories, inventoryItems, stockMovements, stockReceipts, suppliers, warehouses } from "@/db/schema";
 import { HttpError, type Business } from "@/lib/auth";
 import { C, ensureAccounting, postDocumentInTransaction, type LineIn } from "@/lib/accounting";
+
+import { stockReceiptTotal, allocateStockValue } from "@/lib/stock-receipt-totals";
+import { isWasteReason, type WasteReason } from "@/lib/stock-waste";
 
 const text = (v: unknown, max = 200) => typeof v === "string" ? v.trim().slice(0, max) : "";
 const numeric = (v: unknown, label: string, max = 1_000_000_000_000) => {
@@ -35,6 +38,9 @@ export async function applyStockReceipt(tx: typeof db, biz: Business, body: Reco
   const requestKey = text(body.requestKey, 100) || randomUUID();
   const invoiceNo = text(body.invoiceNo, 40);
   const note = text(body.note);
+  const wasteReason: WasteReason | "" = type === "waste"
+    ? (isWasteReason(body.wasteReason) ? body.wasteReason : "other")
+    : "";
   await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
   const [existing] = await tx.select().from(stockReceipts).where(and(eq(stockReceipts.businessId, biz.id), eq(stockReceipts.requestKey, requestKey)));
   if (existing) return { receipt: existing, items: await tx.select().from(stockMovements).where(eq(stockMovements.receiptId, existing.id)), replay: true };
@@ -61,14 +67,20 @@ export async function applyStockReceipt(tx: typeof db, biz: Business, body: Reco
       const n = line.newItem as Record<string, unknown>;
       const name = text(n.name, 80), unit = text(n.unit, 20);
       if (!name || !unit) throw new HttpError(400, "نام و واحد کالای جدید الزامی است");
+      if (n.trackStock !== undefined && typeof n.trackStock !== "boolean") throw new HttpError(400, "وضعیت ردیابی موجودی نامعتبر است");
       const warehouseId = n.warehouseId ? Number(n.warehouseId) : null;
       if (warehouseId) {
         const [wh] = await tx.select().from(warehouses).where(and(eq(warehouses.id, warehouseId), eq(warehouses.businessId, biz.id)));
         if (!wh) throw new HttpError(400, "انبار نامعتبر است");
       }
+      const categoryId = n.categoryId ? Number(n.categoryId) : null;
+      if (categoryId) {
+        const [category] = await tx.select().from(inventoryCategories).where(and(eq(inventoryCategories.id, categoryId), eq(inventoryCategories.businessId, biz.id)));
+        if (!category) throw new HttpError(400, "دسته‌بندی انبار نامعتبر است");
+      }
       const [dup] = await tx.select().from(inventoryItems).where(and(eq(inventoryItems.businessId, biz.id), eq(inventoryItems.name, name), warehouseId ? eq(inventoryItems.warehouseId, warehouseId) : sql`${inventoryItems.warehouseId} is null`));
       if (dup) throw new HttpError(409, `«${name}» در این انبار تعریف شده؛ آن را از فهرست کالاها انتخاب کنید`);
-      [item] = await tx.insert(inventoryItems).values({ businessId: biz.id, name, unit, warehouseId, minStock: numeric(n.minStock ?? 0, "حداقل موجودی", 1e9), stock: 0, costPerUnit: 0 }).returning();
+      [item] = await tx.insert(inventoryItems).values({ businessId: biz.id, name, unit, recipeUnit: unit, recipeToStockFactor: 1, warehouseId, categoryId, trackStock: n.trackStock !== false, minStock: numeric(n.minStock ?? 0, "حداقل موجودی", 1e9), stock: 0, costPerUnit: 0, lastPurchaseCost: 0, reorderPoint: 0, isActive: true }).returning();
     } else {
       const id = numeric(line.itemId, "کالا", 2147483647);
       [item] = await tx.select().from(inventoryItems).where(and(eq(inventoryItems.id, id), eq(inventoryItems.businessId, biz.id))).for("update");
@@ -91,9 +103,13 @@ export async function applyStockReceipt(tx: typeof db, biz: Business, body: Reco
   const discount = type === "in" ? money(body.discount ?? 0, "تخفیف") : 0;
   const extraCost = type === "in" ? money(body.extraCost ?? 0, "هزینه جانبی") : 0;
   if (discount > subtotal) throw new HttpError(400, "تخفیف نمی‌تواند از جمع کالاها بیشتر باشد");
-  const total = money(subtotal - discount + extraCost, "جمع فاکتور");
+  const shippingCost = type === "in" ? money(body.shippingCost ?? 0, "هزینه ارسال") : 0;
+  const taxAmount = type === "in" ? money(body.taxAmount ?? 0, "مالیات فاکتور") : 0;
+  let total: number;
+  try { total = stockReceiptTotal(subtotal, discount, extraCost, shippingCost, taxAmount); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
   if (type === "in" && total <= 0) throw new HttpError(400, "جمع فاکتور باید بیشتر از صفر باشد");
-  if (type === "in" && body.total !== undefined && money(body.total, "جمع درج‌شده در فاکتور") !== total) throw new HttpError(400, "جمع واردشده با جمع اقلام پس از تخفیف و هزینه جانبی برابر نیست");
+  if (type === "in" && body.total !== undefined && money(body.total, "جمع درج‌شده در فاکتور") !== total) throw new HttpError(400, "جمع واردشده با جمع اقلام پس از تخفیف، ارسال، مالیات و هزینه جانبی برابر نیست");
   const paidAmount = type === "in" ? money(body.paidAmount ?? (payFrom === "payable" ? 0 : total), "مبلغ پرداختی") : 0;
   if (paidAmount > total || (payFrom === "payable" && paidAmount !== 0)) throw new HttpError(400, "مبلغ پرداختی نامعتبر است");
   const remaining = type === "in" ? total - paidAmount : 0;
@@ -104,15 +120,10 @@ export async function applyStockReceipt(tx: typeof db, biz: Business, body: Reco
   }
   // Allocate discount/freight to stock value; cumulative rounding preserves the exact invoice total.
   if (type === "in") {
-    let cumulative = 0, allocated = 0;
-    for (const line of prepared) {
-      cumulative += line.gross;
-      const next = Math.round(total * (cumulative / subtotal));
-      line.amount = next - allocated;
-      allocated = next;
-    }
+    const amounts = allocateStockValue(prepared.map((line) => line.gross), total);
+    prepared.forEach((line, index) => { line.amount = amounts[index]; });
   }
-  const [receipt] = await tx.insert(stockReceipts).values({ businessId: biz.id, requestKey, type, date, invoiceNo, supplierId: supplier?.id, subtotal, discount, extraCost, total, paidAmount, payFrom, note, createdBy: by }).returning();
+  const [receipt] = await tx.insert(stockReceipts).values({ businessId: biz.id, requestKey, type, date, invoiceNo, supplierId: supplier?.id, subtotal, discount, extraCost, shippingCost, taxAmount, total, paidAmount, payFrom, wasteReason, note, createdBy: by }).returning();
   const accounting: LineIn[] = [];
   const movements: (typeof stockMovements.$inferSelect)[] = [];
   for (const line of prepared) {
@@ -120,7 +131,7 @@ export async function applyStockReceipt(tx: typeof db, biz: Business, body: Reco
     const base = Math.max(0, item.stock);
     const costPerUnit = type === "in" ? Math.round((base * item.costPerUnit + amount) / (base + quantity)) : item.costPerUnit;
     if (costPerUnit > 2147483647) throw new HttpError(400, "بهای واحد پس از هزینه‌های جانبی بیش از حد مجاز است");
-    const [updated] = await tx.update(inventoryItems).set({ stock: sql`${inventoryItems.stock} + ${delta}`, costPerUnit }).where(and(eq(inventoryItems.id, item.id), eq(inventoryItems.businessId, biz.id))).returning();
+    const [updated] = await tx.update(inventoryItems).set({ stock: sql`${inventoryItems.stock} + ${delta}`, costPerUnit, ...(type === "in" ? { lastPurchaseCost: line.unitCost } : {}) }).where(and(eq(inventoryItems.id, item.id), eq(inventoryItems.businessId, biz.id))).returning();
     const [movement] = await tx.insert(stockMovements).values({ businessId: biz.id, receiptId: receipt.id, itemId: item.id, type, delta, balanceAfter: updated.stock, unitCost: line.unitCost, amount, note, invoiceNo, supplierId: supplier?.id, createdAt: date }).returning();
     movements.push(movement);
     if (!amount) continue;

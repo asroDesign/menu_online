@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
   cloneElement,
   isValidElement,
+  Children,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -18,10 +19,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  Activity, ArrowLeft, ArrowRight, ArrowUpRight, Banknote, Bell, Bike, BookOpen, Bot, Building2,
+  Activity, ArrowLeft, ArrowRight, ArrowUpRight, Award, Banknote, Bell, Bike, BookOpen, Bot, Building2,
   CalendarDays, Calculator, ChartColumn, ChartPie, Check, ChevronDown, ChevronLeft, ChevronUp,
   CircleCheck, CirclePlus, CircleX, Clock3, Coffee, Coins, Copy, CreditCard, Download, ExternalLink,
-  Eye, EyeOff, FileText, Filter, FlaskConical, Globe, Glasses, Grid2X2, Headphones, House,
+  Eye, EyeOff, FileText, Filter, FlaskConical, Globe, Glasses, Grid2X2, Headphones, House, Image as ImageIcon,
   Landmark, Layers, Leaf, Link, List, ListFilter, LockKeyhole, LogOut, Mail, Map, MapPin, Menu,
   MessageCircle, Minus, Monitor, PackageOpen, PenSquare, Phone, Pizza, Plus, Printer, QrCode,
   ReceiptText, RefreshCw, Scale, Search, Settings, ShieldCheck, ShoppingCart, Smartphone, Sparkles,
@@ -52,7 +53,7 @@ const iconComponents: Record<string, LucideIcon> = {
   message: MessageCircle, envelope: Mail, link: Link, coins: Coins, desktop: Monitor, motorcycle: Bike,
   bank: Landmark, utensil: Utensils, glasses: Glasses, warning: TriangleAlert, circleCheck: CircleCheck,
   circleX: CircleX, plusCircle: CirclePlus, file: FileText, chartPie: ChartPie, sparkles: Sparkles,
-  activity: Activity, banknote: Banknote, flask: FlaskConical,
+  activity: Activity, award: Award, banknote: Banknote, flask: FlaskConical, image: ImageIcon, "credit-card": CreditCard,
 };
 
 const emojiIconMap: Record<string, string> = {
@@ -138,7 +139,7 @@ function renderLegacyIcons(value: ReactNode): ReactNode {
 }
 
 export function IconText({ children }: { children: ReactNode }) {
-  return <>{renderLegacyIcons(children)}</>;
+  return <>{renderLegacyIcons(Children.toArray(children))}</>;
 }
 
 /* ---------- Button ---------- */

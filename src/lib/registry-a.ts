@@ -3,15 +3,16 @@ import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  assets, bankAccounts, categories, couriers, customers, deliveryZones, devices, discountCodes, inventoryItems, orders, pagers,
+  assets, bankAccounts, categories, couriers, customers, deliveryZones, devices, discountCodes, inventoryCategories, inventoryItems, orders, pagers,
   printJobs, products, recipes, stockMovements, surveyResponses, surveys, transactions, warehouses, calls, crossSellRules,
 } from "@/db/schema";
 import { getAuth, HttpError, withAuth } from "@/lib/auth";
-import { postManualTx, unpostManualTx } from "@/lib/accounting";
+import { ensureAccounting, loadAccounts, postManualTx, unpostManualTx } from "@/lib/accounting";
 import { makeCrud } from "@/lib/crud";
 import { normPhone, receiptText } from "@/lib/orders";
 import { mergeSeg, segmentOf } from "@/lib/segments";
 import type { Settings } from "@/lib/plans";
+import { recipeToStockFactor, validInventoryUnit } from "@/lib/inventory-units";
 
 const str = (max = 200, required = false) => ({ type: "string", required, max }) as const;
 const int = (max = 2_000_000_000, min = 0) => ({ type: "int", min, max }) as const;
@@ -165,6 +166,26 @@ export const registryA: Record<string, any> = {
     spec: { name: str(60, true), location: str(120) },
   }),
 
+  "inventory-categories": makeCrud({
+    table: inventoryCategories,
+    writers: ["warehouse"],
+    feature: "inventory",
+    readFeature: ["inventory", "stock_control", "stock_movements", "recipes", "costing"],
+    order: [asc(inventoryCategories.name)],
+    spec: { name: str(60, true) },
+    validate: async (business, data, _auth, _creating, id) => {
+      if (!data.name) return;
+      data.name = String(data.name).trim();
+      if (!data.name) throw new HttpError(400, "نام دسته‌بندی را وارد کنید");
+      const [duplicate] = await db.select({ id: inventoryCategories.id }).from(inventoryCategories).where(and(
+        eq(inventoryCategories.businessId, business.id),
+        sql`lower(${inventoryCategories.name}) = ${String(data.name).toLocaleLowerCase()}`,
+        ...(id ? [sql`${inventoryCategories.id} <> ${id}`] : []),
+      ));
+      if (duplicate) throw new HttpError(400, "این دسته‌بندی قبلاً ثبت شده است");
+    },
+  }),
+
   items: makeCrud({
     table: inventoryItems,
     writers: ["warehouse"],
@@ -173,13 +194,46 @@ export const registryA: Record<string, any> = {
     order: [asc(inventoryItems.name)],
     spec: {
       name: str(80, true),
+      sku: str(64),
       unit: str(20),
+      recipeUnit: str(20),
+      recipeToStockFactor: { type: "float", min: 0.000001, max: 1e9 },
       warehouseId: { type: "nullableInt", min: 1 },
-      minStock: { type: "float" },
+      categoryId: { type: "nullableInt", min: 1 },
+      minStock: { type: "float", min: 0, max: 1e9 },
+      reorderPoint: { type: "float", min: 0, max: 1e9 },
+      trackStock: { type: "bool" },
+      isActive: { type: "bool" },
       costPerUnit: int(1_000_000_000),
+      lastPurchaseCost: int(1_000_000_000),
     },
     validate: async (b, data, _auth, creating, id) => {
       if (data.warehouseId) await owns(warehouses, data.warehouseId, b.id, "انبار نامعتبر است");
+      if (data.categoryId) await owns(inventoryCategories, data.categoryId, b.id, "دسته‌بندی انبار نامعتبر است");
+      if (data.sku !== undefined) {
+        const sku = String(data.sku).trim().toUpperCase();
+        if (sku && !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(sku)) throw new HttpError(400, "کد کالا فقط می‌تواند شامل حروف لاتین، عدد و . _ / - باشد");
+        data.sku = sku || null;
+        if (sku) {
+          const [duplicate] = await db.select({ id: inventoryItems.id }).from(inventoryItems).where(and(
+            eq(inventoryItems.businessId, b.id),
+            sql`lower(${inventoryItems.sku}) = ${sku.toLowerCase()}`,
+            ...(id ? [sql`${inventoryItems.id} <> ${id}`] : []),
+          )).limit(1);
+          if (duplicate) throw new HttpError(409, "این کد کالا قبلاً ثبت شده است");
+        }
+      }
+      if (data.unit !== undefined && !validInventoryUnit(data.unit)) throw new HttpError(400, "واحد انبار معتبر نیست");
+      if (data.recipeUnit !== undefined && !validInventoryUnit(data.recipeUnit)) throw new HttpError(400, "واحد مصرف در دستور تهیه معتبر نیست");
+      if (!creating && (data.unit !== undefined || data.recipeUnit !== undefined || data.recipeToStockFactor !== undefined)) {
+        const [existing] = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, id!), eq(inventoryItems.businessId, b.id)));
+        if (!existing) throw new HttpError(404, "کالا پیدا نشد");
+        const nextStockUnit = String(data.unit ?? existing.unit);
+        const nextRecipeUnit = String(data.recipeUnit ?? existing.recipeUnit);
+        const converted = recipeToStockFactor(nextStockUnit, nextRecipeUnit);
+        if (converted !== null) data.recipeToStockFactor = converted;
+        else if (data.recipeToStockFactor === undefined && (data.unit !== undefined || data.recipeUnit !== undefined)) throw new HttpError(400, "برای واحدهای نامتجانس، ضریب تبدیل را نیز وارد کنید");
+      }
       if (!creating && (data.costPerUnit !== undefined || data.unit !== undefined || data.warehouseId !== undefined)) {
         const [item] = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, id!), eq(inventoryItems.businessId, b.id)));
         if (item && item.stock !== 0 && ((data.costPerUnit !== undefined && data.costPerUnit !== item.costPerUnit) || (data.unit !== undefined && data.unit !== item.unit) || (data.warehouseId !== undefined && data.warehouseId !== item.warehouseId))) throw new HttpError(400, "واحد، انبار و بهای کالای دارای موجودی قابل تغییر مستقیم نیست؛ ابتدا گردش آن را ثبت کنید");
@@ -198,10 +252,17 @@ export const registryA: Record<string, any> = {
     feature: "recipes",
     readFeature: ["recipes", "costing"],
     order: [asc(recipes.productId), asc(recipes.id)],
-    spec: { productId: { type: "int", required: true, min: 1 }, itemId: { type: "int", required: true, min: 1 }, quantity: { type: "float", required: true, min: 0.0001, max: 100000 } },
-    validate: async (b, data) => {
+    spec: { productId: { type: "int", required: true, min: 1 }, itemId: { type: "int", required: true, min: 1 }, quantity: { type: "float", required: true, min: 0.0001, max: 100000 }, wastePercent: { type: "float", min: 0, max: 99.9 } },
+    validate: async (b, data, _auth, creating, id) => {
       if (data.productId) await owns(products, data.productId, b.id, "محصول نامعتبر است");
-      if (data.itemId) await owns(inventoryItems, data.itemId, b.id, "ماده اولیه نامعتبر است");
+      if (data.itemId) {
+        const [item] = await db.select({ id: inventoryItems.id, isActive: inventoryItems.isActive }).from(inventoryItems).where(and(eq(inventoryItems.id, Number(data.itemId)), eq(inventoryItems.businessId, b.id)));
+        if (!item) throw new HttpError(400, "ماده اولیه نامعتبر است");
+        if (!item.isActive && (creating || id)) {
+          const [existing] = id ? await db.select({ itemId: recipes.itemId }).from(recipes).where(and(eq(recipes.id, id), eq(recipes.businessId, b.id))) : [];
+          if (!existing || existing.itemId !== item.id) throw new HttpError(400, "ماده غیرفعال را نمی‌توان به دستور تهیه جدید افزود");
+        }
+      }
     },
   }),
 
@@ -249,15 +310,48 @@ export const registryA: Record<string, any> = {
       category: str(60),
       amount: { type: "int", required: true, min: 1, max: 100_000_000_000 },
       bankAccountId: { type: "nullableInt", min: 1 },
+      accountMoeinId: { type: "nullableInt", min: 1, required: true },
+      accountTafsiliId: { type: "nullableInt", min: 1 },
       description: str(300),
       date: { type: "date" },
     },
-    validate: async (b, data) => {
+    validate: async (b, data, _auth, creating, id) => {
       if (data.bankAccountId) await owns(bankAccounts, data.bankAccountId, b.id, "حساب بانکی نامعتبر است");
+      let values = data;
+      if (!creating && id) {
+        const [current] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.businessId, b.id)));
+        values = { ...current, ...data };
+      }
+      const moeinId = Number(values.accountMoeinId) || 0;
+      const tafsiliId = Number(values.accountTafsiliId) || 0;
+      if (!moeinId) {
+        if (creating || "accountMoeinId" in data || "kind" in data) throw new HttpError(400, "حساب معین را انتخاب کنید");
+        return;
+      }
+      await ensureAccounting(b);
+      const accounts = await loadAccounts(b.id);
+      const moein = accounts.find((a) => a.id === moeinId);
+      const kind = values.kind === "income" ? "income" : "expense";
+      const accountType = kind === "income" ? "revenue" : "expense";
+      const nature = kind === "income" ? "credit" : "debit";
+      const matches = (a: typeof accounts[number]) => a.type === accountType && a.nature === nature && a.isActive;
+      if (!moein || moein.level !== "moein" || !matches(moein)) throw new HttpError(400, "حساب معین با ماهیت این درآمد یا هزینه سازگار نیست");
+      if (tafsiliId) {
+        const tafsili = accounts.find((a) => a.id === tafsiliId);
+        if (!tafsili || tafsili.level !== "tafsili" || tafsili.parentId !== moein.id || !matches(tafsili)) throw new HttpError(400, "حساب تفصیلی باید زیرمجموعه همین معین و دارای ماهیت سازگار باشد");
+      } else if (accounts.some((a) => a.parentId === moein.id && a.level === "tafsili" && a.type === accountType && a.nature === nature && a.isActive)) {
+        throw new HttpError(400, "برای این حساب معین، انتخاب یک حساب تفصیلی الزامی است");
+      }
     },
     decorate: async (rows, biz) => {
       const acc = await db.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts).where(eq(bankAccounts.businessId, biz.id));
-      return rows.map((r) => ({ ...r, accountName: acc.find((a) => a.id === r.bankAccountId)?.name ?? "صندوق (نقدی)" }));
+      const accounts = await loadAccounts(biz.id);
+      return rows.map((r) => ({
+        ...r,
+        accountName: acc.find((a) => a.id === r.bankAccountId)?.name ?? "صندوق (نقدی)",
+        accountMoeinName: accounts.find((a) => a.id === r.accountMoeinId)?.name ?? "",
+        accountTafsiliName: accounts.find((a) => a.id === r.accountTafsiliId)?.name ?? "",
+      }));
     },
   })),
 

@@ -38,7 +38,9 @@ function App({ name }: { name: string }) {
   const [method, setMethod] = useState("cash");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<number | "dlg" | null>(null);
+  const [locationSharing, setLocationSharing] = useState(false);
   const seen = useRef<Set<number> | null>(null);
+  const locationErrorShown = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -49,7 +51,37 @@ function App({ name }: { name: string }) {
       seen.current = ids;
     } catch (e) { setErr((e as Error).message); }
   }, [toast]);
-  useEffect(() => { load(); const t = setInterval(() => !document.hidden && load(), 6000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { const initial = window.setTimeout(() => { void load(); }, 0); const t = setInterval(() => !document.hidden && load(), 6000); return () => { window.clearTimeout(initial); clearInterval(t); }; }, [load]);
+
+  const activeDeliveryCount = d?.items.filter((job) => ["assigned", "picked_up"].includes(job.deliveryStatus)).length ?? 0;
+  const onShiftNow = d?.courier.status !== "off";
+  useEffect(() => {
+    if (!locationSharing || !onShiftNow || !activeDeliveryCount || !navigator.geolocation) {
+      if (!locationSharing || !onShiftNow || !activeDeliveryCount) void api("/api/courier/location", { method: "DELETE" }).catch(() => {});
+      return;
+    }
+    let alive = true;
+    let lastSent = 0;
+    const watch = navigator.geolocation.watchPosition((position) => {
+      const now = Date.now();
+      if (!alive || now - lastSent < 15_000) return;
+      lastSent = now;
+      api("/api/courier/location", { method: "POST", body: { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMeters: position.coords.accuracy } })
+        .then(() => { locationErrorShown.current = false; })
+        .catch((cause) => {
+          if (!alive || locationErrorShown.current) return;
+          locationErrorShown.current = true;
+          toast((cause as Error).message || "ارسال موقعیت ممکن نشد.", "error");
+        });
+    }, (cause) => {
+      if (!alive || locationErrorShown.current) return;
+      locationErrorShown.current = true;
+      toast(cause.code === 1 ? "اجازه دسترسی به موقعیت داده نشد؛ اشتراک موقعیت خاموش شد." : "خواندن موقعیت ممکن نشد.", "error");
+      setLocationSharing(false);
+      void api("/api/courier/location", { method: "DELETE" }).catch(() => {});
+    }, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 12_000 });
+    return () => { alive = false; navigator.geolocation.clearWatch(watch); void api("/api/courier/location", { method: "DELETE" }).catch(() => {}); };
+  }, [activeDeliveryCount, locationSharing, onShiftNow, toast]);
 
   async function act(job: Job, action: string, extra: Record<string, unknown> = {}) {
     setBusy(job.id);
@@ -66,6 +98,7 @@ function App({ name }: { name: string }) {
   async function setStatus(status: string) {
     if (!d) return;
     setD({ ...d, courier: { ...d.courier, status } });
+    if (status === "off") { setLocationSharing(false); void api("/api/courier/location", { method: "DELETE" }).catch(() => {}); }
     try { await api("/api/courier/me", { method: "PATCH", body: { status } }); } catch (e) { toast((e as Error).message, "error"); load(); }
   }
   async function logout() { await api("/api/auth/logout", { method: "POST" }).catch(() => {}); router.push("/login"); router.refresh(); }
@@ -89,6 +122,7 @@ function App({ name }: { name: string }) {
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm font-bold">
           {([["active", `سفارش‌های من (${toFa(active.length)})`], ["done", `انجام‌شده امروز (${toFa(done.length)})`]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("rounded-xl py-2.5", tab === k ? "bg-white text-stone-900" : "bg-white/10")}>{l}</button>)}
         </div>
+        {onShift && active.length > 0 && <button aria-pressed={locationSharing} onClick={() => { locationErrorShown.current = false; setLocationSharing((value) => !value); }} className={cn("mt-2 w-full rounded-xl px-3 py-2.5 text-sm font-bold", locationSharing ? "bg-emerald-500 text-white" : "bg-white/10 text-white")}>{locationSharing ? "اشتراک موقعیت روشن · توقف" : "اشتراک موقعیت با مشتریان فعال"}</button>}
       </header>
 
       <main className="space-y-3 p-4">

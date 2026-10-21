@@ -21,6 +21,7 @@ export const GROUPS: Record<string, { title: string; emoji: string }> = {
   accounting: { title: "حسابداری و امور مالی", emoji: "" },
   inventory: { title: "انبار و تولید", emoji: "" },
   hardware: { title: "سخت‌افزار و اتوماسیون", emoji: "" },
+  workforce: { title: "برنامه‌ریزی پرسنل", emoji: "" },
 };
 
 export type FeatureDef = {
@@ -70,10 +71,14 @@ export const FEATURES: FeatureDef[] = [
   { key: "profit_loss", group: "accounting", label: "سیستم گزارش سود و زیان", levels: [N, Y, Y] },
   { key: "bank_report", group: "accounting", label: "گزارش تجمیعی بانک", levels: [N, Y, Y] },
   { key: "assets", group: "accounting", label: "مدیریت اموال و استهلاک", levels: [N, Y, Y] },
+  { key: "cheque_register", group: "accounting", label: "دفتر داخلی چک و سررسیدها", desc: "ثبت و پیگیری وضعیت چک‌ها؛ بدون ادعای اتصال بانکی یا سامانه صیاد.", levels: [N, Y, Y] },
+  { key: "staff_scheduling", group: "workforce", label: "برنامه شیفت و مرخصی کارکنان", levels: [N, N, Y] },
 
   { key: "inventory", group: "inventory", label: "سیستم انبارداری", levels: [N, Y, Y] },
+  { key: "menu_import", group: "base", label: "ورود گروهی کاتالوگ منو", desc: "پیش‌نمایش و ورود کنترل‌شده محصولات از فایل CSV.", levels: [N, N, Y] },
   { key: "stock_movements", group: "inventory", label: "سیستم گردش انبار", levels: [N, Y, Y] },
   { key: "stock_control", group: "inventory", label: "سیستم کنترل انبار", levels: [N, Y, Y] },
+  { key: "purchase_suggestions", group: "inventory", label: "پیشنهاد خرید بر اساس مصرف", desc: "برآورد شفاف مقدار خرید بر اساس گردش مصرف و موجودی.", levels: [N, N, Y] },
   { key: "recipes", group: "inventory", label: "سیستم فرمول ساخت", levels: [N, Y, Y] },
   { key: "costing", group: "inventory", label: "سیستم بهای تمام‌شده", levels: [N, Y, Y] },
 
@@ -121,14 +126,32 @@ export type MiniSite = {
   sections?: { title: string; text: string }[];
 };
 
+export type MenuPromoBanner = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  href: string;
+  enabled: boolean;
+};
+
+export type TransferCard = {
+  id: string;
+  cardNumber: string;
+  accountHolder: string;
+  bankName: string;
+  instructions: string;
+};
+
 export type Settings = {
+  menuTemplate?: "classic" | "editorial" | "compact";
+  promoBanners?: MenuPromoBanner[];
   miniSite?: MiniSite;
   languages?: string[];
   pointsPerToman?: number;
   cashbackPercent?: number;
   ipg?: { provider: string; merchantId: string; sandbox: boolean };
   installment?: { snappay: boolean; digipay: boolean };
-  cardTransfer?: { enabled: boolean; cardNumber: string; accountHolder: string; bankName: string; instructions: string };
+  cardTransfer?: { enabled: boolean; cardNumber: string; accountHolder: string; bankName: string; instructions: string; cards?: TransferCard[] };
   smsSender?: string;
   sms?: { provider: "kavenegar" | "smsir"; apiKey: string; sender?: string; origin?: string; birthdayAuto?: boolean; birthdayTemplateId?: number; birthdayCode?: string; birthdayDiscount?: string };
   cashbackEnabled?: boolean;
@@ -149,6 +172,10 @@ export type Settings = {
     days: number[];
     categoryIds: number[];
   }[];
+  orderTrackingDays?: number;
+  orderWorkflowPreset?: 1 | 2 | 3 | 4;
+  printerSettings?: import("@/lib/printer-policy").PrinterSettings;
+  membershipTiers?: import("@/lib/membership-core").MembershipTierRule[];
   reservations?: {
     enabled?: boolean;
     requireDeposit?: boolean;

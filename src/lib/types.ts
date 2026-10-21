@@ -12,6 +12,8 @@ export type Product = {
   name: string;
   description: string;
   price: number;
+  sellingMode: string;
+  yieldRatio: number;
   oldPrice: number | null;
   emoji: string;
   imageUrl: string;
@@ -19,6 +21,9 @@ export type Product = {
   isAvailable: boolean;
   isFeatured: boolean;
   arModelUrl: string;
+  modifierGroups: import("@/lib/product-options").ProductOptionGroup[];
+  dietaryTags: string[];
+  allergenTags: string[];
   createdAt: string;
 };
 
@@ -27,6 +32,9 @@ export type DiningTable = {
   name: string;
   zone: string;
   capacity: number;
+  operationalStatus: "available" | "cleaning" | "out_of_service";
+  status: "available" | "occupied" | "reserved" | "cleaning" | "out_of_service";
+  hasActiveReservation?: boolean;
   openOrder: { id: number; number: number; status: string; total: number } | null;
 };
 
@@ -45,10 +53,16 @@ export type OrderItem = {
   emoji: string;
   price: number;
   quantity: number;
+  weightGrams?: number | null;
+  tareGrams?: number;
+  yieldRatioSnapshot?: number;
+  lineTotal?: number;
   note: string;
+  optionSnapshot: import("@/lib/product-options").ProductOptionSnapshot[];
 };
 
 export type Order = {
+  cashierConfirmedAt?: string | null;
   id: number;
   number: number;
   tableId: number | null;
@@ -67,9 +81,14 @@ export type Order = {
   deliveryFinishedAt: string | null;
   deletedAt: string | null;
   deletedBy: string | null;
+  trackingRevokedAt?: string | null;
+  trackingActive?: boolean;
   deliveryFee: number;
   discountAmount: number;
   discountCode: string;
+  membershipDiscount: number;
+  membershipSnapshot: import("@/lib/membership-core").MembershipOrderSnapshot | null;
+  membershipAppliedBy: number | null;
   cashbackUsed: number;
   scheduledFor: string | null;
   paymentMethod: string | null;

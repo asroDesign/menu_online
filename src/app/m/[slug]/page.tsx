@@ -7,7 +7,7 @@ import { DEMO_ENABLED } from "@/lib/demo-mode";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ table?: string }> };
+type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ table?: string; template?: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -18,10 +18,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function PublicMenuPage({ params, searchParams }: Props) {
   const { slug } = await params;
-  const { table } = await searchParams;
+  const { table, template } = await searchParams;
   if (slug === DEMO_SLUG) { if (!DEMO_ENABLED) notFound(); await ensureDemoData(); }
   const data = await getPublicMenu(slug);
   if (!data) notFound();
   const tableId = table && data.tables.some((t) => t.id === Number(table)) ? Number(table) : null;
-  return <MenuClient data={JSON.parse(JSON.stringify(data))} initialTableId={tableId} />;
+  const validTemplate = ["classic", "editorial", "compact"].includes(template ?? "") ? template as "classic" | "editorial" | "compact" : null;
+  const menuData = validTemplate ? { ...data, business: { ...data.business, menuTemplate: validTemplate } } : data;
+  return <MenuClient data={JSON.parse(JSON.stringify(menuData))} initialTableId={tableId} readOnlyDemo={slug === DEMO_SLUG} readOnlyPreview={!!validTemplate && slug !== DEMO_SLUG} />;
 }

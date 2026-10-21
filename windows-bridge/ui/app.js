@@ -77,3 +77,41 @@ byId("autostart").addEventListener("change", async (event) => {
 });
 refresh();
 setInterval(refresh, 1800);
+
+byId("discover").addEventListener("click", async () => {
+  const button = byId("discover");
+  button.disabled = true;
+  try {
+    const printers = await invoke("installed_printers");
+    const cfg = JSON.parse(configBox.value || "{}");
+    const devices = (cfg.devices || []).map((device, index) => ({ device, index })).filter(({ device }) => device.kind === "printer");
+    const container = byId("printer-mapping");
+    container.replaceChildren();
+    if (!printers.length || !devices.length) {
+      container.textContent = !printers.length ? "چاپگری در ویندوز نصب نشده است؛ ابتدا درایور را نصب کنید." : "ابتدا تنظیمات دارای دستگاه پرینتر را از پنل وارد کنید.";
+      return;
+    }
+    for (const { device, index } of devices) {
+      const label = document.createElement("label");
+      label.className = "device";
+      const text = document.createElement("span");
+      text.textContent = device.name || device.code;
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", `چاپگر ${device.name || device.code}`);
+      select.add(new Option("انتخاب صف ویندوز (بدون تغییر اتصال فعلی)", ""));
+      for (const printer of printers) select.add(new Option(`${printer.Name} · ${printer.PortName}${printer.WorkOffline ? " · آفلاین" : ""}`, printer.Name));
+      select.value = device.transport === "usb" ? device.printerName || "" : "";
+      select.addEventListener("change", () => {
+        if (!select.value) return;
+        const current = JSON.parse(configBox.value || "{}");
+        if (current.devices?.[index]?.code !== device.code) return toast("تنظیمات تغییر کرده؛ فهرست را بازخوانی کنید", true);
+        current.devices[index] = { ...current.devices[index], transport: "usb", printerName: select.value };
+        configBox.value = JSON.stringify(current, null, 2);
+        toast("چاپگر انتخاب شد؛ برای اعمال، تنظیمات را ذخیره کنید");
+      });
+      label.append(text, select);
+      container.append(label);
+    }
+  } catch (error) { toast(String(error), true); }
+  finally { button.disabled = false; }
+});

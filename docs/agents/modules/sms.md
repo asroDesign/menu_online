@@ -29,11 +29,13 @@ GET/PATCH /api/business settings.sms؛ CRUD /api/r/smstemplates؛ POST /api/r/sm
 
 ## مشخصات سطح پیاده‌سازی
 
-صفحه پنج tab دارد: campaigns، templates، auto، settings، logs. Config از `business.settings.sms` می‌آید و `apiKeySet` فقط boolean وضعیت secret است؛ raw api key را GET نمی‌کند. provider گزینه `kavenegar|smsir`; سرور secret را نگه می‌دارد. Settings شامل provider/key/sender و ارسال تست با یک قالب و شماره موبایل است. بدون key tabهای غیرتنظیمات هشدار عدم اتصال می‌دهند.
+صفحه شامل tabهای campaigns، retention، templates، auto، settings و logs است. Config از `business.settings.sms` می‌آید و `apiKeySet` فقط boolean وضعیت secret است؛ raw api key را GET نمی‌کند. provider گزینه `kavenegar|smsir`; سرور secret را نگه می‌دارد. Settings شامل provider/key/sender و ارسال تست با یک قالب و شماره موبایل است. بدون key tabهای غیرتنظیمات هشدار عدم اتصال می‌دهند. تب retention بخشی از ماژول SMS و مصرف‌کنندهٔ همان template/provider است؛ workflow مستقل ارسال موازی نساز.
 
 قالب‌ها `purpose,title,templateId,params[{name,var}],sampleText,isActive` هستند؛ pattern template provider-specific. Campaign شامل title/template/audience/code/discount/numbers و ارسال فوری یا schedule شمسی+ساعت؛ audienceها all, VIP, inactive, segmentها, birthday_month, manual هستند. Campaign list نشان تعداد گیرنده/موفق/ناموفق و وضعیت scheduled/sending/sent/failed؛ کمپین زمان‌بندی‌شده قابل لغو. تب خودکار تولد: enabled, templateId, code/discount؛ روز تولد بر اساس تقویم شمسی سالی یک بار. دکمه اجرای دستی `/api/r/smsauto`، cron نیز `/api/cron/sms?key=CRON_SECRET`; logها از `/api/r/smslogs` هر ۸ ثانیه poll.
 
 **پذیرش:** secret masked/بدون بازتاب؛ تست provider؛ template غیرفعال حذف از انتخاب؛ زمان‌بندی آینده؛ audience consent؛ provider disconnected؛ sent/failed count؛ و schedule در timezone تهران.
+
+اتوماسیون بازگشت مشتری و قرارداد دقیق آن در [راهنمای بازگشت مشتری](sms-retention.md) آمده است. این تب trigger عدم خرید، ورود/خروج از segment، cooldown، سقف ماهانه، recheck رضایت/موبایل در لحظه ارسال، توقف بعد از خرید، retry محدود و گزارش انتساب last-touch دارد. نتیجه نامشخص شبکه خودکار retry نمی‌شود تا ارسال تکراری ایجاد نشود؛ وضعیت `uncertain` برای پیگیری مدیر حفظ می‌شود.
 
 ## مرجع بازسازی
 

@@ -1,5 +1,6 @@
 
 import { IconText } from "@/components/ui";import Link from "next/link";
+import { PaymentTrackingLink } from "@/components/payment-tracking-link";
 import { toFa } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export default async function PayResult({ searchParams }: { searchParams: Promis
         <h1 className="mt-4 text-xl font-extrabold">{ok ? "پرداخت با موفقیت انجام شد" : "پرداخت ناموفق بود"}</h1>
         {q.n && <p className="mt-3 text-sm text-stone-600">شماره سفارش: <b>#{toFa(q.n)}</b></p>}
         {q.ref && <p className="mt-1 text-xs text-stone-500">کد پیگیری: <span dir="ltr">{q.ref}</span></p>}
+        <PaymentTrackingLink />
         {!ok && q.msg && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{q.msg}</p>}
         {q.slug && <Link href={`/m/${q.slug}`} className="mt-6 inline-block rounded-xl bg-stone-900 px-6 py-3 text-sm font-bold text-white">بازگشت به منو</Link>}
       </div>

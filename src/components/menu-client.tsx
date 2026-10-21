@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { api } from "@/lib/api";
 import { formatPrice, toFa } from "@/lib/format";
 import { LANGS } from "@/lib/plans";
@@ -11,6 +12,10 @@ import { MapPicker } from "@/components/map-picker";
 import { BrandLogo } from "@/components/brand";
 import { haversineKm } from "@/lib/geo";
 import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select, Textarea, ToastProvider, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
+import { ProductOptionPicker } from "@/components/product-option-picker";
+import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, type CartState } from "@/lib/order-cart";
+import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
+import { trackMenuEvent } from "@/lib/menu-analytics";
 
 type Prod = PublicMenu["products"][number];
 type OType = "dine_in" | "takeaway" | "delivery";
@@ -22,7 +27,7 @@ const DICT: Record<string, Record<string, string>> = {
   tr: { search: "Menüde ara…", featured: " Öne çıkanlar", cart: "Siparişi gör", sold: "Tükendi", submit: "Siparişi ver", total: "Toplam", sub: "Ara toplam", suggest: "Siparişinize yakışır", ar: "3D / AR görüntüle", menu: "Dijital menü", empty: "Sonuç yok" },
 };
 
-export function MenuClient(props: { data: PublicMenu; initialTableId: number | null }) {
+export function MenuClient(props: { data: PublicMenu; initialTableId: number | null; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
   return (
     <ToastProvider>
       <Menu {...props} />
@@ -30,8 +35,10 @@ export function MenuClient(props: { data: PublicMenu; initialTableId: number | n
   );
 }
 
-function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: number | null }) {
+function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = false }: { data: PublicMenu; initialTableId: number | null; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
   const { business: biz, categories, products, tables, zones, caps, languages } = data;
+  const editorial = biz.menuTemplate === "editorial";
+  const compact = biz.menuTemplate === "compact";
   const toast = useToast();
   const [lang, setLang] = useState("fa");
   const t = (k: string) => (DICT[lang] ?? DICT.en)[k] ?? DICT.en[k];
@@ -40,8 +47,10 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
   const nameOf = (type: "product" | "category", id: number, fb: string) => (lang === "fa" ? fb : trMap.get(`${type}:${id}:${lang}`)?.name || fb);
   const descOf = (p: Prod) => (lang === "fa" ? p.description : trMap.get(`product:${p.id}:${lang}`)?.description || p.description);
 
-  const [cart, setCart] = useState<Record<number, number>>({});
+  const [cart, setCart] = useState<CartState>({});
+  const [optionProduct, setOptionProduct] = useState<Prod | null>(null);
   const [q, setQ] = useState("");
+  const [dietFilter, setDietFilter] = useState("");
   const [active, setActive] = useState<number | null>(categories[0]?.id ?? null);
   const [sheet, setSheet] = useState(false);
   const [type, setType] = useState<OType>(initialTableId || caps.selfOrder ? "dine_in" : "delivery");
@@ -56,17 +65,17 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
   const [note, setNote] = useState("");
   const [code, setCode] = useState("");
   const [applied, setApplied] = useState<{ code: string; amount: number } | null>(null);
-  const [cashbackChoice, setCashbackChoice] = useState<{ phone: string; enabled: boolean } | null>(null);
-  const [memberResult, setMemberResult] = useState<{ phone: string; member: { exists: boolean; balance: number } } | null>(null);
   const [payment, setPayment] = useState("cash");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ number: number; total: number; paymentMethod: string; cardTransfer?: NonNullable<PublicMenu["business"]["cardTransfer"]> } | null>(null);
+  const [done, setDone] = useState<{ number: number; total: number; paymentMethod: string; trackingUrl: string | null; cardTransfer?: NonNullable<PublicMenu["business"]["cardTransfer"]> } | null>(null);
   const [recommendations, setRecommendations] = useState<{ key: string; items: { id: number; name: string; emoji: string; price: number }[] } | null>(null);
   const [ar, setAr] = useState<Prod | null>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const lockRef = useRef(false);
 
-  const canOrder = biz.acceptOrders && (caps.selfOrder || caps.delivery);
+  const canOrder = !readOnlyDemo && !readOnlyPreview && biz.acceptOrders && (caps.selfOrder || caps.delivery);
+  const initialTable = initialTableId ? tables.find((table) => table.id === initialTableId) : undefined;
+  useEffect(() => { if (!readOnlyDemo) trackMenuEvent(biz.slug, "menu_view"); }, [biz.slug, readOnlyDemo]);
   const term = q.trim();
   const types: { k: OType; l: string }[] = [
     ...(caps.selfOrder ? [{ k: "dine_in" as const, l: " سالن" }, { k: "takeaway" as const, l: " بیرون‌بر" }] : []),
@@ -74,13 +83,13 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
   ];
 
   const grouped = useMemo(() => {
-    const list = products.filter((p) => !term || p.name.includes(term) || p.description.includes(term) || nameOf("product", p.id, p.name).toLowerCase().includes(term.toLowerCase()));
+    const list = products.filter((p) => (!dietFilter || p.dietaryTags?.includes(dietFilter)) && (!term || p.name.includes(term) || p.description.includes(term) || nameOf("product", p.id, p.name).toLowerCase().includes(term.toLowerCase())));
     const sections = categories.map((c) => ({ key: String(c.id), id: c.id, title: nameOf("category", c.id, c.name), items: list.filter((p) => p.categoryId === c.id) })).filter((s) => s.items.length);
     const rest = list.filter((p) => p.categoryId === null);
     if (rest.length) sections.push({ key: "other", id: -1, title: "…", items: rest });
     return sections;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, categories, term, lang]);
+  }, [products, categories, term, lang, dietFilter]);
 
   const featured = products.filter((p) => p.isFeatured && p.isAvailable);
 
@@ -99,23 +108,24 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
 
   function jump(id: number) {
     setActive(id);
+    if (id > 0) trackMenuEvent(biz.slug, "category_view", { categoryId: id });
     lockRef.current = true;
     sectionRefs.current[String(id)]?.scrollIntoView({ behavior: "smooth", block: "start" });
     setTimeout(() => (lockRef.current = false), 800);
   }
 
-  const add = (id: number, d = 1) =>
-    setCart((c) => {
-      const n = { ...c };
-      const v = (n[id] ?? 0) + d;
-      if (v <= 0) delete n[id];
-      else n[id] = Math.min(50, v);
-      return n;
-    });
-
-  const lines = Object.entries(cart).map(([id, qty]) => ({ p: products.find((x) => x.id === Number(id))!, qty })).filter((l) => l.p);
+  const add = (p: Prod, d = 1) => {
+    if (d > 0) {
+      trackMenuEvent(biz.slug, "product_view", { productId: p.id });
+      if (p.sellingMode === "weight" || p.modifierGroups?.some((group) => group.active)) { setOptionProduct(p); return; }
+      trackMenuEvent(biz.slug, "add_to_cart", { productId: p.id });
+    }
+    setCart((current) => changeAnyCartVariant(current, p.id, d));
+  };
+  const addVariant = (p: Prod, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => setCart((current) => changeCartVariant(current, p.id, optionIds, delta, 50, weightGrams, tareGrams));
+  const lines = cartLines(products, cart).map((line) => ({ ...line, p: line.product }));
   const count = lines.reduce((s, l) => s + l.qty, 0);
-  const subtotal = lines.reduce((s, l) => s + l.p.price * l.qty, 0);
+  const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
   const disc = applied ? Math.min(applied.amount, subtotal) : 0;
   const radiusMode = zones.some((z) => z.radiusKm > 0);
   const dist = biz.lat != null && biz.lng != null && pin ? haversineKm({ lat: biz.lat, lng: biz.lng }, pin) : null;
@@ -128,11 +138,8 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
   const total = subtotal - disc + tax + svc + fee;
 
   // cross-sell recommendations
-  const idsKey = Object.keys(cart).sort().join(",");
+  const idsKey = [...new Set(Object.values(cart).map((line) => line.productId))].sort((a, b) => a - b).join(",");
   const recs = caps.crossSell && idsKey && recommendations?.key === idsKey ? recommendations.items : [];
-  const normalizedPhone = phone.trim();
-  const member = caps.cashback && normalizedPhone.length >= 10 && memberResult?.phone === normalizedPhone ? memberResult.member : null;
-  const useCashback = Boolean(member?.exists && member.balance > 0 && cashbackChoice?.phone === normalizedPhone && cashbackChoice.enabled);
   useEffect(() => {
     if (!caps.crossSell || !idsKey) return;
     let live = true;
@@ -141,14 +148,6 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
     }, 300);
     return () => { live = false; clearTimeout(h); };
   }, [idsKey, caps.crossSell, biz.slug]);
-
-  useEffect(() => {
-    const p = normalizedPhone;
-    if (!caps.cashback || p.length < 10) return;
-    let live = true;
-    const h = setTimeout(() => { api<{ exists: boolean; balance: number }>(`/api/public/${biz.slug}/customer?phone=${encodeURIComponent(p)}`).then((r) => live && setMemberResult({ phone: p, member: r })).catch(() => live && setMemberResult({ phone: p, member: { exists: false, balance: 0 } })); }, 400);
-    return () => { live = false; clearTimeout(h); };
-  }, [normalizedPhone, caps.cashback, biz.slug]);
 
   async function applyCode() {
     try {
@@ -166,53 +165,64 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
     if (pre && !when) return toast("زمان پیش‌سفارش را مشخص کنید", "error");
     setBusy(true);
     try {
-      const { item } = await api<{ item: { number: number; total: number; payUrl: string | null; paymentMethod: string; cardTransfer?: NonNullable<PublicMenu["business"]["cardTransfer"]> } }>(`/api/public/${biz.slug}/orders`, {
+      const { item } = await api<{ item: { number: number; total: number; payUrl: string | null; paymentMethod: string; trackingUrl: string | null; cardTransfer?: NonNullable<PublicMenu["business"]["cardTransfer"]> } }>(`/api/public/${biz.slug}/orders`, {
         method: "POST",
         body: {
-          items: lines.map((l) => ({ productId: l.p.id, quantity: l.qty })),
+          items: lines.map((l) => ({ productId: l.p.id, quantity: l.qty, optionIds: l.optionIds, weightGrams: l.weightGrams, tareGrams: l.tareGrams })),
           type, tableId: type === "dine_in" && tableId ? Number(tableId) : null,
           customerName: name, customerPhone: phone, address, zoneId: zone?.id ?? null, lat: pin?.lat ?? null, lng: pin?.lng ?? null,
           scheduledFor: pre && when ? new Date(when).toISOString() : null,
-          discountCode: applied?.code ?? "", useCashback, payment, note,
+          discountCode: applied?.code ?? "", payment, note,
         },
       });
       setCart({});
       setSheet(false);
-      if (item.payUrl) { window.location.assign(item.payUrl); return; }
-      setDone({ number: item.number, total: item.total, paymentMethod: item.paymentMethod, cardTransfer: item.cardTransfer });
+      if (item.payUrl) {
+        if (item.trackingUrl) window.sessionStorage.setItem("menupeak.order-tracking", item.trackingUrl);
+        window.location.assign(item.payUrl);
+        return;
+      }
+      setDone({ number: item.number, total: item.total, paymentMethod: item.paymentMethod, trackingUrl: item.trackingUrl, cardTransfer: item.cardTransfer });
     } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(false); }
+  }
+
+  function openCheckout() {
+    trackMenuEvent(biz.slug, "checkout_start");
+    setSheet(true);
   }
 
   const accent = { "--accent": biz.accentColor } as React.CSSProperties;
 
   const renderCard = (p: Prod) => {
-    const qty = cart[p.id] ?? 0;
+    const qty = cartProductQuantity(cart, p.id);
     const off = p.oldPrice && p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
     return (
-      <div className={cn("flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-stone-200/70", !p.isAvailable && "opacity-60")}>
-        <div className="relative shrink-0">
-          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="size-24 rounded-xl sm:size-28" />
+      <div className={cn("flex gap-3 rounded-2xl bg-white shadow-sm ring-1 ring-stone-200/70", editorial ? "flex-col overflow-hidden p-0" : compact ? "gap-2 p-2" : "p-3", !p.isAvailable && "opacity-60")}>
+        <div className={cn("relative shrink-0", editorial && "w-full")}>
+          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn(editorial ? "h-44 w-full rounded-none" : compact ? "size-16 rounded-lg" : "size-24 rounded-xl sm:size-28")} />
           {off > 0 && <span className="absolute start-1 top-1 rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{toFa(off)}٪</span>}
           <IconText>{caps.ar && p.arModelUrl && <button onClick={() => setAr(p)} className="absolute inset-x-1 bottom-1 rounded-lg bg-stone-900/80 py-0.5 text-[10px] font-bold text-white backdrop-blur" aria-label={t("ar")}>{<EmojiIcon emoji="" />} AR</button>}</IconText>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={cn("flex min-w-0 flex-1 flex-col", editorial && "p-4", compact && "py-1")}>
           <h3 className="font-bold leading-6">{nameOf("product", p.id, p.name)}</h3>
           <p className="line-clamp-2 flex-1 text-xs leading-5 text-stone-500">{descOf(p)}</p>
+          {(p.dietaryTags?.length || p.allergenTags?.length) && <div className="mt-1 flex flex-wrap gap-1">{(p.dietaryTags ?? []).map((id) => DIETARY_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800">{label} اعلام‌شده</span>)}{(p.allergenTags ?? []).map((id) => ALLERGEN_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-900">آلرژن ثبت‌شده: {label}</span>)}</div>}
+          {!p.allergenTags?.length ? <span className="mt-1 text-[10px] text-stone-400">اطلاعات آلرژن ثبت نشده</span> : <span className="mt-1 text-[10px] leading-4 text-stone-400">بر اساس اطلاعات کسب‌وکار؛ برای حساسیت غذایی با رستوران هماهنگ کنید.</span>}
           <div className="mt-2 flex items-end justify-between gap-2">
             <div>
               {p.oldPrice && p.oldPrice > p.price && <p className="text-[11px] text-stone-400 line-through">{formatPrice(p.oldPrice)}</p>}
-              <p className="text-sm font-extrabold">{formatPrice(p.price)}</p>
+              <p className="text-sm font-extrabold">{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className="ms-1 text-[10px] font-medium text-stone-500">/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className="ms-1 text-[10px] font-medium text-stone-500">از</span>}</p>
             </div>
             {!p.isAvailable ? (
               <span className="rounded-lg bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-500">{t("sold")}</span>
             ) : canOrder ? (
               qty === 0 ? (
-                <button onClick={() => add(p.id)} aria-label="+" className="flex size-9 items-center justify-center rounded-xl bg-[var(--accent)] text-white shadow-md transition active:scale-90"><Icon name="plus" /></button>
+                <button onClick={() => add(p)} aria-label="افزودن به سفارش" className="flex size-9 items-center justify-center rounded-xl bg-[var(--accent)] text-white shadow-md transition active:scale-90"><Icon name="plus" /></button>
               ) : (
                 <div className="flex items-center gap-1 rounded-xl bg-[var(--accent)] p-0.5 text-white shadow-md animate-pop">
-                  <button onClick={() => add(p.id, -1)} aria-label="-" className="flex size-8 items-center justify-center rounded-lg active:bg-white/20"><Icon name="minus" className="size-4" /></button>
+                  <button onClick={() => add(p, -1)} aria-label="کم کردن" className="flex size-8 items-center justify-center rounded-lg active:bg-white/20"><Icon name="minus" className="size-4" /></button>
                   <span className="w-5 text-center text-sm font-bold">{toFa(qty)}</span>
-                  <button onClick={() => add(p.id)} aria-label="+" className="flex size-8 items-center justify-center rounded-lg active:bg-white/20"><Icon name="plus" className="size-4" /></button>
+                  <button onClick={() => add(p)} aria-label="افزودن" className="flex size-8 items-center justify-center rounded-lg active:bg-white/20"><Icon name="plus" className="size-4" /></button>
                 </div>
               )
             ) : null}
@@ -231,8 +241,8 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
   ];
 
   return (
-    <div dir={dir} style={accent} className="mx-auto min-h-dvh max-w-2xl bg-[#f6f5f3] pb-28 shadow-xl">
-      <header className="relative overflow-hidden px-5 pb-8 pt-10 text-white" style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}cc 60%, #1c1917)` }}>
+    <div dir={dir} style={accent} className={cn("mx-auto min-h-dvh bg-[#f6f5f3] pb-28 shadow-xl", editorial ? "max-w-5xl" : "max-w-2xl")}>
+      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center")} style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}cc 60%, #1c1917)` }}>
         <div className="pointer-events-none absolute -end-10 -top-10 size-48 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute -bottom-16 start-10 size-40 rounded-full bg-white/10" />
         {languages.length > 1 && (
@@ -240,34 +250,46 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
             {languages.map((l) => <button key={l} onClick={() => setLang(l)} className={cn("rounded-full px-3 py-1 text-xs font-bold backdrop-blur transition", lang === l ? "bg-white text-stone-900" : "bg-white/15 text-white")}>{LANGS[l]?.name ?? l}</button>)}
           </div>
         )}
-        <div className="relative flex items-center gap-4">
+        <div className={cn("relative flex items-center gap-4", editorial && "flex-col gap-3")}>
           <span className="flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-white text-3xl shadow-lg"><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
           <div><h1 className="text-xl font-extrabold">{biz.name}</h1><p className="mt-1 text-xs text-white/80">{t("menu")}</p></div>
         </div>
         {biz.description && lang === "fa" && <p className="relative mt-4 text-sm leading-7 text-white/90">{biz.description}</p>}
-        <div className="relative mt-4 flex flex-wrap gap-2 text-xs">
+        <div className={cn("relative mt-4 flex flex-wrap gap-2 text-xs", editorial && "justify-center")}>
           {biz.phone && <a href={`tel:${biz.phone}`} className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="phone" className="size-3.5" />{biz.phone}</a>}
           {biz.address && lang === "fa" && <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="pin" className="size-3.5" />{biz.address}</span>}
           {biz.instagram && <a href={`https://instagram.com/${biz.instagram}`} target="_blank" className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur" dir="ltr">@{biz.instagram}</a>}
           <span className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur">{biz.isOpen ? "اکنون باز است" : "اکنون بسته است"}</span>
-          {caps.reservations && <Link href={`/m/${biz.slug}/reserve`} className="rounded-full bg-white px-3 py-1.5 font-bold text-stone-900 shadow-sm">رزرو میز</Link>}
+          {caps.reservations && !readOnlyDemo && !readOnlyPreview && <Link href={`/m/${biz.slug}/reserve`} className="rounded-full bg-white px-3 py-1.5 font-bold text-stone-900 shadow-sm">رزرو میز</Link>}
           <IconText>{caps.miniSite && <a href={`/s/${biz.slug}`} className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur">{<EmojiIcon emoji="" />} وب‌سایت ما</a>}</IconText>
         </div>
+        {readOnlyDemo && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این منو فقط پیش‌نمایش داده‌های ساختگی است؛ ثبت سفارش و رزرو در دسترس نیست.</p>}
+        {readOnlyPreview && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این پیش‌نمایش فقط برای بررسی قالب است؛ ثبت سفارش و رزرو از این صفحه انجام نمی‌شود.</p>}
         <IconText>{initialTableId && caps.selfOrder && tables.find((x) => x.id === initialTableId) && canOrder && (
           <div className="relative mt-5 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm font-semibold text-stone-800">{<EmojiIcon emoji="" />} {tables.find((x) => x.id === initialTableId)!.name}</div>
         )}</IconText>
       </header>
 
       <div className="sticky top-0 z-20 -mt-4 rounded-t-3xl bg-[#f6f5f3]/95 pb-2 pt-4 backdrop-blur">
-        <div className="px-4"><div className="relative"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
+        <div className="grid gap-2 px-4 sm:grid-cols-[1fr_auto]"><div className="relative"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} /></div><Select aria-label="فیلتر ویژگی تغذیه‌ای" value={dietFilter} onChange={(e) => setDietFilter(e.target.value)} className="sm:w-48"><option value="">همه ویژگی‌ها</option>{DIETARY_TAGS.map((tag) => <option key={tag.id} value={tag.id}>{tag.label}</option>)}</Select></div>
+        {initialTable && initialTable.operationalStatus !== "available" && <div role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{initialTable.operationalStatus === "cleaning" ? "این میز در حال نظافت است و فعلاً سفارش نمی‌پذیرد." : "این میز موقتاً خارج از سرویس است. از کارکنان رستوران کمک بگیرید."}</div>}
         {!term && (
-          <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-4">
+          <div className={cn("no-scrollbar mt-3 flex gap-2 overflow-x-auto px-4", editorial && "justify-center")}>
             {grouped.map((s) => <button key={s.key} onClick={() => jump(s.id)} style={active === s.id ? { background: biz.accentColor } : undefined} className={cn("shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition", active === s.id ? "text-white shadow-md" : "bg-white text-stone-600 ring-1 ring-stone-200")}>{s.title}</button>)}
           </div>
         )}
       </div>
 
-      <main className="space-y-8 px-4 pt-4">
+      <main className={cn("space-y-8 px-4 pt-4", editorial && "px-5 sm:px-8")}>
+        {!term && biz.promotionalBanners.length > 0 && <section aria-label="بنرهای تبلیغاتی" className="grid gap-3 sm:grid-cols-2">
+          {biz.promotionalBanners.map((banner) => {
+            const image = <div className="relative aspect-[2.8/1] overflow-hidden rounded-2xl bg-stone-100 shadow-sm ring-1 ring-stone-200/70">
+              <Image src={banner.imageUrl} alt={banner.title} fill unoptimized sizes="(max-width: 640px) 100vw, 50vw" className="object-cover" />
+              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-3 pt-8 text-sm font-bold text-white">{banner.title}</span>
+            </div>;
+            return banner.href ? <a key={banner.id} href={banner.href} target={banner.href.startsWith("https:") ? "_blank" : undefined} rel={banner.href.startsWith("https:") ? "noreferrer" : undefined}>{image}</a> : <div key={banner.id}>{image}</div>;
+          })}
+        </section>}
         {!term && featured.length > 0 && (
           <section>
             <h2 className="mb-3 text-base font-extrabold"><IconText>{t("featured")}</IconText></h2>
@@ -276,7 +298,7 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
                 <div key={p.id} className="w-44 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone-200/70">
                   <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="h-28 w-full" />
                   <div className="p-3"><p className="truncate text-sm font-bold">{nameOf("product", p.id, p.name)}</p>
-                    <div className="mt-2 flex items-center justify-between"><span className="text-xs font-extrabold">{formatPrice(p.price)}</span>{canOrder && <button onClick={() => add(p.id)} aria-label="+" className="flex size-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white active:scale-90"><Icon name="plus" className="size-4" /></button>}</div></div>
+                    <div className="mt-2 flex items-center justify-between"><span className="text-xs font-extrabold">{formatPrice(p.price)}{p.sellingMode === "weight" ? "/کیلو" : ""}</span>{canOrder && <button onClick={() => add(p)} aria-label="افزودن" className="flex size-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white active:scale-90"><Icon name="plus" className="size-4" /></button>}</div></div>
                 </div>
               ))}
             </div>
@@ -287,7 +309,7 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
         ) : grouped.map((s) => (
           <section key={s.key} data-cat={s.id} ref={(el) => { sectionRefs.current[s.key] = el; }} className="scroll-mt-32">
             <h2 className="mb-3 text-base font-extrabold">{s.title}</h2>
-            <div className="space-y-3">{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
+            <div className={cn("space-y-3", editorial && "grid gap-4 space-y-0 sm:grid-cols-2", compact && "space-y-2")}>{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
           </section>
         ))}</IconText>
         <footer className="pb-4 pt-6 text-center text-[11px] text-stone-400">Powered by <b>منوی دیجیتال</b></footer>
@@ -295,7 +317,7 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
 
       {canOrder && count > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-2xl p-3 animate-slide-up">
-          <button onClick={() => setSheet(true)} style={{ background: biz.accentColor }} className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-white shadow-2xl active:scale-[0.99]">
+          <button onClick={openCheckout} style={{ background: biz.accentColor }} className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-white shadow-2xl active:scale-[0.99]">
             <span className="flex items-center gap-3 font-bold"><span className="flex size-7 items-center justify-center rounded-full bg-white/25 text-sm">{toFa(count)}</span>{t("cart")}</span>
             <span className="font-extrabold">{formatPrice(subtotal)}</span>
           </button>
@@ -305,14 +327,14 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
       <Modal open={sheet} onClose={() => setSheet(false)} title="" footer={<Button size="lg" className="w-full !bg-[var(--accent)]" loading={busy} onClick={submit} disabled={!lines.length}>{t("submit")} · {formatPrice(total)}</Button>}>
         <div className="space-y-4" dir={dir}>
           <ul className="space-y-3">
-            {lines.map(({ p, qty }) => (
-              <li key={p.id} className="flex items-center gap-3">
+            {lines.map(({ key, p, qty, lineTotal, weightGrams, netWeightGrams, tareGrams, optionIds, optionSnapshot }) => (
+              <li key={key} className="flex items-center gap-3">
                 <span className="text-2xl">{<EmojiIcon emoji={p.emoji} /> }</span>
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{nameOf("product", p.id, p.name)}</p><p className="text-xs text-stone-500">{formatPrice(p.price * qty)}</p></div>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{nameOf("product", p.id, p.name)}</p>{netWeightGrams != null && <p className="text-[11px] text-stone-500">{toFa(netWeightGrams)} گرم خالص{tareGrams ? ` · ظرف ${toFa(tareGrams)} گرم` : ""}</p>}{optionSnapshot.length > 0 && <p className="text-[11px] text-stone-500">{optionSnapshot.map((option) => option.optionName).join("، ")}</p>}<p className="text-xs text-stone-500">{formatPrice(lineTotal)}</p></div>
                 <div className="flex items-center gap-1 rounded-lg bg-stone-100 p-0.5">
-                  <button className="flex size-8 items-center justify-center rounded-md hover:bg-white" onClick={() => add(p.id, -1)} aria-label="-"><Icon name={qty === 1 ? "trash" : "minus"} className="size-4" /></button>
+                  <button className="flex size-8 items-center justify-center rounded-md hover:bg-white" onClick={() => addVariant(p, optionIds, -1, weightGrams ?? undefined, tareGrams)} aria-label="کم کردن"><Icon name={qty === 1 ? "trash" : "minus"} className="size-4" /></button>
                   <span className="w-6 text-center text-sm font-bold">{toFa(qty)}</span>
-                  <button className="flex size-8 items-center justify-center rounded-md hover:bg-white" onClick={() => add(p.id)} aria-label="+"><Icon name="plus" className="size-4" /></button>
+                  <button className="flex size-8 items-center justify-center rounded-md hover:bg-white" onClick={() => addVariant(p, optionIds, 1, weightGrams ?? undefined, tareGrams)} aria-label="افزودن"><Icon name="plus" className="size-4" /></button>
                 </div>
               </li>
             ))}
@@ -322,14 +344,14 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
             <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
               <p className="mb-2 text-xs font-bold text-amber-800">{<EmojiIcon emoji="" />} {t("suggest")}</p>
               <div className="no-scrollbar flex gap-2 overflow-x-auto">{recs.map((r) => (
-                <button key={r.id} onClick={() => add(r.id)} className="flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2 text-start text-xs shadow-sm ring-1 ring-amber-100 active:scale-95"><span className="text-xl">{<EmojiIcon emoji={r.emoji} /> }</span><span><b className="block max-w-28 truncate">{nameOf("product", r.id, r.name)}</b><span className="text-stone-500">{formatPrice(r.price)}</span></span><span className="flex size-6 items-center justify-center rounded-full bg-[var(--accent)] text-white">+</span></button>
+                <button key={r.id} onClick={() => { const product = products.find((x) => x.id === r.id); if (product) add(product); }} className="flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2 text-start text-xs shadow-sm ring-1 ring-amber-100 active:scale-95"><span className="text-xl">{<EmojiIcon emoji={r.emoji} /> }</span><span><b className="block max-w-28 truncate">{nameOf("product", r.id, r.name)}</b><span className="text-stone-500">{formatPrice(r.price)}</span></span><span className="flex size-6 items-center justify-center rounded-full bg-[var(--accent)] text-white">+</span></button>
               ))}</div>
             </div>
           )}</IconText>
 
           {types.length > 1 && <div className="grid gap-1.5 rounded-xl bg-stone-100 p-1" style={{ gridTemplateColumns: `repeat(${types.length}, 1fr)` }}>{types.map((x) => <button key={x.k} onClick={() => setType(x.k)} className={cn("rounded-lg py-2 text-sm font-semibold transition", type === x.k ? "bg-white shadow" : "text-stone-500")}><IconText>{x.l}</IconText></button>)}</div>}
           <IconText>{type === "dine_in" && tables.length > 0 && (
-            <Select value={tableId} onChange={(e) => setTableId(e.target.value)} aria-label="table"><option value="">{<EmojiIcon emoji="" />} میز…</option>{tables.map((x) => <option key={x.id} value={x.id}>{<EmojiIcon emoji="" />} {x.name} — {x.zone}</option>)}</Select>
+            <Select value={tableId} onChange={(e) => setTableId(e.target.value)} aria-label="table"><option value="">{<EmojiIcon emoji="" />} میز…</option>{tables.filter((x) => x.operationalStatus === "available" || x.id === initialTableId).map((x) => <option key={x.id} value={x.id} disabled={x.operationalStatus !== "available"}>{<EmojiIcon emoji="" />} {x.name} — {x.zone}{x.operationalStatus !== "available" ? " · سفارش نمی‌پذیرد" : ""}</option>)}</Select>
           )}</IconText>
           <IconText>{type === "delivery" && (
             <div className="space-y-2">
@@ -353,14 +375,7 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
           {caps.discount && (
             <div className="flex gap-2"><Input dir="ltr" className="text-left uppercase" placeholder="کد تخفیف" value={code} onChange={(e) => { setCode(e.target.value); setApplied(null); }} /><Button variant="secondary" onClick={applyCode} disabled={!code.trim()}>اعمال</Button></div>
           )}
-          <IconText>{caps.cashback && phone.trim().length >= 10 && (
-            member === null ? <p className="text-xs text-stone-400">در حال بررسی عضویت…</p>
-            : member.exists && member.balance > 0 ? (
-              <label className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"><input type="checkbox" className="accent-emerald-600" checked={useCashback} onChange={(e) => setCashbackChoice({ phone: normalizedPhone, enabled: e.target.checked })} />  {<EmojiIcon emoji="" />} استفاده از اعتبار کش‌بک ({formatPrice(member.balance)} موجود است)</label>
-            ) : (
-              <p className="rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-6 text-stone-600">{member.exists ? "اعتبار کش‌بک شما صفر است؛ با خرید این سفارش اعتبار می‌گیرید." : "این شماره هنوز عضو باشگاه مشتریان نیست؛ با ثبت این سفارش عضو می‌شوید و از خرید بعدی می‌توانید از کش‌بک استفاده کنید."}</p>
-            )
-          )}</IconText>
+          <IconText>{caps.cashback && <p className="rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-6 text-stone-600">با ثبت سفارش، خریدهای پرداخت‌شده برای باشگاه مشتریان و کش‌بک محاسبه می‌شوند. مصرف اعتبار پس از راه‌اندازی تأیید پیامکی شماره مشتری فعال خواهد شد.</p>}</IconText>
           <Textarea rows={2} placeholder="توضیحات سفارش…" value={note} onChange={(e) => setNote(e.target.value)} />
           {payOptions.length > 0 && (
             <fieldset className="space-y-1.5">
@@ -375,7 +390,6 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
             {tax > 0 && <div className="flex justify-between"><span>مالیات ({toFa(biz.taxPercent)}٪)</span><span>{formatPrice(tax)}</span></div>}
             {svc > 0 && <div className="flex justify-between"><span>خدمات ({toFa(biz.servicePercent)}٪)</span><span>{formatPrice(svc)}</span></div>}
             <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-extrabold text-stone-900"><span>{t("total")}</span><span>{formatPrice(total)}</span></div>
-            {useCashback && <p className="text-[11px] text-emerald-700">اعتبار کش‌بک هنگام ثبت از مبلغ نهایی کسر می‌شود.</p>}
           </div>
         </div>
       </Modal>
@@ -388,16 +402,19 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
             <p className="mt-2 text-sm text-stone-500">شماره سفارش</p>
             <p className="text-3xl font-extrabold" style={{ color: biz.accentColor }}>#{toFa(done.number)}</p>
             <p className="mt-3 text-sm text-stone-600">{formatPrice(done.total)}</p>
+            {done.trackingUrl && <a href={done.trackingUrl} className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-stone-100 px-4 text-sm font-bold text-stone-800">پیگیری امن وضعیت سفارش</a>}
             {done.paymentMethod === "card_to_card" && done.cardTransfer && (
               <div className="mt-5 space-y-3 rounded-2xl bg-amber-50 p-4 text-start ring-1 ring-amber-200">
-                <p className="text-sm font-bold text-amber-950">برای پرداخت، مبلغ فاکتور را به کارت زیر واریز کنید</p>
-                {done.cardTransfer.bankName && <p className="text-xs text-amber-900">بانک {done.cardTransfer.bankName}</p>}
-                <div className="flex items-center justify-between gap-2 rounded-xl bg-white p-3">
-                  <b dir="ltr" className="font-mono text-base tracking-wider text-stone-900">{done.cardTransfer.cardNumber}</b>
-                  <button type="button" className="btn btn-sm btn-ghost text-primary" onClick={() => navigator.clipboard.writeText(done.cardTransfer!.cardNumber).then(() => toast("شماره کارت کپی شد")).catch(() => toast("کپی شماره کارت انجام نشد", "error"))}><Icon name="copy" className="size-4" />کپی</button>
-                </div>
-                <p className="text-xs text-amber-950">به نام {done.cardTransfer.accountHolder}</p>
-                {done.cardTransfer.instructions && <p className="text-xs leading-6 text-amber-900">{done.cardTransfer.instructions}</p>}
+                <p className="text-sm font-bold text-amber-950">مبلغ فاکتور را به یکی از کارت‌های زیر واریز کنید</p>
+                {(done.cardTransfer.cards?.length ? done.cardTransfer.cards : [done.cardTransfer]).map((card, index) => <div key={card.id || index} className="space-y-2 rounded-xl bg-amber-100/70 p-3">
+                  {card.bankName && <p className="text-xs text-amber-900">بانک {card.bankName}</p>}
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-white p-3">
+                    <b dir="ltr" className="font-mono text-base tracking-wider text-stone-900">{card.cardNumber}</b>
+                    <button type="button" className="btn btn-sm btn-ghost text-primary" onClick={() => navigator.clipboard.writeText(card.cardNumber).then(() => toast("شماره کارت کپی شد")).catch(() => toast("کپی شماره کارت انجام نشد", "error"))}><Icon name="copy" className="size-4" />کپی</button>
+                  </div>
+                  <p className="text-xs text-amber-950">به نام {card.accountHolder}</p>
+                  {card.instructions && <p className="text-xs leading-6 text-amber-900">{card.instructions}</p>}
+                </div>)}
                 <p className="border-t border-amber-200 pt-2 text-xs leading-6 text-amber-900">شماره سفارش را برای پیگیری اعلام کنید. رستوران پس از بررسی و تأیید واریز، سفارش را وارد مرحله آماده‌سازی می‌کند.</p>
               </div>
             )}
@@ -406,6 +423,7 @@ function Menu({ data, initialTableId }: { data: PublicMenu; initialTableId: numb
       </Modal>
 
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
+      {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams); trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); }} />}
     </div>
   );
 }

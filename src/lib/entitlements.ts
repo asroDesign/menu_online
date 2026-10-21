@@ -1,5 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { planFeatures } from "@/db/schema";
+import { planFeatures, trialGrants } from "@/db/schema";
+import { isTrialWindowActive } from "@/lib/trial-window";
 import { FEATURES, resolveFeatures, type FeatureMap, type Level } from "@/lib/plans";
 
 let cache: { at: number; map: Record<string, Record<string, Level>> } | null = null;
@@ -23,7 +25,25 @@ export function effectivePlan(biz: { plan: string; subscriptionEndsAt?: Date | s
   return end !== null && end < Date.now() && biz.plan !== "basic" ? "basic" : biz.plan;
 }
 
-export async function featuresOf(biz: { plan: string; featureOverrides: unknown; subscriptionEndsAt?: Date | string | null }): Promise<FeatureMap> {
-  if (biz.plan === "pending") return Object.fromEntries(FEATURES.map(({ key }) => [key, "no"])) as FeatureMap;
+const noFeatures = () => Object.fromEntries(FEATURES.map(({ key }) => [key, "no"])) as FeatureMap;
+
+export async function activeTrialOf(businessId: number, at = new Date()) {
+  const [grant] = await db.select().from(trialGrants).where(and(eq(trialGrants.businessId, businessId), eq(trialGrants.status, "active"))).limit(1);
+  if (!grant || grant.startsAt > at) return undefined;
+  if (!isTrialWindowActive(grant.startsAt, grant.endsAt, at)) {
+    await db.update(trialGrants).set({ status: "expired" }).where(and(eq(trialGrants.id, grant.id), eq(trialGrants.status, "active")));
+    return undefined;
+  }
+  return grant;
+}
+
+export async function featuresOf(biz: { id?: number; plan: string; featureOverrides: unknown; subscriptionEndsAt?: Date | string | null }): Promise<FeatureMap> {
+  if (biz.plan === "pending") {
+    if (!biz.id) return noFeatures();
+    const grant = await activeTrialOf(biz.id);
+    if (!grant) return noFeatures();
+    const saved = grant.featureSnapshot as Record<string, Level>;
+    return Object.fromEntries(FEATURES.map(({ key }) => [key, ["yes", "custom", "no"].includes(saved?.[key]) ? saved[key] : "no"])) as FeatureMap;
+  }
   return resolveFeatures(effectivePlan(biz), biz.featureOverrides as Record<string, boolean>, await getPlanOverrides());
 }

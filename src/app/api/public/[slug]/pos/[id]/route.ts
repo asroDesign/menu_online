@@ -5,6 +5,7 @@ import { errorResponse, HttpError, readJson } from "@/lib/auth";
 import { featuresOf } from "@/lib/entitlements";
 import { cancelHeldOrder, cancelPendingRequests, createPosRequest, expirePosRequests, POS_TIMEOUT_MS, posOnline, releaseHeldOrder } from "@/lib/pos";
 import type { Settings } from "@/lib/plans";
+import { isReadOnlyDemoSlug } from "@/lib/demo-mode";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ slug: string; id: string }> };
@@ -37,6 +38,8 @@ export async function GET(req: Request, ctx: Ctx) {
 /** Kiosk actions on a card payment: retry · pay at the counter · cancel the order. */
 export async function POST(req: Request, ctx: Ctx) {
   try {
+    const { slug } = await ctx.params;
+    if (isReadOnlyDemoSlug(slug)) throw new HttpError(403, "منوی نمونه فقط برای پیش‌نمایش است");
     const b = await readJson(req);
     const { biz, r, o } = await load(ctx, String(b.t ?? ""));
     if (o.paymentStatus === "paid") return Response.json(view(r, o));

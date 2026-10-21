@@ -9,24 +9,41 @@ import {
   Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Skeleton, cn, useToast,
  EmojiIcon, IconText} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
+import { DEFAULT_BRAND_COLOR, normalizeBrandColor } from "@/lib/brand-color";
 
 export default function TablesPage() {
   const tables = useCollection<DiningTable>("/api/tables", { poll: 10000 });
   const toast = useToast();
   const [slug, setSlug] = useState("");
+  const [accentColor, setAccentColor] = useState(DEFAULT_BRAND_COLOR);
   const [origin, setOrigin] = useState("");
   const [editing, setEditing] = useState<DiningTable | "new" | null>(null);
   const [form, setForm] = useState({ name: "", zone: "سالن اصلی", capacity: "4" });
   const [deleting, setDeleting] = useState<DiningTable | null>(null);
   const [qr, setQr] = useState<DiningTable | null>(null);
+  const [statusTarget, setStatusTarget] = useState<{ table: DiningTable; status: "available" | "cleaning" | "out_of_service" } | null>(null);
+  const [statusReason, setStatusReason] = useState("");
   const qrRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setOrigin(location.origin); // eslint-disable-line react-hooks/set-state-in-effect
-    api<{ item: { slug: string } }>("/api/business").then((r) => setSlug(r.item.slug));
+    api<{ item: { slug: string; accentColor: string } }>("/api/business").then((r) => {
+      setSlug(r.item.slug);
+      setAccentColor(normalizeBrandColor(r.item.accentColor) ?? DEFAULT_BRAND_COLOR);
+    });
   }, []);
 
   const link = (t: DiningTable) => `${origin}/m/${slug}?table=${t.id}`;
+
+  async function saveTableStatus() {
+    if (!statusTarget) return;
+    if (statusTarget.status === "out_of_service" && !statusReason.trim()) return toast("علت خارج‌کردن میز از سرویس را وارد کنید", "error");
+    try {
+      await api(`/api/tables/${statusTarget.table.id}/status`, { method: "POST", body: { status: statusTarget.status, reason: statusReason } });
+      setStatusTarget(null); setStatusReason(""); await tables.reload();
+      toast("وضعیت میز به‌روز شد");
+    } catch (e) { toast((e as Error).message, "error"); }
+  }
 
   const zones = [...new Set(tables.items.map((t) => t.zone))];
 
@@ -46,7 +63,7 @@ export default function TablesPage() {
     setEditing(null);
     try {
       if (target === "new") {
-        await tables.create(payload, { ...payload, openOrder: null });
+        await tables.create(payload, { ...payload, operationalStatus: "available", status: "available", openOrder: null });
         toast("میز اضافه شد");
       } else if (target) {
         await tables.update(target.id, payload);
@@ -71,7 +88,7 @@ export default function TablesPage() {
     if (!svg || !qr) return;
     const w = window.open("", "_blank", "width=500,height=700");
     if (!w) return toast("پنجره چاپ مسدود شد", "error");
-    w.document.write(`<html dir="rtl"><head><title>QR ${qr.name}</title><style>body{font-family:Tahoma,sans-serif;text-align:center;padding:40px}svg{width:300px;height:300px}h1{margin:0 0 4px}p{color:#555}.b{border:3px dashed #f97316;border-radius:24px;padding:32px;display:inline-block}</style></head><body><div class="b"><h1>${qr.name}</h1><p>برای مشاهده منو و ثبت سفارش اسکن کنید</p>${svg}<p dir="ltr" style="font-size:11px">${link(qr)}</p></div><script>window.onload=()=>{window.print()}<\/script></body></html>`);
+    w.document.write(`<html dir="rtl"><head><title>QR ${qr.name}</title><style>body{font-family:Tahoma,sans-serif;text-align:center;padding:40px}svg{width:300px;height:300px}h1{margin:0 0 4px}p{color:#555}.b{border:3px dashed ${accentColor};border-radius:24px;padding:32px;display:inline-block}</style></head><body><div class="b"><h1>${qr.name}</h1><p>برای مشاهده منو و ثبت سفارش اسکن کنید</p>${svg}<p dir="ltr" style="font-size:11px">${link(qr)}</p></div><script>window.onload=()=>{window.print()}<\/script></body></html>`);
     w.document.close();
   }
 
@@ -99,13 +116,13 @@ export default function TablesPage() {
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {tables.items.filter((t) => t.zone === zone).map((t) => (
-                  <Card key={t.id} className={cn("p-4 animate-pop", t.id < 0 && "opacity-60", t.openOrder && "ring-2 ring-amber-300")}>
+                  <Card key={t.id} className={cn("p-4 animate-pop", t.id < 0 && "opacity-60", t.openOrder && "ring-2 ring-amber-300", t.status === "out_of_service" && "opacity-80")}>
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="text-lg font-extrabold">{t.name}</p>
                         <p className="mt-0.5 text-xs text-stone-500">ظرفیت {toFa(t.capacity)} نفر</p>
                       </div>
-                      <span className={cn("flex size-11 items-center justify-center rounded-xl text-xl", t.openOrder ? "bg-amber-100" : "bg-emerald-50")}>{<EmojiIcon emoji="" />}</span>
+                      <span className={cn("flex size-11 items-center justify-center rounded-xl", t.status === "available" ? "bg-emerald-50 text-emerald-700" : t.status === "occupied" ? "bg-amber-100 text-amber-700" : t.status === "reserved" ? "bg-blue-50 text-blue-700" : "bg-rose-50 text-rose-700")}><Icon name={t.status === "cleaning" ? "refresh" : t.status === "out_of_service" ? "warning" : t.status === "occupied" ? "users" : t.status === "reserved" ? "calendar" : "table"} className="size-5" /></span>
                     </div>
                     <div className="mt-3 min-h-14">
                       {t.openOrder ? (
@@ -114,7 +131,7 @@ export default function TablesPage() {
                           <p className="mt-1.5 text-stone-600">{formatPrice(t.openOrder.total)}</p>
                         </div>
                       ) : (
-                        <Badge color="emerald">آزاد</Badge>
+                        <Badge color={t.status === "available" ? "emerald" : t.status === "reserved" ? "blue" : t.status === "cleaning" || t.status === "out_of_service" ? "rose" : "amber"}>{({ available: "آزاد", occupied: "اشغال", reserved: "رزرو", cleaning: "در حال نظافت", out_of_service: "خارج از سرویس" } as Record<string, string>)[t.status]}</Badge>
                       )}
                     </div>
                     <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3">
@@ -122,6 +139,8 @@ export default function TablesPage() {
                         <Icon name="qr" className="size-4" /> QR کد
                       </Button>
                       <div className="flex">
+                        {t.operationalStatus === "cleaning" || t.operationalStatus === "out_of_service" ? <Button size="sm" variant="secondary" disabled={t.status === "occupied" || t.status === "reserved"} onClick={() => setStatusTarget({ table: t, status: "available" })}>بازگشت به سرویس</Button> : <Button size="sm" variant="ghost" disabled={t.status === "occupied" || t.status === "reserved"} onClick={() => setStatusTarget({ table: t, status: "cleaning" })}>نظافت</Button>}
+                        {t.operationalStatus !== "out_of_service" && <IconButton icon="warning" label="خارج از سرویس" disabled={t.status === "occupied" || t.status === "reserved"} onClick={() => setStatusTarget({ table: t, status: "out_of_service" })} />}
                         <IconButton icon="edit" label="ویرایش" onClick={() => openEdit(t)} />
                         <IconButton icon="trash" label="حذف" className="hover:bg-rose-50 hover:text-rose-600" onClick={() => setDeleting(t)} />
                       </div>
@@ -133,6 +152,10 @@ export default function TablesPage() {
           ))}
         </div>
       )}</IconText>
+
+      <Modal open={!!statusTarget} onClose={() => { setStatusTarget(null); setStatusReason(""); }} title={statusTarget?.status === "out_of_service" ? "خارج‌کردن میز از سرویس" : statusTarget?.status === "cleaning" ? "شروع نظافت میز" : "بازگشت میز به سرویس"} size="sm" footer={<><Button variant="ghost" onClick={() => setStatusTarget(null)}>انصراف</Button><Button onClick={saveTableStatus}>ثبت وضعیت</Button></>}>
+        {statusTarget?.status === "out_of_service" ? <Field label="علت (الزامی)"><Input autoFocus value={statusReason} onChange={(e) => setStatusReason(e.target.value)} maxLength={240} placeholder="مثلاً خرابی یا تعمیرات" /></Field> : <p className="text-sm leading-7 text-stone-600">وضعیت «{statusTarget?.status === "cleaning" ? "در حال نظافت" : "آزاد"}» برای میز {statusTarget?.table.name} ثبت می‌شود. میز دارای سفارش باز یا رزرو فعال را نمی‌توان از سرویس خارج کرد.</p>}
+      </Modal>
 
       <Modal
         open={!!editing}

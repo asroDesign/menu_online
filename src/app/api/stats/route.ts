@@ -51,7 +51,7 @@ export const GET = withAuth(async (_req, { business }) => {
       name: orderItems.name,
       emoji: sql<string>`max(${orderItems.emoji})`,
       qty: sql<number>`sum(${orderItems.quantity})::int`,
-      revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.price})::int`,
+      revenue: sql<number>`sum(${orderItems.lineTotal})::int`,
     })
     .from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))

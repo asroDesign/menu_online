@@ -45,6 +45,38 @@ modal جزئیات، خطوط سفارش، subtotal، discount، delivery fee، 
 
 **پذیرش:** جست‌وجوی فارسی، scroll فهرست، بازشدن modal، soft-delete و restore؛ نقش chef/waiter/cashier؛ card-to-card pending؛ delivery assigned/picked-up/delivered/failure؛ جلوگیری از double-submit و refresh بعد از mutation.
 
+### آرشیو رسید و چاپ مجدد
+
+تب «آرشیو رسیدها» فقط برای manager/owner در همان `/dashboard/orders` دیده می‌شود. آن بخش از `GET /api/receipt-archive?q=&cursor=` با صفحهٔ ۵۰تایی و cursor مبتنی بر شناسه استفاده می‌کند؛ جست‌وجوی سروری شماره سفارش، نام یا موبایل مشتری را می‌پذیرد و فقط شناسه/شماره/تاریخ/status/پرداخت/مبلغ/نوع را برمی‌گرداند. شماره مشتری در response نیست. هر query با `businessId` نشست و سفارش حذف‌نشده محدود می‌شود.
+
+دکمهٔ «چاپ مجدد» صفحهٔ محافظت‌شدهٔ `/print/receipt/:id?reprint=1` را باز می‌کند. صفحه سفارش را tenant-scopes و قلم‌های `order_items` snapshot را از `listOrders` می‌خواند؛ قیمت فعلی محصول در رسید استفاده نمی‌شود. علامت «نسخهٔ چاپ مجدد» در خود رسید چاپی دیده می‌شود. مسیر GET فقط render است و وضعیت سفارش/پرداخت یا print job را mutation نمی‌کند. رسیدهای حذف‌شده از آرشیو فعال کنار گذاشته می‌شوند و رسید سابق از این تب باز نمی‌شود.
+
+**آزمون/مرز:** source contract دسترسی manager، جداسازی tenant، cursor، سقف صفحه و read-only بودن را بررسی می‌کند. DB-backed pagination و چاپ فیزیکی با printer در این نوبت اجرا نشده‌اند.
+
+## preset نمایشی گردش سفارش Menuvex (MPV-08)
+
+مدیر از `/dashboard/settings` یکی از presetهای یک تا چهارمرحله‌ای را در `settings.orderWorkflowPreset` انتخاب می‌کند. این انتخاب فقط نوار پیشرفت نمایشی جزئیات سفارش در `/dashboard/orders` را گروه‌بندی می‌کند؛ status، تب‌ها، دکمه‌های mutation، تاریخچه و رفتار API بدون تغییر می‌مانند. گروه‌بندی در `src/lib/order-workflow-core.ts` تعریف شده است: ۱ مرحله همهٔ وضعیت‌های فعال `pending/preparing/ready/served`؛ ۲ مرحله `pending+preparing` و `ready+served`؛ ۳ مرحله `pending`، `preparing+ready` و `served`؛ ۴ مرحله هرکدام از این چهار وضعیت جدا. وضعیت‌های `awaiting_payment`, `paid`, `canceled` در نوار پیشرفت نیستند و رفتار اصلی خود را حفظ می‌کنند.
+
+API تنظیمات فقط اعداد ۱ تا ۴ را می‌پذیرد و entitlement `cashier_pos` را بررسی می‌کند. گزینهٔ صفحه تنظیمات صریحاً می‌گوید که انتقال وضعیت واقعی را عوض نمی‌کند. این preference برای کسب‌وکار ذخیره می‌شود؛ داده/وضعیت سفارش‌های قدیمی migration یا بازنویسی نمی‌خواهد. تست pure helper هر چهار mapping و عدم remap پرداخت/لغو را بررسی می‌کند.
+
 ## مرجع بازسازی
 
 برای جزئیات دقیق فیلدها، ترتیب کنترل‌ها، پیام‌های فارسی و قرارداد typeها، فایل منبع بالا را همراه API route متناظر در `src/app/api` بخوان. این راهنما رفتار را مشخص می‌کند و جایگزین بررسی source-of-truth نیست.
+
+## افزودنی‌های محصول و پیگیری مشتری
+
+در هر ورودی سفارش، قلم شامل `productId`, `quantity`, `note?`, `optionIds?` است. `price`, subtotal و option names ارسالی از browser نادیده گرفته می‌شوند. `createOrder` tenant-scopes محصول، بررسی موجودی/گزینه را انجام می‌دهد و snapshot نام/قیمت option را در `order_items.option_snapshot` ذخیره می‌کند؛ رسید چاپی/KDS از همین snapshot استفاده می‌کند. منو، صندوق، گارسون و کیوسک باید payload واحد `optionIds` بدهند.
+
+برای محصولات `sellingMode=weight` payload هر قلم `weightGrams` ناخالص و `tareGrams` را علاوه بر `quantity` و `optionIds` می‌فرستد؛ `quantity` تعداد بسته‌های دارای همین وزن است. `createOrder` نرخ هر کیلو/بازده را از محصول tenant می‌خواند، وزن خالص و `lineTotal` را سرورمحاسبه و در snapshot سطر نگه می‌دارد. cart property `weightGrams` باید gross بماند؛ `netWeightGrams` جداگانه صرف نمایش می‌شود، تا tare دوباره کم نشود. جزئیات تبدیل انبار/COGS و محدودیت refund در [راهنمای فروش وزنی](weighted-sales.md) آمده است.
+
+سفارش‌های عمومی جدید hash یک token تصادفی ۲۵۶بیتی را در `orders.tracking_token_hash` نگه می‌دارند؛ token خام فقط یک‌بار در لینک `/m/:slug/track#token` برمی‌گردد. client آن را در `Authorization: Bearer` می‌فرستد؛ POST قدیمی فقط سازگاری لینک‌های قبلی است. پاسخ endpoint allowlist شامل شماره سفارش، وضعیت‌های order/payment/delivery، history و آخرین موقعیت تازه پیک است؛ اقلام، مبلغ، نام، تلفن، آدرس، یادداشت و شناسه مشتری افشا نمی‌شود. token منقضی/باطل/سفارش حذف‌شده یا سفارش قدیمی پاسخ عمومی هم‌شکل 404 می‌گیرند. اعتبار از `orderTrackingDays` کسب‌وکار (پیش‌فرض ۷، بازه ۱ تا ۳۰ روز) می‌آید. مدیر در modal سفارش customer/kiosk می‌تواند پیوند فعال را باطل کند؛ حذف نرم هم token را باطل می‌کند. `listOrders` hash را در پاسخ پنل حذف و فقط `trackingActive` را برای UI می‌فرستد.
+
+موقعیت پیک opt-in است، فقط با سفارش فعال ذخیره می‌شود و پس از stop/off پاک می‌شود. tracking فقط نقطه تازه‌تر از سه دقیقه را در حالت تحویل فعال برمی‌گرداند؛ GPS پیوسته در پس‌زمینه تضمین نمی‌شود.
+
+رویداد `order_created` برای سفارش عمومی/کیوسک در تراکنش ساخت سفارش، همراه با order و اقلام، درج می‌شود؛ clickهای client نمی‌توانند این event را ثبت کنند.
+
+## فروش نسیه صندوق و چاپ خودکار
+
+`POST /api/orders` فقط برای source صندوق `payNow=credit` را می‌پذیرد. سفارش باید به مشتری همان tenant متصل باشد، شماره معتبر داشته باشد، باز و unpaid باشد. در مرحله settle، وضعیت پرداخت unpaid و روش `credit` می‌ماند؛ سند فروش دوطرفه، حساب دریافتنی و receivable متصل به سفارش در transaction واحد ساخته می‌شوند. رویداد دریافت بعدی از `/dashboard/receivables` ثبت می‌شود و نباید با تسویه مجدد صندوق ثبت شود؛ مسیرهای پرداخت عادی سفارش وجود receivable را تشخیص می‌دهند و رد می‌کنند. جزئیات حساب بدهکار و وصول در [راهنمای دفتر مطالبات](receivables.md) است.
+
+چاپگرها از تنظیمات `/dashboard/settings/printers/*` policy می‌خوانند. ایجاد order از `queuePrintJobs` رویداد با/بدون میز را صف می‌کند؛ تغییر status به `ready` در پنل یا API دستگاه policy تکمیل را اجرا می‌کند؛ تسویه payment policy settlement را اجرا می‌کند. درج job در transaction همان mutation است، ولی چاپ فیزیکی بعداً توسط Agent از صف انجام می‌شود. سیاست‌ها، تعداد نسخه، سربرگ/پابرگ و route category در [راهنمای چاپگرها](printers.md) آمده است. `queuePrintJobs` مبلغ را از فیش مشتری/کافه حذف نمی‌کند؛ فقط بلیت آشپزخانه total ندارد و categoryها را فیلتر می‌کند.

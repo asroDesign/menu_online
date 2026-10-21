@@ -1,5 +1,6 @@
 "use client";
 
+import { notifySetupSaved } from "@/lib/onboarding-tour";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, useCollection } from "@/lib/api";
@@ -13,6 +14,7 @@ import { Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
 type Device = { id: number; kind: string; name: string; code: string; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
 const KIND: Record<string, string> = { tablet: "تبلت", pos: "دستگاه پوز", printer: "پرینتر ابری", scale: "ترازو", caller_id: "کالر آیدی", pager: "فرستنده‌ی پیجر" };
 const online = (d: Device) => !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() < 5 * 60_000;
+export const printerIsOnline = (lastSeenAt: string | null) => !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 5 * 60_000;
 
 function DevicePanel({ resource, kinds, extra, content, hint }: { resource: string; kinds: string[]; extra?: (d: Device) => ReactNode; content?: (d: Device) => ReactNode; hint?: (d: Device) => string }) {
   const col = useCollection<Device>(`/api/r/${resource}`, { poll: 10000 });
@@ -21,18 +23,20 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
   const [name, setName] = useState("");
   const [kind, setKind] = useState(kinds[0]);
   const [origin, setOrigin] = useState("");
-  useEffect(() => { setOrigin(location.origin); }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setOrigin(location.origin));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   async function add() {
     if (!name.trim()) return;
-    setOpen(false);
-    try { await col.create({ name: name.trim(), kind }, { name: name.trim(), kind, code: "…", lastSeenAt: null, lastValue: 0 }); setName(""); toast("دستگاه اضافه شد"); } catch (e) { toast((e as Error).message, "error"); }
+    try { await col.create({ name: name.trim(), kind }, { name: name.trim(), kind, code: "…", lastSeenAt: null, lastValue: 0 }); setName(""); setOpen(false); if (resource === "dev_printer") notifySetupSaved("printers"); toast("دستگاه اضافه شد"); } catch (e) { toast((e as Error).message, "error"); }
   }
   async function ping(d: Device) {
     try { await api(`/api/device/${d.code}/ping`); col.reload(true); toast("ارتباط برقرار است "); } catch (e) { toast((e as Error).message, "error"); }
   }
   return (
     <div className="mb-8">
-      <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">دستگاه‌های متصل</h2><Button size="sm" onClick={() => { setKind(kinds[0]); setOpen(true); }}><Icon name="plus" className="size-4" /> دستگاه جدید</Button></div>
+      <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">دستگاه‌های متصل</h2><Button data-tour={resource === "dev_printer" ? "printer-create" : undefined} size="sm" onClick={() => { setKind(kinds[0]); setOpen(true); }}><Icon name="plus" className="size-4" /> دستگاه جدید</Button></div>
       <IconText>{col.loading ? <Skeleton className="h-28 rounded-2xl" /> : col.items.length === 0 ? <EmptyState emoji="" title="دستگاهی ثبت نشده" description="دستگاه را اضافه کنید و کد اتصال آن را در سخت‌افزار/نرم‌افزار دستگاه وارد کنید." action={<Button onClick={() => setOpen(true)}>افزودن دستگاه</Button>} /> : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{col.items.map((d) => (
           <Card key={d.id} className={cn("p-4 animate-pop", d.id < 0 && "opacity-60")}>
@@ -52,8 +56,8 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
           </Card>
         ))}</div>
       )}</IconText>
-      <Modal open={open} onClose={() => setOpen(false)} title="دستگاه جدید" size="sm" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button onClick={add} disabled={!name.trim()}>افزودن</Button></>}>
-        <div className="space-y-4"><Field label="نام دستگاه"><Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="مثلاً پرینتر آشپزخانه" /></Field>{kinds.length > 1 && <Field label="نوع"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{kinds.map((k) => <option key={k} value={k}>{KIND[k]}</option>)}</Select></Field>}<p className="text-xs leading-6 text-stone-400">پس از افزودن، یک کد اتصال یکتا ساخته می‌شود.</p></div>
+      <Modal open={open} onClose={() => setOpen(false)} title="دستگاه جدید" size="sm" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button data-tour={resource === "dev_printer" ? "printer-save" : undefined} onClick={add} disabled={!name.trim()}>افزودن</Button></>}>
+        <div className="space-y-4"><Field label="نام دستگاه"><Input data-tour={resource === "dev_printer" ? "printer-name" : undefined} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="مثلاً پرینتر آشپزخانه" /></Field>{kinds.length > 1 && <Field label="نوع"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{kinds.map((k) => <option key={k} value={k}>{KIND[k]}</option>)}</Select></Field>}<p className="text-xs leading-6 text-stone-400">پس از افزودن، یک کد اتصال یکتا ساخته می‌شود.</p></div>
       </Modal>
     </div>
   );
@@ -259,10 +263,8 @@ type PrinterCategory = { id: number; name: string };
 function PrinterCategorySelector({ device }: { device: Device }) {
   const categories = useCollection<PrinterCategory>("/api/categories");
   const toast = useToast();
-  const assignedKey = (device.printerCategoryIds ?? []).join(",");
   const [selected, setSelected] = useState<number[]>(device.printerCategoryIds ?? []);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setSelected(device.printerCategoryIds ?? []), [device.id, assignedKey]);
   async function save(next: number[]) {
     setSaving(true);
     try {
@@ -272,7 +274,7 @@ function PrinterCategorySelector({ device }: { device: Device }) {
     } catch (e) { toast((e as Error).message, "error"); }
     finally { setSaving(false); }
   }
-  return <div className="mt-3 rounded-xl bg-stone-50 p-3">
+  return <div data-tour="printer-categories" className="mt-3 rounded-xl bg-stone-50 p-3">
     <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold">دسته‌های قابل چاپ</p>{selected.length > 0 && <button className="text-[11px] font-semibold text-brand-700 underline" disabled={saving} onClick={() => save([])}>چاپ همه‌ی دسته‌ها</button>}</div>
     <p className="mt-1 text-[11px] leading-5 text-stone-500">اگر چیزی انتخاب نشود، همه‌ی آیتم‌ها چاپ می‌شوند. «بدون دسته» را هم می‌توانید جداگانه به یک پرینتر بسپارید.</p>
     {categories.loading ? <Skeleton className="mt-2 h-8" /> : <div className="mt-2 flex flex-wrap gap-2">
@@ -288,7 +290,7 @@ const BRIDGE_CONFIG_KEY = "digital-menu.bridge.devices.v1";
 function defaultBridgeConfig(kind: string): LocalDeviceConfig {
   return { transport: kind === "scale" ? "serial" : "tcp", host: "192.168.1.50", port: kind === "scale" ? "4001" : "9100", path: "COM3", baud: "9600", vendorId: "", productId: "", printerName: "", encoding: "CP1256", request: "", responseEnd: "\\r\\n", weightRegex: "([+-]?\\d+(?:[.,]\\d+)?)", weightUnit: "kg", factor: "1" };
 }
-function BridgeSetup() {
+export function BridgeSetup() {
   const printers = useCollection<Device>("/api/r/dev_printer", { poll: 10000 });
   const scales = useCollection<Device>("/api/r/dev_scale", { poll: 10000 });
   const devices = [...printers.items, ...scales.items];
@@ -331,18 +333,18 @@ function BridgeSetup() {
     URL.revokeObjectURL(url);
   }
   return <Card className="mb-6 space-y-4 p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر و ترازو</h2><p className="mt-1 text-xs leading-6 text-stone-500">اپ ویندوزی چند پرینتر و ترازو را هم‌زمان به صف ابری متصل می‌کند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml" target="_blank" rel="noreferrer"><Button size="sm" variant="secondary"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</Button></a><Button size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر و ترازو</h2><p className="mt-1 text-xs leading-6 text-stone-500">اپ ویندوزی چند پرینتر و ترازو را هم‌زمان به صف ابری متصل می‌کند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml" target="_blank" rel="noreferrer"><Button size="sm" variant="secondary"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</Button></a><Button data-tour="bridge-download" size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
     {devices.length === 0 ? <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-500">ابتدا پرینتر یا ترازو را در همین صفحه اضافه کنید تا تنظیمات نمونه ساخته شود.</p> : <div className="grid gap-3 lg:grid-cols-2">{devices.map((d) => {
       const c = configFor(d);
       const set = (key: keyof LocalDeviceConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => updateConfig(d, { [key]: e.target.value } as Partial<LocalDeviceConfig>);
       return <div key={d.code} className="space-y-3 rounded-xl bg-stone-50 p-3">
         <div className="flex items-center justify-between gap-2"><p className="font-semibold">{d.name}</p><code className="text-xs" dir="ltr">{d.code}</code></div>
-        <Field label="روش اتصال"><Select value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option><option value="usb">{d.kind === "printer" ? "USB از طریق صف چاپ Windows" : "USB مستقیم HID"}</option></Select></Field>
-        {c.transport === "tcp" && <div className="grid grid-cols-2 gap-2"><Field label="IP دستگاه"><Input dir="ltr" value={c.host} onChange={set("host")} /></Field><Field label="درگاه"><Input dir="ltr" inputMode="numeric" value={c.port} onChange={set("port")} /></Field></div>}
-        {c.transport === "serial" && <div className="grid grid-cols-2 gap-2"><Field label="پورت USB-سریال (مثلاً COM3)"><Input dir="ltr" value={c.path} onChange={set("path")} /></Field><Field label="سرعت"><Input dir="ltr" inputMode="numeric" value={c.baud} onChange={set("baud")} /></Field></div>}
+        <Field label="روش اتصال"><Select data-tour="bridge-transport" value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option><option value="usb">{d.kind === "printer" ? "USB از طریق صف چاپ Windows" : "USB مستقیم HID"}</option></Select></Field>
+        {c.transport === "tcp" && <div className="grid grid-cols-2 gap-2"><Field label="IP دستگاه"><Input data-tour="bridge-host" dir="ltr" value={c.host} onChange={set("host")} /></Field><Field label="درگاه"><Input data-tour="bridge-port" dir="ltr" inputMode="numeric" value={c.port} onChange={set("port")} /></Field></div>}
+        {c.transport === "serial" && <div className="grid grid-cols-2 gap-2"><Field label="پورت USB-سریال (مثلاً COM3)"><Input data-tour="bridge-path" dir="ltr" value={c.path} onChange={set("path")} /></Field><Field label="سرعت"><Input data-tour="bridge-baud" dir="ltr" inputMode="numeric" value={c.baud} onChange={set("baud")} /></Field></div>}
         {c.transport === "usb" && d.kind === "scale" && <div className="grid grid-cols-2 gap-2"><Field label="Vendor ID"><Input dir="ltr" value={c.vendorId} onChange={set("vendorId")} placeholder="0x04b8" /></Field><Field label="Product ID"><Input dir="ltr" value={c.productId} onChange={set("productId")} placeholder="0x0e15" /></Field></div>}
-        {d.kind === "printer" && c.transport === "usb" && <Field label="نام صف پرینتر نصب‌شده در Windows"><Input dir="ltr" value={c.printerName} onChange={set("printerName")} placeholder="مثلاً POS-80" /></Field>}
-        {d.kind === "printer" && c.transport !== "usb" && <Field label="کدگذاری چاپ فارسی"><Input dir="ltr" value={c.encoding} onChange={set("encoding")} placeholder="CP1256" /></Field>}
+        {d.kind === "printer" && c.transport === "usb" && <Field label="نام صف پرینتر نصب‌شده در Windows"><Input data-tour="bridge-printerName" dir="ltr" value={c.printerName} onChange={set("printerName")} placeholder="مثلاً POS-80" /></Field>}
+        {d.kind === "printer" && c.transport !== "usb" && <Field label="کدگذاری چاپ فارسی"><Input data-tour="bridge-encoding" dir="ltr" value={c.encoding} onChange={set("encoding")} placeholder="CP1256" /></Field>}
         {d.kind === "scale" && <div className="space-y-2"><Field label={c.transport === "usb" ? "بایت درخواست HID (در صورت نیاز)" : "درخواست خواندن (در صورت نیاز) / متن فرستاده‌شده"}><Input dir="ltr" value={c.request} onChange={set("request")} placeholder={c.transport === "usb" ? "مثلاً \\x00\\x01" : "خالی = خواندن خروجی پیوسته"} /></Field>{c.transport === "usb" && <p className="text-[10px] text-stone-500">در درخواست HID، بایت اول شناسه‌ی گزارش است؛ قالب داده به مدل ترازو وابسته است.</p>}<Field label="پایان پاسخ"><Input dir="ltr" value={c.responseEnd} onChange={set("responseEnd")} placeholder="\\r\\n" /></Field><Field label="عبارت استخراج وزن"><Input dir="ltr" value={c.weightRegex} onChange={set("weightRegex")} /></Field><div className="grid grid-cols-2 gap-2"><Field label="واحد خروجی"><Select value={c.weightUnit} onChange={set("weightUnit")}><option value="kg">کیلوگرم</option><option value="g">گرم</option></Select></Field><Field label="ضریب کالیبراسیون"><Input dir="ltr" inputMode="decimal" value={c.factor} onChange={set("factor")} /></Field></div></div>}
       </div>;
     })}</div>}
@@ -363,8 +365,7 @@ export function Printers() {
   return (
     <div className="animate-fade-in">
       <PageHeader title="اتوماسیون پرینتر ابری" subtitle="هر سفارش جدید به‌صورت خودکار در صف چاپ پرینترهای متصل قرار می‌گیرد" actions={<Button variant="secondary" onClick={test}><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ آزمایشی</Button>} />
-      <DevicePanel resource="dev_printer" kinds={["printer"]} content={(d) => <PrinterCategorySelector device={d} />} hint={(d) => `/api/device/${d.code}/jobs`} />
-      <BridgeSetup />
+      <PrinterDevicesPanel />
       <h2 className="mb-3 font-bold">صف و تاریخچه‌ی چاپ</h2>
       <IconText>{jobs.loading ? <Skeleton className="h-40 rounded-2xl" /> : jobs.items.length === 0 ? <EmptyState emoji="" title="کار چاپی وجود ندارد" description="پس از افزودن پرینتر، هر سفارش جدید خودکار اینجا صف می‌شود." /> : (
         <Card className="divide-y divide-stone-100">{jobs.items.slice(0, 30).map((j) => (
@@ -380,6 +381,22 @@ export function Printers() {
       <Modal open={!!view} onClose={() => setView(null)} title="پیش‌نمایش رسید" size="sm">{view && <pre className="whitespace-pre-wrap rounded-xl bg-stone-50 p-4 text-center font-mono text-xs leading-7">{view.content}</pre>}</Modal>
     </div>
   );
+}
+
+export function PrinterDevicesPanel() {
+  return <>
+    <DevicePanel resource="dev_printer" kinds={["printer"]} content={(d) => <PrinterCategorySelector key={`${d.id}:${(d.printerCategoryIds ?? []).join(",")}`} device={d} />} hint={(d) => `/api/device/${d.code}/jobs`} />
+    <BridgeSetup />
+  </>;
+}
+
+export function PrinterCategoryPanel() {
+  const printers = useCollection<Device>("/api/r/dev_printer", { poll: 10000 });
+  return <div className="space-y-3">
+    {printers.loading ? <Skeleton className="h-40 rounded-2xl" /> : printers.items.length === 0
+      ? <EmptyState emoji="" title="چاپگری برای مسیردهی ندارید" description="ابتدا در بخش دستگاه‌ها چاپگر اضافه و به دستیار محلی متصل کنید." />
+      : printers.items.map((printer) => <Card key={printer.id} className="p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold">{printer.name}</h3><p className="text-xs text-stone-500">ایستگاه چاپ · کد اتصال <code dir="ltr">{printer.code}</code></p></div><Badge color={online(printer) ? "emerald" : "stone"}>{online(printer) ? "آنلاین" : "آفلاین"}</Badge></div><PrinterCategorySelector key={`${printer.id}:${(printer.printerCategoryIds ?? []).join(",")}`} device={printer} /></Card>)}
+  </div>;
 }
 
 /* ---------- caller id ---------- */

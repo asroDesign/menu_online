@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatDate, formatTime, toFa } from "@/lib/format";
@@ -10,6 +9,7 @@ import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon
 import { useGet, type Me } from "@/components/admin/common";
 import { ImageUpload } from "@/components/image-upload";
 import { notifyPlatformBrandingUpdated } from "@/components/brand";
+import { BrandColorPicker } from "@/components/brand-color-picker";
 
 const LEVEL: Record<string, [string, string]> = { info: ["اطلاع‌رسانی", "blue"], warning: ["هشدار", "amber"], success: ["خبر خوب", "emerald"] };
 const PLATFORM_SMS_KIND: Record<string, string> = { otp: "کد ورود", renewal: "یادآوری تمدید", occasion: "مناسبتی", manager_demo: "اعلان درخواست دمو", manager_plan_request: "اعلان درخواست پلن", manager_plan_sale: "اعلان فروش پلن" };
@@ -64,20 +64,26 @@ export function SettingsTab({ me }: { me: Me }) {
   const [bill, setBill] = useState<any>(null);
   const [branding, setBranding] = useState<any>(null);
   const [manager, setManager] = useState<any>(null);
+  const [trial, setTrial] = useState<any>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (data) { setSup({ ...data.support }); setBill({ ...data.billing }); setBranding({ ...data.platformBranding }); setManager({ ...data.managerNotifications }); } }, [data]);
+  useEffect(() => { if (data) { setSup({ ...data.support }); setBill({ ...data.billing }); setBranding({ ...data.platformBranding }); setManager({ ...data.managerNotifications }); setTrial({ ...data.trialPolicy }); } }, [data]);
   if (error) return <ErrorState message={error} onRetry={() => reload()} />;
-  if (!sup || !bill || !branding || !manager) return <Skeleton className="h-72 rounded-2xl" />;
+  if (!sup || !bill || !branding || !manager || !trial) return <Skeleton className="h-72 rounded-2xl" />;
   const save = async (key: string, value: any) => { try { await api("/api/admin/settings", { method: "POST", body: { key, value } }); if (key === "platformBranding") notifyPlatformBrandingUpdated(); toast("ذخیره شد"); reload(true); } catch (e) { toast((e as Error).message, "error"); } };
   const canS = me.perms.includes("settings");
   return (
     <div className="animate-fade-in space-y-5">
       <div><h1 className="text-xl font-extrabold sm:text-2xl">تنظیمات سامانه</h1><p className="mt-1 text-sm text-stone-500">اطلاعات تماس پشتیبانی (نمایش در بخش تیکت رستوران‌ها) و اطلاعات حساب برای فاکتورها</p></div>
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card className="space-y-4 p-5 lg:col-span-2"><div><h3 className="font-bold">نام و لوگوی سامانه</h3><p className="mt-1 text-xs leading-6 text-stone-500">این برند در سربرگ سایت، صفحه ورود و بخش‌های عمومی نمایش داده می‌شود.</p></div>
+        <Card className="space-y-4 p-5 lg:col-span-2"><div><h3 className="font-bold">هویت بصری سامانه</h3><p className="mt-1 text-xs leading-6 text-stone-500">نام، لوگو و رنگ سازمانی در سایت عمومی و پنل مدیریت نمایش داده می‌شوند. رنگ پیش‌فرض سامانه آبی است.</p></div>
           <Field label="نام سایت *"><Input value={branding.siteName} disabled={!canS} maxLength={80} onChange={(e) => setBranding({ ...branding, siteName: e.target.value })} /></Field>
           <ImageUpload value={branding.logoUrl} emoji="" uploadUrl="/api/admin/branding/logo" label="لوگوی سامانه" description="تصویر مربعی یا افقی JPG، PNG، WebP یا GIF بارگذاری کنید؛ حداکثر ۲٫۵ مگابایت." disabled={!canS} onChange={(logoUrl) => setBranding({ ...branding, logoUrl })} />
+          <BrandColorPicker value={branding.brandColor} disabled={!canS} onChange={(brandColor) => setBranding({ ...branding, brandColor })} label="رنگ سازمانی سامانه" description="این رنگ در صفحات عمومی و پنل مدیر اعمال می‌شود؛ رنگ پنل هر رستوران را همان رستوران جداگانه تنظیم می‌کند." />
           <Button disabled={!canS} onClick={() => save("platformBranding", branding)}>ذخیره برند سامانه</Button>
+        </Card>
+        <Card className="space-y-4 p-5 lg:col-span-2"><div><h3 className="font-bold">دموی رایگان ثبت‌نام‌های جدید</h3><p className="mt-1 text-xs leading-6 text-stone-500">هر شمارهٔ تازه پس از تأیید موبایل و تکمیل اطلاعات فروشگاه، پلن Premium Plus را برای مدت تعیین‌شده دریافت می‌کند؛ ورود از لینک دموی رایگان الزامی نیست. مدت پیش‌فرض ۱۴ روز است و حساب‌های قدیمی شامل آن نمی‌شوند. پس از خرید موفق، trial به پلن خریداری‌شده تبدیل می‌شود.</p></div>
+          <Field label="مدت دوره آزمایشی (روز)"><Input type="number" inputMode="numeric" min={1} max={60} disabled={!canS} value={trial.durationDays || ""} placeholder="۱ تا ۶۰" onChange={(e) => setTrial({ ...trial, durationDays: Number(e.target.value) })}/></Field>
+          <Button disabled={!canS} onClick={() => save("trialPolicy", trial)}>ذخیره سیاست دوره آزمایشی</Button>
         </Card>
         <Card className="space-y-4 p-5"><h3 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> اطلاعات پشتیبانی</h3>
           <Field label="خط موبایل / تلفن پشتیبانی"><Input dir="ltr" className="text-left" value={sup.phone} disabled={!canS} onChange={(e) => setSup({ ...sup, phone: e.target.value })} /></Field>

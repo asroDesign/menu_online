@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   suppliers, campaigns, categories, customers, inventoryItems, orderItems, orders, payments, products, recipes,
@@ -10,6 +9,9 @@ import { saveStockReceipt } from "@/lib/stock-receipts";
 import { TICKET_DEPTS } from "@/lib/admin-meta";
 import { smsRegistry } from "@/lib/registry-sms";
 import { addWalletEntry, normPhone, settingsOf } from "@/lib/orders";
+import { parseSalesReportRange, reportCalendarKeys } from "@/lib/sales-report-range";
+import { endOfDayTehran, startOfDayTehran } from "@/lib/jalali";
+import { calculateRecipeCost, currentRecipeMaterialCost } from "@/lib/price-target-core";
 
 const tehranDay = (d: Date | number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(new Date(d));
 const tehranHour = (d: Date) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", hour12: false }).format(d)) % 24;
@@ -76,10 +78,12 @@ const walletlog = {
       const b = await readJson(req);
       const amount = Math.round(Number(b.amount));
       if (!Number.isFinite(amount) || amount === 0) throw new HttpError(400, "مبلغ نامعتبر است");
+      const idempotencyKey = strOf(b.idempotencyKey, 100);
+      if (!/^[a-zA-Z0-9:_-]{16,100}$/.test(idempotencyKey)) throw new HttpError(400, "شناسه یکتای تعدیل نامعتبر است");
       const [c] = await db.select().from(customers).where(and(eq(customers.id, Number(b.customerId)), eq(customers.businessId, business.id)));
       if (!c) throw new HttpError(404, "مشتری پیدا نشد");
-      await addWalletEntry(business.id, c.id, amount, "adjust", null, strOf(b.note, 120) || "تعدیل دستی");
-      return J({ item: { id: -1 } }, 201);
+      const inserted = await addWalletEntry(business.id, c.id, amount, "adjust", null, strOf(b.note, 120) || "تعدیل دستی", `adjust:${idempotencyKey}`);
+      return J({ item: { id: inserted ? 1 : 0 } }, inserted ? 201 : 200);
     },
     { feature: "cashback", manager: true },
   ),
@@ -168,7 +172,7 @@ const stock = {
   list: withAuth(
     async (_req, { business }) => {
       const rows = await db
-        .select({ m: stockMovements, itemName: inventoryItems.name, unit: inventoryItems.unit, supplierName: suppliers.name, documentId: stockReceipts.documentId, receiptTotal: stockReceipts.total })
+        .select({ m: stockMovements, itemName: inventoryItems.name, unit: inventoryItems.unit, supplierName: suppliers.name, documentId: stockReceipts.documentId, receiptTotal: stockReceipts.total, wasteReason: stockReceipts.wasteReason })
         .from(stockMovements)
         .innerJoin(inventoryItems, eq(inventoryItems.id, stockMovements.itemId))
         .leftJoin(suppliers, eq(suppliers.id, stockMovements.supplierId))
@@ -176,7 +180,7 @@ const stock = {
         .where(eq(stockMovements.businessId, business.id))
         .orderBy(desc(stockMovements.id))
         .limit(300);
-      return J({ items: rows.map((r) => ({ ...r.m, itemName: r.itemName, unit: r.unit, supplierName: r.supplierName, documentId: r.documentId, receiptTotal: r.receiptTotal })) });
+      return J({ items: rows.map((r) => ({ ...r.m, itemName: r.itemName, unit: r.unit, supplierName: r.supplierName, documentId: r.documentId, receiptTotal: r.receiptTotal, wasteReason: r.wasteReason })) });
     },
     { feature: "stock_movements" },
   ),
@@ -210,13 +214,39 @@ const costing = {
         db.select().from(inventoryItems).where(eq(inventoryItems.businessId, business.id)),
         db.select().from(recipes).where(eq(recipes.businessId, business.id)),
       ]);
+      const itemById = new Map(items.map((item) => [item.id, item]));
+      const recipesByProduct = new Map<number, typeof rs>();
+      for (const recipe of rs) recipesByProduct.set(recipe.productId, [...(recipesByProduct.get(recipe.productId) ?? []), recipe]);
       const out = prods.map((p) => {
-        const lines = rs.filter((r) => r.productId === p.id).map((r) => {
-          const it = items.find((i) => i.id === r.itemId);
-          return { name: it?.name ?? "؟", unit: it?.unit ?? "", qty: r.quantity, cost: Math.round(r.quantity * (it?.costPerUnit ?? 0)) };
+        const productRecipes = recipesByProduct.get(p.id) ?? [];
+        const rawLines = productRecipes.map((r) => {
+          const it = itemById.get(r.itemId);
+          const materialCost = it ? currentRecipeMaterialCost(it.lastPurchaseCost, it.costPerUnit) : { costPerUnit: 0, costBasis: "stock_average" as const };
+          return { itemId: r.itemId, name: it?.name ?? "مادهٔ اولیهٔ پیدا‌نشده", available: Boolean(it), unit: it?.recipeUnit ?? it?.unit ?? "", stockUnit: it?.unit ?? "", recipeToStockFactor: it?.recipeToStockFactor ?? 1, costPerUnit: materialCost.costPerUnit, costBasis: materialCost.costBasis, qty: r.quantity, wastePercent: r.wastePercent ?? 0 };
         });
-        const cost = lines.reduce((s, l) => s + l.cost, 0);
-        return { id: p.id, name: p.name, emoji: p.emoji, price: p.price, cost, hasRecipe: lines.length > 0, margin: p.price - cost, marginPct: p.price ? Math.round(((p.price - cost) / p.price) * 100) : 0, lines };
+        const yieldValid = p.sellingMode !== "weight" || (Number.isFinite(p.yieldRatio) && p.yieldRatio > 0 && p.yieldRatio <= 1);
+        const recipeComplete = productRecipes.length > 0 && rawLines.every((line) =>
+          line.available && Number.isFinite(line.qty) && line.qty > 0 && Number.isSafeInteger(line.costPerUnit) && line.costPerUnit > 0 &&
+          Number.isFinite(line.recipeToStockFactor) && line.recipeToStockFactor > 0 && Number.isFinite(line.wastePercent) && line.wastePercent >= 0 && line.wastePercent <= 99.9
+        ) && yieldValid;
+        let recipeCost: ReturnType<typeof calculateRecipeCost> | null = null;
+        if (recipeComplete) {
+          try {
+            recipeCost = calculateRecipeCost(
+              rawLines.map((line) => ({ quantity: line.qty * line.recipeToStockFactor, costPerUnit: line.costPerUnit, wastePercent: line.wastePercent })),
+              1,
+              p.sellingMode === "weight" ? p.yieldRatio : 1,
+            );
+          } catch {
+            recipeCost = null;
+          }
+        }
+        const complete = recipeComplete && recipeCost !== null;
+        const cost = complete ? recipeCost!.unitCost : null;
+        const lines = rawLines.map((line, index) => ({ ...line, cost: complete ? recipeCost!.lines[index].extendedCost : 0 }));
+        const margin = cost === null ? null : p.price - cost;
+        const marginPct = cost !== null && p.price > 0 && margin !== null ? Math.round((margin / p.price) * 100) : null;
+        return { id: p.id, name: p.name, emoji: p.emoji, price: p.price, cost, hasRecipe: productRecipes.length > 0, recipeComplete: complete, margin, marginPct, sellingMode: p.sellingMode, yieldRatio: p.yieldRatio, lines };
       });
       return J({ items: out });
     },
@@ -227,11 +257,18 @@ const costing = {
 const reportSales = {
   list: withAuth(
     async (req, { business }) => {
-      const days = daysParam(req);
-      const from = since(days);
-      const rows = await db.select().from(orders).where(and(eq(orders.businessId, business.id), eq(orders.status, "paid"), gte(orders.createdAt, from)));
+      let range: ReturnType<typeof parseSalesReportRange>;
+      try { range = parseSalesReportRange(new URL(req.url).searchParams); }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "بازه گزارش معتبر نیست"); }
+      const { days, from, to } = range;
+      const rows = await db.select().from(orders).where(and(eq(orders.businessId, business.id), eq(orders.status, "paid"), eq(orders.paymentStatus, "paid"), gte(orders.createdAt, from), lte(orders.createdAt, to))).limit(50_001);
+      if (rows.length > 50_000) throw new HttpError(413, "تعداد سفارش‌های این بازه از سقف گزارش بیشتر است؛ بازه کوتاه‌تری انتخاب کنید");
       const series: Record<string, { date: string; revenue: number; orders: number }> = {};
-      for (let i = days - 1; i >= 0; i--) { const t = Date.now() - i * 86400_000; series[tehranDay(t)] = { date: new Date(t).toISOString(), revenue: 0, orders: 0 }; }
+      if (range.custom) {
+        for (const [index, key] of reportCalendarKeys(range, (date) => tehranDay(date)).entries()) series[key] = { date: new Date(range.from.getTime() + index * 86_400_000).toISOString(), revenue: 0, orders: 0 };
+      } else {
+        for (let i = days - 1; i >= 0; i--) { const t = Date.now() - i * 86400_000; series[tehranDay(t)] = { date: new Date(t).toISOString(), revenue: 0, orders: 0 }; }
+      }
       const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, revenue: 0 }));
       const methods: Record<string, { method: string; amount: number; count: number }> = {};
       const types: Record<string, { type: string; amount: number; count: number }> = {};
@@ -242,18 +279,78 @@ const reportSales = {
         const m = o.paymentMethod ?? "cash"; (methods[m] ??= { method: m, amount: 0, count: 0 }).amount += o.total; methods[m].count++;
         (types[o.type] ??= { type: o.type, amount: 0, count: 0 }).amount += o.total; types[o.type].count++;
       }
-      const base = and(eq(orders.businessId, business.id), eq(orders.status, "paid"), gte(orders.createdAt, from));
+      const base = and(eq(orders.businessId, business.id), eq(orders.status, "paid"), eq(orders.paymentStatus, "paid"), gte(orders.createdAt, from), lte(orders.createdAt, to));
       const byProduct = await db
-        .select({ name: orderItems.name, emoji: sql<string>`max(${orderItems.emoji})`, qty: sql<number>`sum(${orderItems.quantity})::int`, revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.price})::int` })
-        .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(base).groupBy(orderItems.name).orderBy(desc(sql`sum(${orderItems.quantity} * ${orderItems.price})`)).limit(10);
+        .select({ name: orderItems.name, emoji: sql<string>`max(${orderItems.emoji})`, qty: sql<number>`sum(${orderItems.quantity})::int`, revenue: sql<number>`sum(${orderItems.lineTotal})::int` })
+        .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(base).groupBy(orderItems.name).orderBy(desc(sql`sum(${orderItems.lineTotal})`));
       const byCategory = await db
-        .select({ name: sql<string>`coalesce(${categories.name}, 'بدون دسته')`, revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.price})::int`, qty: sql<number>`sum(${orderItems.quantity})::int` })
+        .select({ name: sql<string>`coalesce(${categories.name}, 'بدون دسته')`, revenue: sql<number>`sum(${orderItems.lineTotal})::int`, qty: sql<number>`sum(${orderItems.quantity})::int` })
         .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).leftJoin(products, eq(products.id, orderItems.productId)).leftJoin(categories, eq(categories.id, products.categoryId))
-        .where(base).groupBy(categories.name).orderBy(desc(sql`sum(${orderItems.quantity} * ${orderItems.price})`));
+        .where(base).groupBy(categories.name).orderBy(desc(sql`sum(${orderItems.lineTotal})`));
+      const [soldItems] = await db.select({ count: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::int` })
+        .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(base);
+      const [catalog, soldProductRows] = await Promise.all([
+        db.select({ id: products.id, name: products.name }).from(products).where(eq(products.businessId, business.id)),
+        db.select({ id: orderItems.productId }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
+          .where(and(base, sql`${orderItems.productId} is not null`)).groupBy(orderItems.productId),
+      ]);
+      const soldProductIds = new Set(soldProductRows.flatMap((row) => row.id === null ? [] : [row.id]));
+      const unsoldProducts = catalog.filter((product) => !soldProductIds.has(product.id)).map((product) => product.name);
+      const recentOrderRows = await db.select({ id: orders.id, number: orders.number, status: orders.status, paymentStatus: orders.paymentStatus, paymentMethod: orders.paymentMethod, type: orders.type, total: orders.total, createdAt: orders.createdAt })
+        .from(orders).where(and(eq(orders.businessId, business.id), gte(orders.createdAt, from), lte(orders.createdAt, to)))
+        .orderBy(desc(orders.createdAt)).limit(100);
+      const itemCounts = recentOrderRows.length ? await db.select({ orderId: orderItems.orderId, quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::int` })
+        .from(orderItems).where(inArray(orderItems.orderId, recentOrderRows.map((row) => row.id))).groupBy(orderItems.orderId) : [];
+      const statusRows = await db.select({ status: orders.status, count: sql<number>`count(*)::int`, amount: sql<number>`coalesce(sum(${orders.total}), 0)::int` })
+        .from(orders).where(and(eq(orders.businessId, business.id), gte(orders.createdAt, from), lte(orders.createdAt, to))).groupBy(orders.status);
+      const recentTransactions = await db.select({ id: transactions.id, amount: transactions.amount, date: transactions.date, orderNumber: orders.number, method: orders.paymentMethod })
+        .from(transactions).innerJoin(orders, eq(orders.id, transactions.orderId))
+        .where(and(eq(transactions.businessId, business.id), eq(transactions.source, "sale"), eq(orders.businessId, business.id), gte(transactions.date, from), lte(transactions.date, to)))
+        .orderBy(desc(transactions.date)).limit(15);
       const revenue = rows.reduce((s, o) => s + o.total, 0);
-      return J({ days, totals: { revenue, orders: rows.length, avg: rows.length ? Math.round(revenue / rows.length) : 0, discounts: rows.reduce((s, o) => s + o.discountAmount, 0), tax: rows.reduce((s, o) => s + o.tax, 0) }, series: Object.values(series), hours, methods: Object.values(methods), types: Object.values(types), byProduct, byCategory });
+      const cogs = rows.reduce((s, o) => s + o.cogs, 0);
+      return J({
+        days, from: from.toISOString(), to: to.toISOString(), customRange: range.custom,
+        totals: { revenue, orders: rows.length, avg: rows.length ? Math.round(revenue / rows.length) : 0, discounts: rows.reduce((s, o) => s + o.discountAmount, 0), tax: rows.reduce((s, o) => s + o.tax, 0), cogs, grossProfit: revenue - cogs, soldItems: soldItems?.count ?? 0 },
+        series: Object.values(series), hours, methods: Object.values(methods), types: Object.values(types), byProduct, byCategory, unsoldProducts,
+        recentOrders: recentOrderRows.map((row) => ({ ...row, itemCount: itemCounts.find((count) => count.orderId === row.id)?.quantity ?? 0 })),
+        statuses: statusRows,
+        recentTransactions,
+      });
     },
     { feature: "sales_reports" },
+  ),
+};
+
+const reportDailyStatus = {
+  list: withAuth(
+    async (_req, { business }) => {
+      const now = new Date();
+      const todayStart = startOfDayTehran(now);
+      const todayEnd = new Date(endOfDayTehran(now).getTime() + 999);
+      const yesterday = new Date(now.getTime() - 86_400_000);
+      const yesterdayStart = startOfDayTehran(yesterday);
+      const yesterdayEnd = new Date(endOfDayTehran(yesterday).getTime() + 999);
+      const dailySummary = (from: Date, to: Date) => db.select({ status: orders.status, paymentStatus: orders.paymentStatus, count: sql<number>`count(*)::int`, total: sql<number>`coalesce(sum(${orders.total}), 0)::int` })
+        .from(orders).where(and(eq(orders.businessId, business.id), gte(orders.createdAt, from), lte(orders.createdAt, to)))
+        .groupBy(orders.status, orders.paymentStatus);
+      const [todayOrders, yesterdayOrders, lowStock] = await Promise.all([
+        dailySummary(todayStart, todayEnd),
+        dailySummary(yesterdayStart, yesterdayEnd),
+        db.select({ count: sql<number>`count(*)::int` }).from(inventoryItems)
+          .where(and(eq(inventoryItems.businessId, business.id), eq(inventoryItems.trackStock, true), eq(inventoryItems.isActive, true), sql`${inventoryItems.stock} <= ${inventoryItems.minStock}`)),
+      ]);
+      const paid = todayOrders.filter((order) => order.status === "paid" && order.paymentStatus === "paid");
+      const revenue = paid.reduce((sum, order) => sum + Number(order.total), 0);
+      const paidCount = paid.reduce((sum, order) => sum + Number(order.count), 0);
+      const yesterdayRevenue = yesterdayOrders.filter((order) => order.status === "paid" && order.paymentStatus === "paid").reduce((sum, order) => sum + Number(order.total), 0);
+      return J({
+        revenue, orders: paidCount, average: paidCount ? Math.round(revenue / paidCount) : 0,
+        yesterdayRevenue, lowStock: Number(lowStock[0]?.count ?? 0),
+        pending: todayOrders.filter((order) => ["pending", "preparing", "ready", "served"].includes(order.status)).reduce((sum, order) => sum + Number(order.count), 0),
+      });
+    },
+    { feature: "sales_reports", manager: true },
   ),
 };
 
@@ -264,10 +361,10 @@ const reportPnl = {
       const from = since(days);
       const paid = await db.select().from(orders).where(and(eq(orders.businessId, business.id), eq(orders.status, "paid"), gte(orders.createdAt, from)));
       const cogsRes: any = await db.execute(sql`
-        select o.id as oid, o.created_at as at, sum(oi.quantity * r.quantity * ii.cost_per_unit)::float8 as cogs
+        select o.id as oid, o.created_at as at, sum(oi.quantity * (case when oi.weight_grams is null then 1 else oi.weight_grams::float8 / 1000 / oi.yield_ratio_snapshot end) * r.quantity * ii.recipe_to_stock_factor * (1 + r.waste_percent / 100.0) * ii.cost_per_unit)::float8 as cogs
         from order_items oi join orders o on o.id = oi.order_id
         join recipes r on r.product_id = oi.product_id join inventory_items ii on ii.id = r.item_id
-        where o.business_id = ${business.id} and o.status = 'paid' and o.created_at >= ${from}
+        where o.business_id = ${business.id} and o.status = 'paid' and o.created_at >= ${from} and ii.track_stock = true
         group by o.id, o.created_at`);
       const tx = await db.select().from(transactions).where(and(eq(transactions.businessId, business.id), gte(transactions.date, from), sql`${transactions.source} <> 'sale'`));
       const series: Record<string, { date: string; revenue: number; cogs: number; expenses: number }> = {};
@@ -401,7 +498,7 @@ const ai = {
       for (const o of os) hours[tehranHour(o.createdAt)]++;
       const peak = hours.indexOf(Math.max(...hours));
       const avg = os.length ? Math.round(os.reduce((s, o) => s + o.total, 0) / os.length) : 0;
-      const low = can(auth, "inventory") ? await db.select().from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), sql`${inventoryItems.stock} <= ${inventoryItems.minStock}`)) : [];
+      const low = can(auth, "inventory") ? await db.select().from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), eq(inventoryItems.trackStock, true), eq(inventoryItems.isActive, true), sql`${inventoryItems.stock} <= ${inventoryItems.minStock}`)) : [];
       const tips: string[] = [];
       if (sold[0]) tips.push(`«${sold[0].name}» پرفروش‌ترین محصول ۱۴ روز اخیر است؛ آن را در جایگاه اول منو و بخش «ویژه» قرار دهید.`);
       if (slow.length) tips.push(`${slow.length} محصول در ۱۴ روز گذشته فروشی نداشته‌اند (${slow.map((s) => s.name).join("، ")}). تخفیف یا تصویر جذاب‌تر امتحان کنید.`);
@@ -432,6 +529,7 @@ export const registryB: Record<string, any> = {
   stockcount,
   costing,
   report_sales: reportSales,
+  report_daily_status: reportDailyStatus,
   report_pnl: reportPnl,
   report_bank: reportBank,
   payments: paymentsH,

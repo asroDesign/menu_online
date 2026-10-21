@@ -1,42 +1,69 @@
-# چاپگرها
+# چاپگرها و گردش چاپ
 
-> مشخصات بازسازی ماژول `printers` برای عامل پیاده‌سازی. این سند رفتار و قرارداد ماژول فعلی را خلاصه می‌کند؛ اگر اختلافی با کد زنده وجود داشت، کد و API فعلی منبع حقیقت هستند.
+> راهنمای بازسازی ماژول چاپ. این ماژول اتصال دستگاه، مسیردهی اقلام، سیاست چاپ هر رویداد، صف و بازچاپ را کنار هم قرار می‌دهد. کد API و عامل محلی منبع حقیقت اجرایی‌اند.
 
-## جایگاه و دسترسی
+## جایگاه، مسیر و دسترسی
 
-- مسیر پنل: `/dashboard/printers`
-- کامپوننت/منبع فعلی: `src/modules/hardware.tsx — Printers`
-- entitlement تعرفه: `cloud_printer`
-- هدف: مدیریت چند پرینتر و تفکیک دسته محصولات برای چاپ خودکار سفارش.
+- تنظیمات: `/dashboard/settings/printers/devices`, `/dashboard/settings/printers/workflows`, `/dashboard/settings/printers/categories`.
+- صف و تاریخچه: `/dashboard/printers`.
+- UI: `src/modules/printer-settings.tsx`, `src/modules/hardware.tsx` و pageهای زیر `src/app/dashboard/settings/printers/`.
+- entitlement: `cloud_printer`; تنظیمات کسب‌وکار فقط برای مدیر/مالک قابل ویرایش است.
+- نقش ماژول: تعیین ایستگاه‌های چاپ، مسیر اتصال، تفکیک بلیت‌ها و تعیین زمان/تعداد نسخه‌های چاپ فیش و بلیت.
 
-## رابط و جریان کار
+## دستگاه و اتصال عامل محلی
 
-فهرست چاپگرها و اتصال agent، انتخاب دسته‌بندی‌های محصول برای هر printer، سلامت دستگاه؛ queue چاپ با polling 6s؛ چاپ آزمایشی؛ مشاهده خطا و retry/delete job.
+در تب «پرینترها» مدیر می‌تواند چند دستگاه از نوع printer بسازد، نام/کد اتصال و heartbeat را ببیند، دسته‌بندی‌های پیش‌فرض هر دستگاه را انتخاب کند، اتصال آزمایشی بگیرد و وضعیت آنلاین/آفلاین را بررسی کند. هر device یک code دارد و Agent آن را برای poll/ack صف همان دستگاه مصرف می‌کند؛ endpoint دستگاه نباید به پنل عمومی یا device دیگر اجازه دسترسی بدهد.
 
-## داده و API
+`BridgeSetup` پیکربندی محلی agent را برای هر دستگاه در localStorage مرورگر نگه می‌دارد و JSON قابل دانلود/کپی می‌سازد. مسیرهای پشتیبانی‌شده در UI عبارت‌اند از TCP شبکه (host/port)، USB-serial (COM/path و baud) و چاپگر USB با نام queue نصب‌شده در Windows. Agent ویندوزی چند دستگاه را به یک‌باره به صف ابری وصل می‌کند؛ چاپ USB از صف Windows استفاده می‌کند. پیکربندی محلی شامل آدرس سرور، code دستگاه، نام، نوع اتصال، کدگذاری و پارامترهای اتصال است. این فایل را مانند credential دستگاه نگه‌داری کن و در جای عمومی منتشر نکن.
 
-GET/CRUD /api/r/dev_printer؛ PATCH /api/r/dev_printer/:id {printerCategoryIds}؛ GET/POST /api/r/printjobs؛ device jobs /api/device/:code/jobs؛ categories /api/categories.
+این پیاده‌سازی UI و پروتکل عامل محلی پروژه را استفاده می‌کند؛ انتخاب روش legacy QZ Tray و pairing code مجزا مانند بعضی پنل‌ها در این UI وجود ندارد. این‌ها را به‌عنوان قابلیت حاضر معرفی نکن. پشتیبانی چاپ واقعی به نصب و اجرای Agent ویندوزی، دسترسی سیستم به پرینتر و تطبیق encoding/model وابسته است؛ مرورگر به‌تنهایی به USB چاپگر دسترسی مستقیم نمی‌گیرد.
 
-## قواعدی که بازنویسی باید حفظ کند
+## سیاست چاپ خودکار
 
-یک سفارش ممکن است بین printerها partition شود؛ هر پرینتر فقط categoryهای خودش را چاپ کند؛ idempotency برای retry؛ USB/network اتصال توسط local agent، نه browser server.
+تب «چاپ خودکار» برای هر رویداد یکی از presetهای عدم چاپ/فیش مشتری/آشپزخانه/هردو/نسخه کافه را می‌گیرد و در چیدمان دلخواه تعداد نسخه‌ها را از ۰ تا ۵ تعیین می‌کند:
 
-- وضعیت‌های loading، خطا، داده خالی و موفقیت را جدا و قابل فهم نشان بده؛ خطا را با امکان تلاش مجدد مدیریت کن.
-- رابط فارسی و RTL، ارقام فارسی، پول تومان، و تاریخ‌های شمسی را مطابق ابزارهای مشترک پروژه نمایش بده.
-- layout را برای موبایل/تبلت/دسکتاپ بازسازی کن؛ فرم‌ها و جدول‌ها در عرض کم قابل استفاده بمانند و اکشن اصلی از دسترس خارج نشود.
-- عملیات را با componentهای مشترک `src/components/ui.tsx`, `src/components/resource-page.tsx` و `src/lib/api.ts` هم‌راستا کن؛ بعد از mutation فهرست/cache را تازه کن.
-- tenant isolation، احراز هویت، entitlement و نقش باید سمت API نیز enforce شود؛ مخفی کردن دکمه به‌تنهایی مجوز نیست.
+| رویداد | انتخابگر چاپ |
+|---|---|
+| ایجاد سفارش با میز | ایجاد هر سفارش تازه‌ای که به میز متصل است |
+| ایجاد سفارش بدون میز | بیرون‌بر، پیشخوان یا سفارش بدون میز |
+| تسویه سفارش | فیش مشتری و نسخه بایگانی کافه پس از تسویه صندوق یا تأیید پرداخت آنلاین |
+| آماده‌شدن سفارش | فیش یا بلیت هنگام انتقال به `ready` |
 
-## مشخصات سطح پیاده‌سازی
+برای فیش مشتری و نسخه کافه می‌توان چاپگر خاص برگزید؛ در حالت خودکار به اولین چاپگر موجود می‌رود. برای آشپزخانه می‌توان یک یا چند چاپگر ایستگاهی مشخص کرد. اگر چاپگرهای خاص انتخاب نشده باشند، هر چاپگر طبق categoryهای اختصاص‌یافته اقلام خودش را می‌گیرد؛ اگر هیچ چاپگری category نداشته باشد، fallback فعلی اولین چاپگر را برای همه اقلام به‌کار می‌برد. انتخاب چند چاپگر برای آشپزخانه، بلیت واجد شرایط را برای هر ایستگاه منتخب صف می‌کند.
 
-`DevicePanel` برای `/api/r/dev_printer` (device kind printer)؛ هر device name/code/lastSeen/status و hint `/api/device/:code/jobs`. برای هر پرینتر `printerCategoryIds[]` از `/api/categories` انتخاب می‌شود و PATCH `/api/r/dev_printer/:id`; backend validate می‌کند تمام category ids متعلق به همان business باشند. این نگاشت باعث می‌شود سفارش چنددسته‌ای jobهای تفکیک‌شده برای آشپزخانه/کافی‌بار بسازد.
+تنظیمات در `businesses.settings.printerSettings` ذخیره می‌شود. مدل و defaultها در `src/lib/printer-policy.ts` تعریف شده‌اند: `receiptHeader`, `receiptFooter` و `rules` برای `created_with_table`, `created_without_table`, `settled`, `completed`. Header/footer هرکدام حداکثر ۵۰۰ نویسه دارند؛ شمار نسخه در بازه ۰–۵ و شناسه چاپگر مثبت محدود است. هنگام PATCH، سرور با `businessId` و `kind=printer` مالکیت تمام شناسه‌ها را دوباره بررسی می‌کند. نوشتن settings نیازمند `cloud_printer` است.
 
-Queue از `/api/r/printjobs` هر ۶ ثانیه: status pending/printed/failed، deviceName، order یا test، زمان و detail failure. هر ردیف view receipt `content`, retry با status=pending، delete. دکمه test POST `/api/r/printjobs`؛ server برای هر printer یک test job می‌سازد و بدون printer خطا می‌دهد. Retry باید duplicate print را در نظر داشته باشد؛ idempotent job ID مسیر مرجع است.
+## دسته‌بندی و محتوا
 
-این UI connection agent/USB/TCP را browser مستقیم مدیریت نمی‌کند؛ agent محلی jobs endpoint را poll/ack می‌کند و با USB یا شبکه چاپ می‌زند. برای exact command/status protocol، docs/device local app و API device route را بخوان.
+تب «مسیر دسته‌بندی‌ها» اتصال چند category به هر چاپگر را مدیریت می‌کند. نمونه: آشپزخانه category غذای گرم را می‌گیرد و کافی‌بار نوشیدنی‌ها را؛ بلیت هر چاپگر فقط اقلام categoryهای خودش را چاپ می‌کند. نام و قیمت گزینه‌های انتخاب‌شده همراه همان قلم می‌آیند تا کارگاه آماده‌سازی variant را بشناسد. بلیت آشپزخانه مبلغ فاکتور را نمایش نمی‌دهد؛ فیش مشتری و نسخه کافه مبلغ و جمع نهایی را نشان می‌دهند.
 
-**پذیرش:** دو printer با دسته‌های جدا، category بدون دسته، failed detail, retry, test, delete, offline device و order mix kitchen/cafe bar.
+سربرگ و پابرگ فیش در تب دستگاه ذخیره می‌شود و روی خروجی مشتری، کافه و آشپزخانه قرار می‌گیرد. داده سفارش از snapshot سفارش/گزینه می‌آید، نه قیمت کنونی محصول. منبع رندر متن در `receiptText` در `src/lib/orders.ts` است؛ رسید چاپ مرورگر `/print/receipt/:id` مستقل و فقط خواندنی است و صف چاپ محلی را retry نمی‌کند.
 
-## مرجع بازسازی
+## صف، خطا و بازچاپ
 
-برای جزئیات دقیق فیلدها، ترتیب کنترل‌ها، پیام‌های فارسی و قرارداد typeها، فایل منبع بالا را همراه API route متناظر در `src/app/api` بخوان. این راهنما رفتار را مشخص می‌کند و جایگزین بررسی source-of-truth نیست.
+صف `/dashboard/printers` از `/api/r/printjobs` هر ۶ ثانیه به‌روزرسانی می‌شود و حداکثر ۳۰ ردیف اخیر را نشان می‌دهد: pending/printing/printed/failed، دستگاه، سفارش یا تست، زمان و شرح خطا. مدیر می‌تواند متن را preview کند، job را دوباره pending کند یا حذف کند. دکمه چاپ آزمایشی با `POST /api/r/printjobs` برای چاپگرهای موجود job آزمایشی می‌سازد. Retry فیزیکی ممکن است کاغذ تکراری بسازد و باید برای کاربر تأیید/پیام واضح داشته باشد.
+
+در کد فعلی eventهای ایجاد سفارش، تسویه و آماده‌شدن در transaction همان تغییر با `queuePrintJobs` درج می‌شوند. رویداد created بر مبنای `tableId` به policy با/بدون میز نگاشت می‌شود. رویداد completed هنگام تغییر سفارش به `ready` از API پنل و دستگاه صف می‌شود. رویداد settled پس از ثبت تسویه ایجاد می‌شود؛ فروش نسیه پرداخت نقدی نیست و فیش settlement چاپ نمی‌کند. چاپ بیرونی از database transaction جدا انجام می‌شود: worker/agent صف را بعداً poll می‌کند.
+
+## API، فایل‌ها و قرارداد داده
+
+- دستگاه‌ها: GET/CRUD `/api/r/dev_printer`; PATCH `/api/r/dev_printer/:id` با `printerCategoryIds`.
+- jobها: GET/POST `/api/r/printjobs`; device polling/ack از `/api/device/:code/jobs` و actionهای دستگاه.
+- تنظیم workflow و header/footer: GET/PATCH `/api/business`, کلید `settings.printerSettings`.
+- categoryها: GET `/api/categories`.
+- policy و پاک‌سازی JSON: `src/lib/printer-policy.ts`; تغییر اتصال/events: `src/lib/orders.ts`; event ready: `src/app/api/orders/[id]/route.ts` و `src/app/api/device/[code]/[action]/route.ts`.
+- UI settings: `src/modules/printer-settings.tsx`; device/local bridge/queue: `src/modules/hardware.tsx`.
+
+این تنظیمات در JSON موجود business ذخیره می‌شوند؛ migration لازم نیست. آزمون pure/source در `tests/printer-settings.test.cjs` defaultهای workflow، bounds، tenant printer selection و اتصال checkout نسیه/print را بررسی می‌کند. اتصال فیزیکی چند مدل چاپگر و چاپ واقعی روی کاغذ در این مجموعه اجرا نشده است.
+
+## معیار پذیرش بازسازی
+
+دو چاپگر را با دسته‌های جدا تنظیم کن، یک سفارش ترکیبی ثبت و مطمئن شو هر بلیت فقط اقلام مقصد را دارد؛ policy با/بدون میز، تسویه، تکمیل، تعداد نسخه، انتخاب چاپگر مشخص، footer/header، دستگاه آفلاین، خطای agent، test job، retry و حذف را بررسی کن. در موبایل navigation تب‌ها باید قابل اسکرول بماند و تنظیم نسخه‌ها/انتخاب دستگاه به بیرون viewport نیفتد. درخواست API بدون role/feature یا با printer متعلق به tenant دیگر باید رد شود.
+
+## چاپ از میزکار صندوق و کشف صف‌های Windows — ۲۰۲۶-۱۰-۲۰
+
+`POST /api/orders/:id/print` با kind مشتری/آشپزخانه/کافه، ۲۰ درخواست در دقیقه، مجوز cloud_printer + مدیر/صندوق و lookup tenant، یک نسخه دستی به صف می‌دهد. تعداد jobs را برمی‌گرداند و در صفر بودن 409 می‌دهد؛ فراخوانی مجدد چاپ مجدد است. queuePrintJobs آرگومان اختیاری manualKind دارد؛ دسته‌بندی اقلام آشپزخانه حفظ می‌شود و مبالغ آشپزخانه حذف شده‌اند. رسید مرورگر گزینه‌های snapshot و متن سربرگ/پابرگ کسب‌وکار را نمایش می‌دهد.
+
+اپ Tauri فرمان `installed_printers` دارد: Win32_Printer با PowerShell ثابت، خروجی JSON صف‌های نصب‌شده. UI دکمه کشف و select برای هر printer config دارد؛ انتخاب transport=usb و printerName را در تنظیمات ویرایش‌نشده قرار می‌دهد. ابتدا توقف/ذخیره/شروع لازم است. هیچ چاپگر کشف‌شده‌ای خودکار نقش نمی‌گیرد. واردکردن JSON اولیه هنوز لازم است؛ pairing مرورگر و QZ وجود ندارد. Rust و چاپ فیزیکی در این محیط تست نشده‌اند.
+
+فهرست صریح باقی‌مانده‌ها: [گزارش تطبیق](../../../POS_REFERENCE_PARITY.md).

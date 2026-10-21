@@ -11,6 +11,7 @@ import { formatDate, formatNumber, formatPrice, timeAgo, toFa } from "@/lib/form
 import { ResourcePage } from "@/components/resource-page";
 import { SettingCard } from "@/components/setting-card";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
+import { MembershipTierManager } from "@/components/membership-tier-manager";
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
@@ -63,6 +64,7 @@ export function Customers() {
         search={(r, t) => r.name.includes(t) || r.phone.includes(t)}
         header={({ items }) => (
           <div className="mb-4 space-y-3">
+            {f.isManager && <div className="flex flex-wrap justify-end gap-2"><MembershipTierManager /><Button size="sm" variant="secondary" onClick={() => window.location.assign("/api/customers/export")}><Icon name="download" className="size-4"/> خروجی CSV همه مشتریان</Button></div>}
             <SettingCard title="نرخ کسب امتیاز" desc="به ازای هر چند تومان خرید، ۱ امتیاز به مشتری تعلق می‌گیرد." k="pointsPerToman" suffix="تومان = ۱ امتیاز" />
             <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
               <IconText>{[{ key: "all", label: "همه", emoji: "" }, ...SEGMENTS].map((s) => {
@@ -127,7 +129,7 @@ export function Cashback() {
           const v = window.prompt(`مبلغ اعتبار برای ${r.name} (تومان). برای کسر عدد منفی وارد کنید:`, "50000");
           if (!v) return;
           try {
-            await api("/api/r/walletlog", { method: "POST", body: { customerId: r.id, amount: Number(v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))), note: "تعدیل دستی توسط مدیر" } });
+            await api("/api/r/walletlog", { method: "POST", body: { customerId: r.id, amount: Number(v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))), note: "تعدیل دستی توسط مدیر", idempotencyKey: crypto.randomUUID() } });
             ctx.reload();
             ledger.reload(true);
             toast("اعتبار ثبت شد");
@@ -210,7 +212,6 @@ export function Surveys() {
   const [results, setResults] = useState<{ survey: Survey; responses: Response_[] } | null>(null);
   const [share, setShare] = useState<Survey | null>(null);
   const [del, setDel] = useState<Survey | null>(null);
-  useEffect(() => { setOrigin(location.origin); }, []);
 
   const blankQ = (n: number): QDraft => ({ id: `q${n}`, text: "", type: "rating", options: "" });
   function openNew() { setTitle(""); setDesc(""); setQs([blankQ(1)]); setEditing("new"); }
@@ -249,7 +250,7 @@ export function Surveys() {
               <div className="mt-4 flex gap-2 text-xs"><Badge color="brand">{toFa(s.questions.length)} سؤال</Badge><Badge color="emerald">{toFa(s.responseCount)} پاسخ</Badge>{!s.isActive && <Badge>غیرفعال</Badge>}</div>
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
                 <Button size="sm" onClick={() => openResults(s)}>{<EmojiIcon emoji="" />} نتایج</Button>
-                <Button size="sm" variant="secondary" onClick={() => setShare(s)}><Icon name="qr" className="size-4" /> اشتراک‌گذاری</Button>
+                <Button size="sm" variant="secondary" onClick={() => { setOrigin(location.origin); setShare(s); }}><Icon name="qr" className="size-4" /> اشتراک‌گذاری</Button>
                 <span className="ms-auto flex"><IconButton icon="edit" label="ویرایش" onClick={() => openEdit(s)} /><IconButton icon="trash" label="حذف" className="hover:bg-rose-50 hover:text-rose-600" onClick={() => setDel(s)} /></span>
               </div>
             </Card>

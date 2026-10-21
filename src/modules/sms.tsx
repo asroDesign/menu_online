@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, useCollection } from "@/lib/api";
 import { JalaliInput } from "@/components/jalali-input";
-import { formatDate, formatTime, timeAgo, toFa } from "@/lib/format";
+import { formatDate, formatPrice, formatTime, timeAgo, toFa } from "@/lib/format";
 import { fromJ, fmtJ, toJ } from "@/lib/jalali";
 import { OCCASIONS, SMS_VARS } from "@/lib/sms-meta";
 import type { Settings } from "@/lib/plans";
@@ -19,7 +19,7 @@ const AUD: Record<string, string> = { "seg:vip": "گروه ویژه (VIP)", "seg
 const CST: Record<string, [string, string]> = { scheduled: ["زمان‌بندی‌شده", "violet"], sending: ["در حال ارسال", "amber"], sent: ["ارسال شد", "emerald"], failed: ["ناموفق", "rose"] };
 
 export function SmsPanel() {
-  const [tab, setTab] = useState<"settings" | "templates" | "campaigns" | "auto" | "logs">("campaigns");
+  const [tab, setTab] = useState<"settings" | "templates" | "campaigns" | "auto" | "retention" | "logs">("campaigns");
   const [cfg, setCfg] = useState<SmsCfg | null>(null);
   const [err, setErr] = useState("");
   const tpls = useCollection<Tpl>("/api/r/smstemplates");
@@ -28,7 +28,7 @@ export function SmsPanel() {
   if (err) return <ErrorState message={err} />;
   if (!cfg) return <Skeleton className="h-96 rounded-2xl" />;
   const connected = !!cfg.apiKeySet;
-  const tabs: [typeof tab, string][] = [["campaigns", " کمپین‌ها"], ["templates", " قالب‌ها (پترن)"], ["auto", " خودکار (تولد)"], ["settings", " اتصال پنل"], ["logs", " گزارش ارسال"]];
+  const tabs: [typeof tab, string][] = [["campaigns", " کمپین‌ها"], ["retention", "بازگشت مشتری"], ["templates", " قالب‌ها (پترن)"], ["auto", " خودکار (تولد)"], ["settings", " اتصال پنل"], ["logs", " گزارش ارسال"]];
   return (
     <div className="animate-fade-in">
       <PageHeader title="پنل پیامک باشگاه مشتریان" subtitle="ارسال پیامک مناسبتی، تبلیغاتی و تولد با روش پترن (قالب‌های تأییدشده) از طریق کاوه‌نگار یا sms.ir" actions={<Badge color={connected ? "emerald" : "amber"}>{connected ? `متصل: ${cfg.provider === "smsir" ? "sms.ir" : "کاوه‌نگار"}` : "متصل نیست"}</Badge>} />
@@ -37,6 +37,7 @@ export function SmsPanel() {
       {tab === "settings" && <SettingsTab cfg={cfg} templates={tpls.items} saved={loadCfg} />}
       {tab === "templates" && <TemplatesTab col={tpls} provider={cfg.provider} />}
       {tab === "campaigns" && <CampaignsTab templates={tpls.items.filter((t) => t.purpose !== "reservation_confirmed" && t.purpose !== "reservation_rejected")} />}
+      {tab === "retention" && <RetentionTab templates={tpls.items.filter((t) => t.isActive && (t.purpose === "promo" || t.purpose === "occasion"))} />}
       {tab === "auto" && <AutoTab cfg={cfg} templates={tpls.items} saved={loadCfg} />}
       {tab === "logs" && <LogsTab />}
     </div>
@@ -226,7 +227,7 @@ function AutoTab({ cfg, templates, saved }: { cfg: SmsCfg; templates: Tpl[]; sav
   }
   async function run() {
     setBusy("r");
-    try { const r = await api<{ item: { campaigns: number; birthdays: number } }>("/api/r/smsauto", { method: "POST", body: {} }); toast(`اجرا شد: ${toFa(r.item.birthdays)} پیامک تولد، ${toFa(r.item.campaigns)} کمپین زمان‌بندی‌شده`); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(""); }
+    try { const r = await api<{ item: { campaigns: number; birthdays: number; retention?: number } }>("/api/r/smsauto", { method: "POST", body: {} }); toast(`اجرا شد: ${toFa(r.item.birthdays)} تولد، ${toFa(r.item.campaigns)} کمپین زمان‌بندی‌شده، ${toFa(r.item.retention ?? 0)} پیام بازگشت مشتری`); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(""); }
   }
   return (
     <div className="grid gap-5 lg:grid-cols-2">
@@ -238,7 +239,7 @@ function AutoTab({ cfg, templates, saved }: { cfg: SmsCfg; templates: Tpl[]; sav
       </Card>
       <Card className="space-y-3 p-5">
         <h3 className="font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> اجرای خودکار</h3>
-        <p className="text-sm leading-7 text-stone-600">سرور هر ۱۰ دقیقه کمپین‌های زمان‌بندی‌شده و پیامک‌های تولد را بررسی و ارسال می‌کند. برای اجرای بیرونی (Cron) هم می‌توانید آدرس <code dir="ltr" className="rounded bg-stone-100 px-1.5">/api/cron/sms?key=CRON_SECRET</code> را فراخوانی کنید.</p>
+        <p className="text-sm leading-7 text-stone-600">سرور کمپین‌های زمان‌بندی‌شده، پیامک‌های تولد و صف بازگشت مشتری را بررسی می‌کند. برای اجرای بیرونی (Cron) آدرس <code dir="ltr" className="rounded bg-stone-100 px-1.5">/api/cron/sms?key=CRON_SECRET</code> را فراخوانی کنید.</p>
         <Button variant="secondary" onClick={run} loading={busy === "r"}><IconText>{<EmojiIcon emoji="" />}</IconText> اجرای فوری</Button>
         <div className="rounded-xl bg-stone-50 p-4 text-xs leading-7 text-stone-600"><b>تاریخ تولد مشتری</b> را در بخش «باشگاه مشتریان» (ماه و روز شمسی) ثبت کنید. مشتریانی که «دریافت پیامک» را خاموش کرده‌اند پیامی دریافت نمی‌کنند.</div>
       </Card>
@@ -252,7 +253,7 @@ function LogsTab() {
   useEffect(() => { const load = () => api<NonNullable<typeof d>>("/api/r/smslogs").then(setD).catch((e) => setErr(e.message)); load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
   if (err) return <ErrorState message={err} />;
   if (!d) return <Skeleton className="h-64 rounded-2xl" />;
-  const KIND: Record<string, string> = { campaign: "کمپین", birthday: "تولد", test: "تست", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو" };
+  const KIND: Record<string, string> = { campaign: "کمپین", retention: "بازگشت مشتری", birthday: "تولد", test: "تست", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو" };
   return (
     <div>
       <div className="mb-4 grid gap-3 sm:grid-cols-3">{[["ارسال موفق", d.stats.sent, "text-emerald-600"], ["ناموفق", d.stats.failed, "text-rose-600"]].map(([l, v, c]) => <Card key={l as string} className="p-4"><p className="text-xs text-stone-500">{l as string}</p><p className={cn("mt-1 text-2xl font-black", c as string)}>{toFa(v as number)}</p></Card>)}</div>
@@ -262,4 +263,74 @@ function LogsTab() {
       )}</IconText>
     </div>
   );
+}
+
+type RetentionRuleView = {
+  id: number; title: string; triggerType: "inactive_days" | "segment_enter" | "segment_exit"; inactiveDays: number | null;
+  segmentKey: string | null; templateId: number; cooldownDays: number; maxMarketingSms30Days: number; sendHourTehran: number;
+  attributionDays: number; discountCode: string; discountLabel: string; isActive: boolean;
+  counts: Record<string, number>; conversions: number; attributedRevenue: number;
+};
+const SEGMENT_LABELS: Record<string, string> = { vip: "ویژه", loyal: "وفادار", regular: "عادی", new: "جدید", at_risk: "در خطر ریزش", lost: "ازدست‌رفته", none: "بدون خرید" };
+const DELIVERY_LABELS: Record<string, string> = { queued: "در صف", sending: "در حال ارسال", sent: "موفق", skipped: "ردشده طبق شرط", failed: "ناموفق", uncertain: "نتیجه نامشخص" };
+
+function RetentionTab({ templates }: { templates: Tpl[] }) {
+  const toast = useToast();
+  const [items, setItems] = useState<RetentionRuleView[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [f, setF] = useState({ title: "", triggerType: "inactive_days", inactiveDays: "30", segmentKey: "at_risk", templateId: "", cooldownDays: "30", maxMarketingSms30Days: "4", sendHourTehran: "10", attributionDays: "7", discountCode: "", discountLabel: "" });
+  const selectedTemplate = f.templateId || String(templates[0]?.id ?? "");
+  const load = useCallback(() => api<{ items: RetentionRuleView[] }>("/api/sms-retention").then((r) => { setItems(r.items); setError(""); }).catch((e) => setError((e as Error).message)), []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function create() {
+    if (!templates.length) return toast("ابتدا یک قالب فعال تبلیغاتی بسازید", "error");
+    setBusy(true);
+    try {
+      await api("/api/sms-retention", { method: "POST", body: { ...f, templateId: Number(selectedTemplate), inactiveDays: Number(f.inactiveDays), cooldownDays: Number(f.cooldownDays), maxMarketingSms30Days: Number(f.maxMarketingSms30Days), sendHourTehran: Number(f.sendHourTehran), attributionDays: Number(f.attributionDays) } });
+      toast("اتوماسیون بازگشت مشتری ساخته شد؛ ارزیابی در نوبت Cron انجام می‌شود");
+      setF({ ...f, title: "" });
+      await load();
+    } catch (e) { toast((e as Error).message, "error"); }
+    finally { setBusy(false); }
+  }
+
+  async function toggle(item: RetentionRuleView) {
+    try {
+      await api(`/api/sms-retention/${item.id}`, { method: "PATCH", body: { isActive: !item.isActive } });
+      await load();
+    } catch (e) { toast((e as Error).message, "error"); }
+  }
+
+  if (error && !items) return <ErrorState message={error} onRetry={() => void load()} />;
+  if (!items) return <Skeleton className="h-72 rounded-2xl" />;
+
+  return <div className="space-y-5">
+    <Card className="p-4 text-sm leading-7 text-stone-600">
+      <b>اتوماسیون بازگشت مشتری</b> با همان قالب‌های پترن و درگاه پیامک کار می‌کند. محرک می‌تواند بی‌خرید ماندن یا ورود/خروج از یک گروه مشتری باشد. رضایت پیامک و شماره در لحظهٔ ارسال دوباره بررسی می‌شود؛ خرید تازه، cooldown و سقف ماهانه پیام بازگشت را متوقف می‌کند. درآمد منتسب فقط جمع سفارش‌های پرداخت‌شده در پنجرهٔ انتخابی و با آخرین پیام موفق پیش از خرید است؛ این شاخص اثر علّی کمپین را اثبات نمی‌کند.
+    </Card>
+    {templates.length === 0 ? <EmptyState emoji="" title="قالب تبلیغاتی فعالی نیست" description="از تب قالب‌ها یک پترن فعال با کاربرد تبلیغاتی یا مناسبتی بسازید." /> : <Card className="space-y-4 p-5">
+      <h3 className="font-bold">ساخت اتوماسیون</h3>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Field label="نام اتوماسیون"><Input maxLength={100} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="یادآوری به مشتریان غیرفعال" /></Field>
+        <Field label="محرک"><Select value={f.triggerType} onChange={(e) => setF({ ...f, triggerType: e.target.value })}><option value="inactive_days">بدون خرید برای چند روز</option><option value="segment_enter">ورود به گروه مشتری</option><option value="segment_exit">خروج از گروه مشتری</option></Select></Field>
+        {f.triggerType === "inactive_days" ? <Field label="تعداد روز بدون خرید"><Input type="number" min={1} max={365} value={f.inactiveDays} onChange={(e) => setF({ ...f, inactiveDays: e.target.value })} /></Field> : <Field label="گروه هدف"><Select value={f.segmentKey} onChange={(e) => setF({ ...f, segmentKey: e.target.value })}>{Object.entries(SEGMENT_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></Field>}
+        <Field label="قالب (پترن)"><Select value={selectedTemplate} onChange={(e) => setF({ ...f, templateId: e.target.value })}>{templates.map((t) => <option key={t.id} value={t.id}>{PURPOSE[t.purpose]} — {t.title}</option>)}</Select></Field>
+        <Field label="فاصله ارسال مجدد (روز)"><Input type="number" min={1} max={90} value={f.cooldownDays} onChange={(e) => setF({ ...f, cooldownDays: e.target.value })} /></Field>
+        <Field label="سقف پیام بازاریابی در ۳۰ روز"><Input type="number" min={1} max={20} value={f.maxMarketingSms30Days} onChange={(e) => setF({ ...f, maxMarketingSms30Days: e.target.value })} /></Field>
+        <Field label="ساعت ارسال به وقت تهران"><Input type="number" min={0} max={23} value={f.sendHourTehran} onChange={(e) => setF({ ...f, sendHourTehran: e.target.value })} /></Field>
+        <Field label="پنجره انتساب فروش (روز)"><Input type="number" min={1} max={30} value={f.attributionDays} onChange={(e) => setF({ ...f, attributionDays: e.target.value })} /></Field>
+        <Field label="کد تخفیف فعال (اختیاری)"><Input dir="ltr" className="text-left uppercase" maxLength={30} value={f.discountCode} onChange={(e) => setF({ ...f, discountCode: e.target.value.toUpperCase() })} placeholder="WELCOME10" /></Field>
+        <Field label="متن تخفیف برای پترن (اختیاری)"><Input maxLength={40} value={f.discountLabel} onChange={(e) => setF({ ...f, discountLabel: e.target.value })} placeholder="۱۰٪ تخفیف" /></Field>
+      </div>
+      <p className="text-xs leading-6 text-stone-500">کد باید از قبل در تخفیف‌های همین کسب‌وکار فعال باشد؛ سیستم اینجا کد تازه یا مصرف تکراری ایجاد نمی‌کند. گروه مشتری در Cron دوره‌ای نمونه‌برداری می‌شود.</p>
+      <Button onClick={create} loading={busy}><Icon name="plus" className="size-4" /> ساخت اتوماسیون</Button>
+    </Card>}
+    {items.length === 0 ? <EmptyState emoji="" title="اتوماسیونی تعریف نشده" description="برای بازگشت مشتری، اولین قاعده را ایجاد کنید." /> : <div className="space-y-3">{items.map((item) => <Card key={item.id} className="space-y-3 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-48 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{item.title}</h3><Badge color={item.isActive ? "emerald" : "stone"}>{item.isActive ? "فعال" : "متوقف"}</Badge></div><p className="mt-1 text-xs text-stone-500">{item.triggerType === "inactive_days" ? `${toFa(item.inactiveDays ?? 0)} روز بدون خرید` : `${item.triggerType === "segment_enter" ? "ورود به" : "خروج از"} گروه ${SEGMENT_LABELS[item.segmentKey ?? ""] ?? "—"}`} · هر {toFa(item.cooldownDays)} روز · ساعت {toFa(item.sendHourTehran)} تهران · پنجره {toFa(item.attributionDays)} روز</p></div><Button size="sm" variant={item.isActive ? "secondary" : "primary"} onClick={() => void toggle(item)}>{item.isActive ? "توقف" : "فعال‌سازی"}</Button></div>
+      <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">{["queued", "sending", "sent", "skipped", "failed", "uncertain"].map((key) => <div key={key} className="rounded-xl bg-base-200/60 p-2.5"><span className="block text-[11px] text-base-content/55">{DELIVERY_LABELS[key]}</span><b>{toFa(item.counts[key] ?? 0)}</b></div>)}</div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-stone-600"><span>تبدیل پرداخت‌شده منتسب به آخرین لمس: <b>{toFa(item.conversions)}</b></span><span>درآمد منتسب: <b>{formatPrice(item.attributedRevenue)}</b></span></div>
+    </Card>)}</div>}
+  </div>;
 }
