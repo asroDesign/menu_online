@@ -5,15 +5,26 @@ import { effectiveTableState } from "@/lib/table-lifecycle-core";
 import { can, HttpError } from "@/lib/auth";
 import { makeCrud } from "@/lib/crud";
 import { ALLERGEN_TAGS, DIETARY_TAGS, normalizeProductOptionGroups, normalizeTags } from "@/lib/product-options";
+import { categoryParentError } from "@/lib/category-tree";
 
 export const categoriesCrud = makeCrud({
   table: categories,
   order: [asc(categories.sortOrder), asc(categories.id)],
   spec: {
     name: { type: "string", required: true, max: 60 },
+    parentCategoryId: { type: "nullableInt", min: 1 },
+    description: { type: "string", max: 500 },
     emoji: { type: "string", max: 8 },
+    imageUrl: { type: "string", max: 500 },
     sortOrder: { type: "int", min: 0, max: 10000 },
     isActive: { type: "bool" },
+  },
+  validate: async (biz, data, _auth, _creating, id) => {
+    if (!("parentCategoryId" in data)) return;
+    const rows = await db.select({ id: categories.id, parentCategoryId: categories.parentCategoryId })
+      .from(categories).where(eq(categories.businessId, biz.id));
+    const message = categoryParentError(id, data.parentCategoryId as number | null, rows);
+    if (message) throw new HttpError(400, message);
   },
 });
 

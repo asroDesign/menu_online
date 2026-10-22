@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatNumber, formatPrice, toFa } from "@/lib/format";
 import { PLAN_KEYS, planName } from "@/lib/plans";
@@ -41,8 +42,7 @@ export function SubscriptionCheckout({ initialPlan, initialMonths, invoiceId }: 
 
   useEffect(() => {
     if (!data || invoiceId) return;
-    setError("");
-    api<Quote>("/api/subscription/quote", { method: "POST", body: { plan, months, couponCode: appliedCoupon } }).then(setQuote).catch((e) => { setQuote(null); setError((e as Error).message); });
+    api<Quote>("/api/subscription/quote", { method: "POST", body: { plan, months, couponCode: appliedCoupon } }).then((nextQuote) => { setQuote(nextQuote); setError(""); }).catch((e) => { setQuote(null); setError((e as Error).message); });
   }, [data, plan, months, appliedCoupon, invoiceId]);
 
   const selected = useMemo(() => data?.plans.find((x) => x.key === plan), [data, plan]);
@@ -72,7 +72,7 @@ export function SubscriptionCheckout({ initialPlan, initialMonths, invoiceId }: 
   const fixed = Boolean(invoiceId && invoice) || Boolean(issuedInvoice);
   return (
     <main className="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12" dir="rtl">
-      <header className="mb-6"><a href="/dashboard/plan" className="text-sm font-bold text-primary">← بازگشت به پلن‌ها</a><h1 className="mt-4 text-2xl font-black sm:text-3xl">پرداخت اشتراک</h1><p className="mt-2 text-sm text-base-content/60">فاکتور خرید یا تمدید پلن را بررسی و درگاه پرداخت را انتخاب کنید.</p></header>
+      <header className="mb-6"><Link href="/dashboard/plan" className="text-sm font-bold text-primary">← بازگشت به پلن‌ها</Link><h1 className="mt-4 text-2xl font-black sm:text-3xl">پرداخت اشتراک</h1><p className="mt-2 text-sm text-base-content/60">فاکتور خرید یا تمدید پلن را بررسی و درگاه پرداخت را انتخاب کنید.</p></header>
       {fixedInvoice ? <Card className="mb-5 space-y-3 p-5"><div className="flex items-center justify-between"><h2 className="font-extrabold">فاکتور #{toFa(fixedInvoice.number)}</h2><Badge color="amber">در انتظار پرداخت</Badge></div><p>پلن {planName(fixedInvoice.plan)} · دوره {toFa(fixedInvoice.months)} ماهه</p>{fixedInvoice.couponCode && <p className="text-sm text-emerald-700">کد تخفیف: {fixedInvoice.couponCode}</p>}<p className="text-xl font-black">{formatPrice(fixedInvoice.amount)}</p></Card> : invoiceId ? <p className="mb-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error || "فاکتور پرداخت‌نشده پیدا نشد یا مهلت پرداخت آن پایان یافته است."}</p> : data && (
         <Card className="mb-5 space-y-5 p-5 sm:p-6"><div className="grid gap-4 sm:grid-cols-2"><Field label="پلن"><Select value={plan} onChange={(e) => { setPlan(e.target.value); setAppliedCoupon(""); setCouponInput(""); setQuote(null); }}><option value="basic">{data.plans.find((p) => p.key === "basic")?.name ?? "پایه"}</option>{data.plans.filter((p) => p.key !== "basic").map((p) => <option key={p.key} value={p.key}>{p.name}{p.key === data.plan ? " · پلن فعلی" : ""}</option>)}</Select></Field><Field label="مدت اشتراک"><Select value={months} onChange={(e) => { setMonths(Number(e.target.value) as BillingTerm); setAppliedCoupon(""); setCouponInput(""); setQuote(null); }}><option value={6}>شش‌ماهه</option><option value={12}>سالانه</option></Select></Field></div>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="کد تخفیف"><Input dir="ltr" className="text-left uppercase" value={couponInput} onChange={(e) => setCouponInput(e.target.value.toUpperCase())} placeholder="کد را وارد کنید" /></Field><Button variant="secondary" onClick={applyCoupon} loading={busy === "coupon"}>اعمال کد</Button></div>

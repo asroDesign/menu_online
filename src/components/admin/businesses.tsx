@@ -14,6 +14,7 @@ const FILTERS: [string, string][] = [["all", "همه"], ["active", "فعال"], 
 export function Businesses({ me, params }: { me: Me; params: Record<string, string> }) {
   const toast = useToast();
   const { data, error, loading, reload } = useGet<{ items: any[] }>("/api/admin/businesses");
+  const [now, setNow] = useState(0);
   const [q, setQ] = useState("");
   const [plan, setPlan] = useState("all");
   const [filter, setFilter] = useState(params.filter ?? "all");
@@ -21,8 +22,13 @@ export function Businesses({ me, params }: { me: Me; params: Record<string, stri
   const [creating, setCreating] = useState(false);
   const write = me.perms.includes("businesses_write");
 
+  useEffect(() => {
+    const initial = window.setTimeout(() => setNow(Date.now()), 0);
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => { window.clearTimeout(initial); window.clearInterval(interval); };
+  }, []);
+
   const rows = useMemo(() => {
-    const now = Date.now();
     return (data?.items ?? []).filter((b) => {
       if (b.isAdmin) return false;
       const t = q.trim();
@@ -37,7 +43,7 @@ export function Businesses({ me, params }: { me: Me; params: Record<string, stri
       if (filter === "inactive") return !b.lastOrderAt || now - new Date(b.lastOrderAt).getTime() > 30 * 86400_000;
       return true;
     });
-  }, [data, q, plan, filter]);
+  }, [data, q, plan, filter, now]);
 
   async function quick(b: any, body: Record<string, unknown>, msg: string) {
     try { await api(`/api/admin/businesses/${b.id}`, { method: "PATCH", body }); toast(msg); reload(true); } catch (e) { toast((e as Error).message, "error"); }
@@ -63,7 +69,7 @@ export function Businesses({ me, params }: { me: Me; params: Record<string, stri
             <thead><tr className="border-b bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">کسب‌وکار</th><th className="p-3 text-start">مالک</th><th className="p-3 text-start">پلن و اشتراک</th><th className="p-3 text-start">سفارش</th><th className="p-3 text-start">فروش ۳۰ روز</th><th className="p-3 text-start">وضعیت</th><th className="p-3" /></tr></thead>
             <tbody className="divide-y divide-stone-100">{rows.map((b) => {
               const end = b.subscriptionEndsAt ? new Date(b.subscriptionEndsAt) : null;
-              const expired = end && b.plan !== "basic" && end.getTime() < Date.now();
+              const expired = end && b.plan !== "basic" && end.getTime() < now;
               return (
                 <tr key={b.id} className={cn("hover:bg-stone-50/70", b.isSuspended && "bg-rose-50/50")}>
                   <td className="p-3"><button onClick={() => setSel(b.id)} className="text-start font-bold hover:text-brand-600">{b.name}</button><p className="text-xs text-stone-400" dir="ltr" style={{ textAlign: "start" }}>/m/{b.slug}{b.customDomain ? ` · ${b.customDomain}` : ""}</p></td>
@@ -99,7 +105,10 @@ function Create({ open, onClose, done }: { open: boolean; onClose: () => void; d
   const [f, setF] = useState({ name: "", businessName: "", email: "", password: "", plan: "basic", months: "12" });
   const [res, setRes] = useState<{ email: string; password: string; slug: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setRes(null); setF({ name: "", businessName: "", email: "", password: "", plan: "basic", months: "12" }); } }, [open]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset this create form when its modal opens
+    if (open) { setRes(null); setF({ name: "", businessName: "", email: "", password: "", plan: "basic", months: "12" }); }
+  }, [open]);
   async function save() {
     setBusy(true);
     try { const r = await api<{ item: { email: string; password: string; slug: string } }>("/api/admin/businesses", { method: "POST", body: { ...f, months: Number(f.months) } }); setRes(r.item); toast("کسب‌وکار ساخته شد"); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(false); }
@@ -136,7 +145,10 @@ function Detail({ id, onClose, me, changed }: { id: number | null; onClose: () =
   const [pwd, setPwd] = useState<string | null>(null);
   const [del, setDel] = useState(false);
   const [confirm, setConfirm] = useState("");
-  useEffect(() => { if (d) { setOv({ ...(d.business.featureOverrides ?? {}) }); setNote(d.business.adminNote ?? ""); setEndsAt(d.business.subscriptionEndsAt ?? ""); setPwd(null); setShowOv(false); } }, [d]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate the detail form for the selected business
+    if (d) { setOv({ ...(d.business.featureOverrides ?? {}) }); setNote(d.business.adminNote ?? ""); setEndsAt(d.business.subscriptionEndsAt ?? ""); setPwd(null); setShowOv(false); }
+  }, [d]);
   useEffect(() => { if (id && me.perms.includes("plans") && !matrix) api<any>("/api/admin/plans").then((r) => setMatrix(r.overrides)).catch(() => setMatrix({})); }, [id, me.perms, matrix]);
   const patch = async (body: Record<string, unknown>, msg = "ذخیره شد") => { try { await api(`/api/admin/businesses/${id}`, { method: "PATCH", body }); toast(msg); reload(true); changed(); } catch (e) { toast((e as Error).message, "error"); } };
   const b = d?.business;

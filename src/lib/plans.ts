@@ -143,7 +143,7 @@ export type TransferCard = {
 };
 
 export type Settings = {
-  menuTemplate?: "classic" | "editorial" | "compact";
+  menuTemplate?: "classic" | "editorial" | "compact" | "bistro" | "minimal";
   promoBanners?: MenuPromoBanner[];
   miniSite?: MiniSite;
   languages?: string[];

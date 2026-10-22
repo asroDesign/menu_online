@@ -1,7 +1,10 @@
 export type Category = {
   id: number;
+  parentCategoryId: number | null;
   name: string;
+  description: string;
   emoji: string;
+  imageUrl: string;
   sortOrder: number;
   isActive: boolean;
 };

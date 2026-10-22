@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatDate, formatNumber, formatPrice, formatTime } from "@/lib/format";
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input, Select, Skeleton, Textarea, useToast } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input, Modal, Select, Skeleton, Textarea, useToast } from "@/components/ui";
 
 type Collection = "posts" | "tutorials" | "faqs" | "testimonials";
 const COLLECTIONS: [Collection, string][] = [["posts", "وبلاگ"], ["tutorials", "آموزش‌ها"], ["faqs", "سوالات متداول"], ["testimonials", "نظرات کاربران"]];
@@ -66,12 +66,21 @@ export function ContentTab() {
     <div><h1 className="text-xl font-extrabold sm:text-2xl">مدیریت محتوای وب‌سایت</h1><p className="mt-1 text-sm text-base-content/60">وبلاگ و سئو، آموزش‌ها، سوالات متداول و نظرات کاربران</p></div>
     <div className="flex flex-wrap gap-2">{COLLECTIONS.map(([key, label]) => <Button key={key} variant={collection === key ? "primary" : "secondary"} size="sm" onClick={() => setCollection(key)}>{label}</Button>)}<Button className="ms-auto" onClick={() => setForm(emptyForm(collection))}><Icon name="plus" className="size-4" />افزودن</Button></div>
     {error ? <ErrorState message={error} onRetry={load} /> : loading ? <Skeleton className="h-60 rounded-2xl" /> : !items.length ? <EmptyState title="محتوایی وجود ندارد" description="اولین مورد را با دکمه افزودن بسازید." /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <Card key={item.id} className="flex min-w-0 flex-col gap-3 p-4"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate font-bold">{item.title || item.question || item.name}</h3><p className="mt-1 line-clamp-2 text-xs leading-6 text-base-content/60">{item.excerpt || item.summary || item.answer || item.body}</p></div><Badge color={item.status === "published" || item.isPublished ? "emerald" : "amber"}>{item.status === "published" || item.isPublished ? "منتشرشده" : "پیش‌نویس"}</Badge></div><div className="flex items-center justify-between gap-2 border-t border-base-200 pt-2"><span className="truncate text-xs text-base-content/50">{item.slug ? `/${collection === "posts" ? "blog" : "tutorials"}/${item.slug}` : item.category || item.businessName || ""}</span><div className="flex shrink-0 gap-1"><Button size="sm" variant="secondary" onClick={() => setForm({ ...item, tags: Array.isArray(item.tags) ? item.tags.join(", ") : item.tags })}>ویرایش</Button><Button size="sm" variant="ghost" onClick={() => void remove(item)}>حذف</Button></div></div></Card>)}</div>}
-    {form && <div className="fixed inset-0 z-[80] overflow-y-auto bg-black/40 p-3 sm:p-6" role="dialog" aria-modal="true"><div className="mx-auto my-4 max-w-3xl rounded-2xl bg-base-100 p-5 shadow-2xl sm:p-7"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-extrabold">{form.id ? "ویرایش" : "ایجاد"} {COLLECTIONS.find(([k]) => k === collection)?.[1]}</h2><Button variant="ghost" onClick={() => setForm(null)}>بستن</Button></div><div className="grid gap-3 sm:grid-cols-2">
+    <Modal
+      open={!!form}
+      onClose={() => { if (!saving && !uploading) setForm(null); }}
+      title={`${form?.id ? "ویرایش" : "ایجاد"} ${COLLECTIONS.find(([k]) => k === collection)?.[1] ?? "محتوا"}`}
+      description="محتوای سایت را ویرایش کنید و پیش از انتشار بررسی کنید."
+      size="lg"
+      footer={<><Button variant="ghost" disabled={saving || !!uploading} onClick={() => setForm(null)}>انصراف</Button><Button loading={saving} disabled={!!uploading} onClick={() => void save()}>ذخیره</Button></>}
+    >
+      {form && <div className="grid gap-3 sm:grid-cols-2">
       {collection === "posts" && <>{input("عنوان", "title")}{input("نشانی انگلیسی (slug)", "slug")}{input("دسته‌بندی", "category")}{input("نویسنده", "author")}{input("خلاصه", "excerpt", { area: true })}{media("تصویر شاخص", "coverImage", "image/*")}{input("برچسب‌ها (با ویرگول)", "tags")}{input("عنوان سئو", "metaTitle")}{input("توضیح سئو", "metaDescription", { area: true })}{input("Canonical URL (اختیاری)", "canonicalUrl")}{input("متن مقاله (متن ساده یا Markdown)", "content", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.noIndex} onChange={(e) => setForm({ ...form, noIndex: e.target.checked })} />نمایه نشود</label><Field label="وضعیت"><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">پیش‌نویس</option><option value="published">منتشرشده</option></Select></Field></>}
       {collection === "tutorials" && <>{input("عنوان", "title")}{input("نشانی انگلیسی (slug)", "slug")}{input("دسته‌بندی", "category")}{input("خلاصه", "summary", { area: true })}{media("تصویر شاخص", "coverImage", "image/*")}{media("ویدیوی آموزش", "videoUrl", "video/mp4,video/webm")}{input("عنوان سئو", "metaTitle")}{input("توضیح سئو", "metaDescription", { area: true })}{input("متن آموزش", "content", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.noIndex} onChange={(e) => setForm({ ...form, noIndex: e.target.checked })} />نمایه نشود</label><Field label="وضعیت"><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">پیش‌نویس</option><option value="published">منتشرشده</option></Select></Field></>}
       {collection === "faqs" && <>{input("پرسش", "question")}{input("دسته‌بندی", "category")}{input("پاسخ", "answer", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.isPublished} onChange={(e) => setForm({ ...form, isPublished: e.target.checked })} />نمایش عمومی</label></>}
       {collection === "testimonials" && <>{input("نام", "name")}{input("سمت", "title")}{input("نام کسب‌وکار", "businessName")}{input("امتیاز (۱ تا ۵)", "rating", { type: "number" })}{input("نشانی تصویر", "imageUrl")}{input("متن نظر", "body", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.isPublished} onChange={(e) => setForm({ ...form, isPublished: e.target.checked })} />تأیید و انتشار</label></>}
-    </div><div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={() => setForm(null)}>انصراف</Button><Button loading={saving} onClick={() => void save()}>ذخیره</Button></div></div></div>}
+    </div>}
+    </Modal>
   </div>;
 }
 

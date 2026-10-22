@@ -1,36 +1,43 @@
-import { and, eq, lt, gt } from "drizzle-orm";
+import { and, eq, inArray, lt, gt } from "drizzle-orm";
 import { db } from "@/db";
 import { staff, staffLeaveRequests, staffSchedules } from "@/db/schema";
 import { HttpError, readJson, withAuth } from "@/lib/auth";
 import { isManagerRole } from "@/lib/roles";
+import { parseTehranDateTime } from "@/lib/tehran-time";
 
 const staffRoles = ["waiter", "cashier", "chef", "warehouse", "accountant"];
 const interval = (start: unknown, end: unknown) => {
-  const startsAt = new Date(String(start ?? "")), endsAt = new Date(String(end ?? ""));
+  const startsAt = parseTehranDateTime(start), endsAt = parseTehranDateTime(end);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt || endsAt.getTime() - startsAt.getTime() > 24 * 60 * 60_000)
     throw new HttpError(400, "بازه زمانی معتبر نیست؛ مدت هر شیفت باید حداکثر ۲۴ ساعت باشد.");
   return { startsAt, endsAt };
 };
 
 export const GET = withAuth(async (req, auth) => {
-  const start = new Date(Date.now() - 7 * 86_400_000);
-  const end = new Date(Date.now() + 30 * 86_400_000);
+  const url = new URL(req.url);
+  const requestedStart = url.searchParams.get("from");
+  const requestedEnd = url.searchParams.get("to");
+  const start = requestedStart ? new Date(requestedStart) : new Date(Date.now() - 7 * 86_400_000);
+  const end = requestedEnd ? new Date(requestedEnd) : new Date(Date.now() + 30 * 86_400_000);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start || end.getTime() - start.getTime() > 32 * 86_400_000)
+    throw new HttpError(400, "بازه برنامه باید حداکثر یک ماه باشد.");
   const manager = isManagerRole(auth.role);
   const [member] = manager ? [] : await db.select({ id: staff.id }).from(staff).where(and(eq(staff.businessId, auth.business.id), eq(staff.userId, auth.user.id), eq(staff.isActive, true)));
   if (!manager && !member) throw new HttpError(403, "حساب کاربری به پروفایل فعال کارکنان متصل نیست.");
   const scheduleWhere = manager
-    ? and(eq(staffSchedules.businessId, auth.business.id), eq(staffSchedules.status, "scheduled"), lt(staffSchedules.startsAt, end), gt(staffSchedules.endsAt, start))
-    : and(eq(staffSchedules.businessId, auth.business.id), eq(staffSchedules.staffId, member!.id), eq(staffSchedules.status, "scheduled"), lt(staffSchedules.startsAt, end), gt(staffSchedules.endsAt, start));
+    ? and(eq(staffSchedules.businessId, auth.business.id), lt(staffSchedules.startsAt, end), gt(staffSchedules.endsAt, start))
+    : and(eq(staffSchedules.businessId, auth.business.id), eq(staffSchedules.staffId, member!.id), inArray(staffSchedules.status, ["scheduled", "absent"]), lt(staffSchedules.startsAt, end), gt(staffSchedules.endsAt, start));
   const leaveWhere = manager
     ? and(eq(staffLeaveRequests.businessId, auth.business.id), lt(staffLeaveRequests.startsAt, end), gt(staffLeaveRequests.endsAt, start))
     : and(eq(staffLeaveRequests.businessId, auth.business.id), eq(staffLeaveRequests.staffId, member!.id), lt(staffLeaveRequests.startsAt, end), gt(staffLeaveRequests.endsAt, start));
-  const [schedules, leaves] = await Promise.all([
-    db.select({ id: staffSchedules.id, staffId: staffSchedules.staffId, staffName: staff.name, startsAt: staffSchedules.startsAt, endsAt: staffSchedules.endsAt, location: staffSchedules.location, version: staffSchedules.version })
+  const [schedules, leaves, activeStaff] = await Promise.all([
+    db.select({ id: staffSchedules.id, staffId: staffSchedules.staffId, staffName: staff.name, startsAt: staffSchedules.startsAt, endsAt: staffSchedules.endsAt, location: staffSchedules.location, status: staffSchedules.status, absenceNote: staffSchedules.absenceNote, version: staffSchedules.version })
       .from(staffSchedules).innerJoin(staff, eq(staff.id, staffSchedules.staffId)).where(scheduleWhere).orderBy(staffSchedules.startsAt).limit(500),
     db.select({ id: staffLeaveRequests.id, staffId: staffLeaveRequests.staffId, staffName: staff.name, startsAt: staffLeaveRequests.startsAt, endsAt: staffLeaveRequests.endsAt, kind: staffLeaveRequests.kind, reason: staffLeaveRequests.reason, status: staffLeaveRequests.status, decisionNote: staffLeaveRequests.decisionNote })
       .from(staffLeaveRequests).innerJoin(staff, eq(staff.id, staffLeaveRequests.staffId)).where(leaveWhere).orderBy(staffLeaveRequests.startsAt).limit(500),
+    db.select({ id: staff.id, name: staff.name, role: staff.role }).from(staff).where(and(eq(staff.businessId, auth.business.id), eq(staff.isActive, true))).orderBy(staff.name).limit(300),
   ]);
-  return Response.json({ items: schedules, leaveRequests: leaves, mine: !manager, staffId: member?.id ?? null }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ items: schedules, leaveRequests: leaves, staff: activeStaff, mine: !manager, staffId: member?.id ?? null, range: { from: start.toISOString(), to: end.toISOString() } }, { headers: { "Cache-Control": "no-store" } });
 }, { feature: "staff_scheduling", manager: true, roles: staffRoles });
 
 export const POST = withAuth(async (req, auth) => {

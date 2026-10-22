@@ -398,45 +398,92 @@ export function Modal({
   children,
   footer,
   size = "md",
+  description,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  description?: string;
   children: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const dialog = dialogRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const preferred = dialog?.querySelector<HTMLElement>("[autofocus]");
+      const first = dialog?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      (preferred ?? first ?? dialog)?.focus();
+    });
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')]
+        .filter((element) => element.getClientRects().length > 0);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open || !mounted) return null;
   const widths = { sm: "sm:max-w-sm", md: "sm:max-w-lg", lg: "sm:max-w-2xl", xl: "sm:max-w-6xl" };
   return createPortal((
-    <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal aria-label={title}>
-      <div className="absolute inset-0 animate-fade-in bg-stone-900/50 backdrop-blur-[2px]" onClick={onClose} />
+    <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4" role="presentation">
+      <button type="button" tabIndex={-1} aria-label="بستن پنجره" className="absolute inset-0 cursor-default animate-fade-in bg-slate-950/55 backdrop-blur-[3px]" onClick={onClose} />
       <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={size === "xl" ? { maxWidth: "72rem" } : undefined}
         className={cn(
-          "modal-box relative flex max-h-[92dvh] w-full animate-slide-up flex-col rounded-t-3xl bg-base-100 shadow-2xl sm:rounded-3xl",
+          "modal-box relative flex max-h-[min(92dvh,56rem)] w-full !overflow-hidden !p-0 animate-slide-up flex-col rounded-t-3xl border border-white/70 bg-base-100 text-base-content shadow-[0_24px_80px_-20px_rgba(15,23,42,.42)] outline-none sm:rounded-3xl",
           widths[size],
         )}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-stone-100 px-5 py-4">
-          <h2 className="text-base font-bold text-stone-900"><IconText>{title}</IconText></h2>
-          <IconButton icon="x" label="بستن" onClick={onClose} />
+        <div className="relative flex shrink-0 items-center justify-between gap-3 border-b border-base-200 bg-gradient-to-l from-brand-50/70 via-base-100 to-base-100 px-4 py-3.5 sm:px-6 sm:py-4">
+          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-l from-brand-500 via-sky-400 to-transparent" />
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-extrabold text-base-content sm:text-lg"><IconText>{title}</IconText></h2>
+            {description && <p className="mt-1 text-xs leading-5 text-base-content/60 sm:text-sm">{description}</p>}
+          </div>
+          <IconButton icon="x" label="بستن" onClick={onClose} className="size-10 shrink-0 rounded-xl bg-base-100/80 text-base-content/65 ring-1 ring-base-300 hover:bg-base-200" />
         </div>
-        <div className="overflow-y-auto px-5 py-5">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-stone-100 px-5 py-3.5">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">{children}</div>
+        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-base-200 bg-base-100/95 px-4 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-3.5">{footer}</div>}
       </div>
     </div>
   ), document.body);
@@ -462,6 +509,7 @@ export function ConfirmDialog({
       open={open}
       onClose={onClose}
       title={title}
+      description="پیش از ادامه، پیامد این عملیات را بررسی کنید."
       size="sm"
       footer={
         <>

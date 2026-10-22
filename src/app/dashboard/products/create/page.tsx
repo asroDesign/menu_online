@@ -1,19 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { useCollection, api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
 import { ImageUpload } from "@/components/image-upload";
-import { Button, Card, Field, Icon, Input, PageHeader, Select, Switch, Textarea, useToast } from "@/components/ui";
+import { notifySetupSaved } from "@/lib/onboarding-tour";
+import { Button, Card, Field, Icon, Input, Modal, PageHeader, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { formatPrice, toFa } from "@/lib/format";
-import type { Category } from "@/lib/types";
+import type { Category, Product } from "@/lib/types";
 import { calculateRecipeCost, calculateTargetPrice, currentRecipeMaterialCost, type PriceTargetType } from "@/lib/price-target-core";
-import { optionId, type ProductOptionGroup } from "@/lib/product-options";
+import { ALLERGEN_TAGS, DIETARY_TAGS, optionId, type ProductOptionGroup } from "@/lib/product-options";
 
 type Material = { id: number; name: string; unit: string; recipeUnit?: string; recipeToStockFactor?: number; costPerUnit: number; lastPurchaseCost?: number; stock: number; isActive?: boolean };
-type IngredientLine = { key: string; itemId: string; quantity: string; wastePercent: string };
+type IngredientLine = { key: string; recipeId?: number; itemId: string; quantity: string; wastePercent: string };
+type SavedRecipe = { id: number; productId: number; itemId: number; quantity: number; wastePercent: number };
 type PriceVariant = { id: string; name: string; price: string; active: boolean };
 type Preview = {
   batchCost: number; unitCost: number; profitPerUnit: number; suggestedPrice: number;
@@ -30,8 +32,16 @@ const priceVariantGroupId = "product-price-variants";
 
 export default function CreateProductPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editParam = searchParams.get("edit");
+  const parsedEditId = Number(editParam);
+  const editingMode = editParam !== null;
+  const editingId = editingMode && Number.isSafeInteger(parsedEditId) && parsedEditId > 0 ? parsedEditId : null;
+  const invalidEditId = editingMode && editingId === null;
   const toast = useToast();
   const features = useFeatures();
+  const hasRecipes = features.has("recipes");
+  const hasCosting = features.has("costing");
   const categories = useCollection<Category>("/api/categories");
   const materials = useCollection<Material>("/api/r/items");
   const [name, setName] = useState("");
@@ -41,11 +51,18 @@ export default function CreateProductPage() {
   const [oldPrice, setOldPrice] = useState("");
   const [prepMinutes, setPrepMinutes] = useState("10");
   const [imageUrl, setImageUrl] = useState("");
-  const [emoji] = useState("");
+  const [emoji, setEmoji] = useState("");
   const [available, setAvailable] = useState(true);
   const [featured, setFeatured] = useState(false);
+  const [arModelUrl, setArModelUrl] = useState("");
+  const [modifierGroups, setModifierGroups] = useState<ProductOptionGroup[]>([]);
+  const [dietaryTags, setDietaryTags] = useState<string[]>([]);
+  const [allergenTags, setAllergenTags] = useState<string[]>([]);
   const [variants, setVariants] = useState<PriceVariant[]>([]);
   const [ingredients, setIngredients] = useState<IngredientLine[]>([]);
+  const [initialRecipes, setInitialRecipes] = useState<SavedRecipe[]>([]);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [loadError, setLoadError] = useState<{ productId: number; message: string } | null>(null);
   const [outputUnits, setOutputUnits] = useState("1");
   const [yieldRatio, setYieldRatio] = useState("1");
   const [sellingMode, setSellingMode] = useState<"count" | "weight">("count");
@@ -58,12 +75,42 @@ export default function CreateProductPage() {
   const [categoryBusy, setCategoryBusy] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (editingId === null) return;
+    let current = true;
+    Promise.all([
+      api<{ items: Product[] }>("/api/products"),
+      hasRecipes || hasCosting ? api<{ items: SavedRecipe[] }>("/api/r/recipes") : Promise.resolve({ items: [] as SavedRecipe[] }),
+    ]).then(([productData, recipeData]) => {
+      if (!current) return;
+      const product = productData.items.find((item) => item.id === editingId);
+      if (!product) { setLoadError({ productId: editingId, message: "محصول مورد نظر پیدا نشد یا به آن دسترسی ندارید." }); return; }
+      setLoadError(null);
+      setEditingProduct(product);
+      setName(product.name); setCategoryId(product.categoryId ? String(product.categoryId) : "");
+      setDescription(product.description ?? ""); setBasePrice(String(product.price)); setOldPrice(product.oldPrice ? String(product.oldPrice) : "");
+      setPrepMinutes(String(product.prepMinutes ?? 10)); setImageUrl(product.imageUrl ?? ""); setEmoji(product.emoji || "");
+      setAvailable(product.isAvailable); setFeatured(product.isFeatured);
+      setSellingMode(product.sellingMode === "weight" ? "weight" : "count"); setYieldRatio(String(product.yieldRatio ?? 1));
+      setArModelUrl(product.arModelUrl ?? ""); setDietaryTags(product.dietaryTags ?? []); setAllergenTags(product.allergenTags ?? []);
+      const priceGroup = (product.modifierGroups ?? []).find((group) => group.id === priceVariantGroupId);
+      setVariants(priceGroup?.options.map((option) => ({ id: option.id, name: option.name, price: String(product.price + option.priceDelta), active: option.active })) ?? []);
+      setModifierGroups((product.modifierGroups ?? []).filter((group) => group.id !== priceVariantGroupId));
+      const rows = recipeData.items.filter((line) => line.productId === product.id);
+      setInitialRecipes(rows);
+      setIngredients(rows.map((line) => ({ key: `saved-${line.id}`, recipeId: line.id, itemId: String(line.itemId), quantity: String(line.quantity), wastePercent: String(line.wastePercent ?? 0) })));
+      setOutputUnits("1");
+    }).catch((cause) => { if (current) setLoadError({ productId: editingId, message: (cause as Error).message }); });
+    return () => { current = false; };
+  }, [editingId, hasRecipes, hasCosting]);
+
+  const productLoadError = editingId !== null && loadError?.productId === editingId ? loadError.message : "";
+  const productLoading = editingId !== null && editingProduct?.id !== editingId && !productLoadError;
+
   const previewKey = JSON.stringify({ ingredients, outputUnits, yieldRatio, sellingMode, targetType, targetPercent });
   const activePreview = preview?.key === previewKey ? preview.value : null;
   const activeVariants = variants.filter((variant) => variant.active);
   const canApplySuggestion = !!activePreview && (!variants.length || (activeVariants.length > 0 && activeVariants.every((variant) => variant.name.trim() && Number.isSafeInteger(numberText(variant.price, NaN)) && numberText(variant.price) >= 0 && numberText(variant.price) <= 100_000_000)));
-  const hasRecipes = features.has("recipes");
-  const hasCosting = features.has("costing");
   const selectedLines = useMemo(() => ingredients.map((line) => ({
     ...line,
     itemId: Number(line.itemId),
@@ -91,6 +138,14 @@ export default function CreateProductPage() {
   function changeIngredient(id: string, patch: Partial<IngredientLine>) {
     setIngredients((list) => list.map((line) => line.key === id ? { ...line, ...patch } : line));
     setPreview(null);
+  }
+  function updateModifierGroup(id: string, update: (group: ProductOptionGroup) => ProductOptionGroup) {
+    setModifierGroups((list) => list.map((group) => group.id === id ? update(group) : group));
+  }
+  function toggleProductTag(field: "dietaryTags" | "allergenTags", id: string) {
+    const update = field === "dietaryTags" ? setDietaryTags : setAllergenTags;
+    const selected = field === "dietaryTags" ? dietaryTags : allergenTags;
+    update(selected.includes(id) ? selected.filter((tag) => tag !== id) : [...selected, id]);
   }
 
   async function calculate() {
@@ -138,8 +193,9 @@ export default function CreateProductPage() {
 
   async function save() {
     setError("");
+    if (invalidEditId) { setError("شناسهٔ محصول برای ویرایش معتبر نیست."); return; }
     if (!name.trim()) { setError("نام محصول را وارد کنید."); return; }
-    if (!categoryId) { setError("برای ثبت محصول، یک دسته‌بندی انتخاب کنید."); return; }
+    if (!categoryId && !editingId) { setError("برای ثبت محصول، یک دسته‌بندی انتخاب کنید."); return; }
     if (description.length > 400) { setError("توضیحات حداکثر ۴۰۰ نویسه است."); return; }
     const output = numberText(outputUnits, NaN);
     if (!Number.isSafeInteger(output) || output < 1 || output > 100_000) { setError("تعداد واحد خروجی باید عدد صحیح بین ۱ تا ۱۰۰٬۰۰۰ باشد."); return; }
@@ -149,39 +205,69 @@ export default function CreateProductPage() {
     const rawPrice = activeVariants.length ? Math.min(...activeVariants.map((variant) => numberText(variant.price))) : numberText(basePrice, NaN);
     if (!Number.isSafeInteger(rawPrice) || rawPrice < 0) { setError("قیمت محصول معتبر وارد کنید."); return; }
     if (activeVariants.length && activeVariants.length > 10) { setError("حداکثر ۱۰ تنوع قیمت فعال می‌توانید ثبت کنید."); return; }
-    if (ingredients.length && !hasRecipes) { setError("دستور تهیه در پلن فعلی فعال نیست."); return; }
-    if (ingredients.some((line) => !line.itemId || !Number.isFinite(numberText(line.quantity)) || numberText(line.quantity) <= 0 || numberText(line.wastePercent, NaN) < 0 || numberText(line.wastePercent, NaN) > 99.9)) { setError("ماده، مقدار و ضایعات دستور تهیه را بررسی کنید."); return; }
-    if (new Set(ingredients.map((line) => line.itemId)).size !== ingredients.length) { setError("هر ماده اولیه را فقط یک بار به دستور تهیه اضافه کنید."); return; }
+    if (!editingId && ingredients.length && !hasRecipes) { setError("دستور تهیه در پلن فعلی فعال نیست."); return; }
+    if (hasRecipes && ingredients.some((line) => !line.itemId || !Number.isFinite(numberText(line.quantity)) || numberText(line.quantity) <= 0 || numberText(line.wastePercent, NaN) < 0 || numberText(line.wastePercent, NaN) > 99.9)) { setError("ماده، مقدار و ضایعات دستور تهیه را بررسی کنید."); return; }
+    if (hasRecipes && new Set(ingredients.map((line) => line.itemId)).size !== ingredients.length) { setError("هر ماده اولیه را فقط یک بار به دستور تهیه اضافه کنید."); return; }
 
     const priceGroup: ProductOptionGroup | null = activeVariants.length ? {
       id: priceVariantGroupId, name: "تنوع قیمت", required: true, min: 1, max: 1, active: true,
       options: activeVariants.map((variant) => ({ id: variant.id, name: variant.name.trim(), priceDelta: numberText(variant.price) - rawPrice, active: true })),
     } : null;
-    const recipePerUnit = ingredients.map((line) => ({ itemId: Number(line.itemId), quantity: numberText(line.quantity) / output, wastePercent: numberText(line.wastePercent) }));
+    const recipePerUnit = hasRecipes ? ingredients.map((line) => ({ recipeId: line.recipeId, itemId: Number(line.itemId), quantity: numberText(line.quantity) / (editingId ? 1 : output), wastePercent: numberText(line.wastePercent) })) : [];
+    const payload = {
+      name: name.trim(), description: description.trim(), price: rawPrice, oldPrice: oldPrice ? numberText(oldPrice) : null,
+      categoryId: categoryId ? Number(categoryId) : null, emoji, imageUrl: imageUrl.trim(), prepMinutes: Math.max(0, Math.min(300, numberText(prepMinutes, 10))),
+      sellingMode, yieldRatio: sellingMode === "weight" ? numberText(yieldRatio, 1) : 1,
+      isAvailable: available, isFeatured: featured, modifierGroups: [...modifierGroups, ...(priceGroup ? [priceGroup] : [])],
+      dietaryTags, allergenTags, arModelUrl: arModelUrl.trim(),
+    };
     setBusy(true);
     let createdId: number | null = null;
     let cleanupFailed = false;
+    const createdRecipes: number[] = [];
+    const changedRecipes: SavedRecipe[] = [];
+    const removedRecipes: SavedRecipe[] = [];
     try {
-      const product = await api<{ item: { id: number } }>("/api/products", { method: "POST", body: {
-        name: name.trim(), description: description.trim(), price: rawPrice, oldPrice: oldPrice ? numberText(oldPrice) : null,
-        categoryId: Number(categoryId), emoji, imageUrl: imageUrl.trim(), prepMinutes: Math.max(0, Math.min(300, numberText(prepMinutes, 10))),
-        sellingMode, yieldRatio: sellingMode === "weight" ? numberText(yieldRatio, 1) : 1,
-        isAvailable: available, isFeatured: featured, modifierGroups: priceGroup ? [priceGroup] : [],
-        dietaryTags: [], allergenTags: [],
-      } });
-      createdId = product.item.id;
-      for (const recipe of recipePerUnit) {
-        await api("/api/r/recipes", { method: "POST", body: { productId: createdId, ...recipe } });
+      let productId = editingId;
+      if (!productId) {
+        const product = await api<{ item: { id: number } }>("/api/products", { method: "POST", body: payload });
+        productId = product.item.id;
+        createdId = productId;
       }
-      toast("محصول با تنوع‌ها و دستور تهیه ثبت شد");
+      if (hasRecipes) {
+        for (const recipe of recipePerUnit) {
+          const body = { productId, itemId: recipe.itemId, quantity: recipe.quantity, wastePercent: recipe.wastePercent };
+          if (recipe.recipeId) {
+            const before = initialRecipes.find((row) => row.id === recipe.recipeId);
+            if (before) changedRecipes.push(before);
+            await api(`/api/r/recipes/${recipe.recipeId}`, { method: "PATCH", body });
+          } else {
+            const response = await api<{ item: SavedRecipe }>("/api/r/recipes", { method: "POST", body });
+            createdRecipes.push(response.item.id);
+          }
+        }
+        const keepIds = new Set(recipePerUnit.map((recipe) => recipe.recipeId).filter((id): id is number => !!id));
+        for (const before of initialRecipes.filter((row) => !keepIds.has(row.id))) {
+          await api(`/api/r/recipes/${before.id}`, { method: "DELETE" });
+          removedRecipes.push(before);
+        }
+      }
+      if (editingId) await api(`/api/products/${editingId}`, { method: "PATCH", body: payload });
+      else notifySetupSaved("products");
+      toast(editingId ? "محصول و دستور تهیه به‌روزرسانی شد" : "محصول با تنوع‌ها و دستور تهیه ثبت شد");
       router.replace("/dashboard/products");
       router.refresh();
     } catch (e) {
       if (createdId) {
+        for (const id of createdRecipes) { try { await api(`/api/r/recipes/${id}`, { method: "DELETE" }); } catch { cleanupFailed = true; } }
         try { await api(`/api/products/${createdId}`, { method: "DELETE" }); }
         catch { cleanupFailed = true; }
+      } else if (editingId) {
+        for (const id of createdRecipes) { try { await api(`/api/r/recipes/${id}`, { method: "DELETE" }); } catch { cleanupFailed = true; } }
+        for (const row of changedRecipes) { try { await api(`/api/r/recipes/${row.id}`, { method: "PATCH", body: { productId: row.productId, itemId: row.itemId, quantity: row.quantity, wastePercent: row.wastePercent } }); } catch { cleanupFailed = true; } }
+        for (const row of removedRecipes) { try { await api("/api/r/recipes", { method: "POST", body: { productId: row.productId, itemId: row.itemId, quantity: row.quantity, wastePercent: row.wastePercent } }); } catch { cleanupFailed = true; } }
       }
-      setError(cleanupFailed ? "ثبت مواد دستور تهیه کامل نشد و حذف خودکار محصول هم موفق نبود. محصول را از فهرست بررسی کنید." : (e as Error).message);
+      setError(cleanupFailed ? "ذخیرهٔ کامل انجام نشد و بازگردانی خودکار هم کامل نشد. محصول و دستور تهیه را بازبینی کنید." : (e as Error).message);
     } finally { setBusy(false); }
   }
 
@@ -189,25 +275,25 @@ export default function CreateProductPage() {
   const addQuickVariant = (label: string) => addVariant(label);
 
   return <div className="mx-auto max-w-screen-2xl animate-fade-in pb-24">
-    <nav aria-label="مسیر صفحه" className="mb-4 text-sm text-stone-500"><ol className="flex flex-wrap items-center gap-2"><li><Link href="/dashboard" className="hover:text-brand-700">داشبورد</Link></li><li aria-hidden="true">‹</li><li><Link href="/dashboard/products" className="hover:text-brand-700">محصولات منو</Link></li><li aria-hidden="true">‹</li><li className="font-semibold text-stone-800">ایجاد</li></ol></nav>
-    <PageHeader title="ایجاد محصول" subtitle="اطلاعات محصول، تنوع قیمت و دستور تهیه را یک‌جا ثبت کنید." actions={<div className="flex gap-2"><Button variant="ghost" onClick={() => router.push("/dashboard/products")}><Icon name="arrowRight" className="size-4"/> بازگشت</Button><Button onClick={save} loading={busy}><Icon name="check" className="size-4"/> افزودن محصول</Button></div>} />
+    <nav aria-label="مسیر صفحه" className="mb-4 text-sm text-stone-500"><ol className="flex flex-wrap items-center gap-2"><li><Link href="/dashboard" className="hover:text-brand-700">داشبورد</Link></li><li aria-hidden="true">‹</li><li><Link href="/dashboard/products" className="hover:text-brand-700">محصولات منو</Link></li><li aria-hidden="true">‹</li><li className="font-semibold text-stone-800">{editingId ? "ویرایش محصول" : "ایجاد محصول"}</li></ol></nav>
+    <PageHeader title={editingMode ? "ویرایش محصول" : "ایجاد محصول"} subtitle={editingMode ? "همهٔ اطلاعات محصول، تنوع‌ها، دستور تهیه و قیمت‌گذاری را در همین صفحه ویرایش کنید." : "اطلاعات محصول، تنوع قیمت و دستور تهیه را یک‌جا ثبت کنید."} actions={<div className="flex gap-2"><Button variant="ghost" onClick={() => router.push("/dashboard/products")}><Icon name="arrowRight" className="size-4"/> بازگشت</Button><Button data-tour="product-save" onClick={save} loading={busy} disabled={productLoading || invalidEditId}><Icon name="check" className="size-4"/> {editingMode ? "ذخیره تغییرات" : "افزودن محصول"}</Button></div>} />
     {error && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-3 text-sm leading-6 text-rose-700">{error}</p>}
 
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+    {invalidEditId ? <Card className="p-8 text-center text-sm text-rose-700"><p role="alert">شناسهٔ محصول برای ویرایش معتبر نیست.</p></Card> : editingMode && editingId !== null && editingProduct?.id !== editingId ? <Card className="p-8 text-center text-sm text-stone-600"><p role={productLoadError ? "alert" : undefined}>{productLoading ? "در حال بارگذاری اطلاعات محصول…" : productLoadError || "محصول بارگذاری نشد. از فهرست محصولات دوباره وارد ویرایش شوید."}</p></Card> : <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 space-y-4">
         <Card className="space-y-5 p-4 sm:p-6">
           <SectionTitle title="اطلاعات محصول" description="نام و دسته‌بندی در منوی مشتری نمایش داده می‌شود." />
-          <Field label="نام محصول *"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً کاپوچینو" autoFocus /></Field>
+          <Field label="نام محصول *"><Input data-tour="product-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً کاپوچینو" autoFocus /></Field>
           <div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="product-category" className="text-sm font-semibold">دسته‌بندی <span className="text-rose-500">*</span></label><div className="flex items-center gap-3 text-xs"><Link href="/dashboard/categories" className="font-semibold text-brand-700">مدیریت</Link><button type="button" onClick={() => setCategoryModal(true)} className="font-semibold text-brand-700">+ دسته جدید</button></div></div>
-          {categories.items.length === 0 && !categories.loading ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">برای ثبت محصول ابتدا یک دسته‌بندی بسازید.</p> : <Select id="product-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}><option key="empty" value="">انتخاب دسته‌بندی</option>{categories.items.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Select>}
-          <Field label="توضیحات" hint={`${toFa(description.length)}/۴۰۰`}><Textarea rows={3} maxLength={400} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="مواد تشکیل‌دهنده، مقدار یا توضیح کوتاه محصول" /></Field>
-          <div className="grid gap-3 sm:grid-cols-2"><Field label="زمان آماده‌سازی (دقیقه)"><Input inputMode="numeric" value={prepMinutes} onChange={(e) => setPrepMinutes(e.target.value)} placeholder="۱۰" /></Field><Field label="نوع فروش"><Select value={sellingMode} onChange={(e) => { setSellingMode(e.target.value as "count" | "weight"); setPreview(null); }}><option key="count" value="count">تعدادی</option><option key="weight" value="weight">وزنی (قیمت هر کیلو)</option></Select></Field></div>
+          {categories.items.length === 0 && !categories.loading ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">برای ثبت محصول ابتدا یک دسته‌بندی بسازید.</p> : <Select data-tour="product-category" id="product-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}><option key="empty" value="">انتخاب دسته‌بندی</option>{categories.items.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Select>}
+          <Field label="توضیحات" hint={`${toFa(description.length)}/۴۰۰`}><Textarea data-tour="product-description" rows={3} maxLength={400} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="مواد تشکیل‌دهنده، مقدار یا توضیح کوتاه محصول" /></Field>
+          <div className="grid gap-3 sm:grid-cols-2"><Field label="زمان آماده‌سازی (دقیقه)"><Input data-tour="product-prep" inputMode="numeric" value={prepMinutes} onChange={(e) => setPrepMinutes(e.target.value)} placeholder="۱۰" /></Field><Field label="نوع فروش"><Select data-tour="product-mode" value={sellingMode} onChange={(e) => { setSellingMode(e.target.value as "count" | "weight"); setPreview(null); }}><option key="count" value="count">تعدادی</option><option key="weight" value="weight">وزنی (قیمت هر کیلو)</option></Select></Field></div>
           {sellingMode === "weight" && <Field label="بازده خام به پخته" hint="مثلاً ۰٫۸ یعنی برای هر کیلو محصول پخته، ۱٫۲۵ کیلو ماده خام لازم است."><Input dir="ltr" inputMode="decimal" value={yieldRatio} onChange={(e) => { setYieldRatio(e.target.value); setPreview(null); }} placeholder="0.8" /></Field>}
         </Card>
 
         <Card className="space-y-5 p-4 sm:p-6">
           <SectionTitle title="قیمت‌گذاری محصول" description="قیمت پایه برای سفارش‌های بدون تنوع استفاده می‌شود؛ با تنوع فعال، کمترین قیمت آن‌ها قیمت پایهٔ منو است." />
-          <div className="grid gap-3 sm:grid-cols-2"><Field label={sellingMode === "weight" ? "قیمت هر کیلوگرم (تومان) *" : "قیمت پایه (تومان) *"}><Input inputMode="numeric" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} placeholder="مثلاً ۱۲۰٬۰۰۰" /></Field><Field label="قیمت قبل از تخفیف (اختیاری)"><Input inputMode="numeric" value={oldPrice} onChange={(e) => setOldPrice(e.target.value)} placeholder="۰" /></Field></div>
+          <div className="grid gap-3 sm:grid-cols-2"><Field label={sellingMode === "weight" ? "قیمت هر کیلوگرم (تومان) *" : "قیمت پایه (تومان) *"}><Input data-tour="product-price" inputMode="numeric" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} placeholder="مثلاً ۱۲۰٬۰۰۰" /></Field><Field label="قیمت قبل از تخفیف (اختیاری)"><Input inputMode="numeric" value={oldPrice} onChange={(e) => setOldPrice(e.target.value)} placeholder="۰" /></Field></div>
           <div className="rounded-2xl border border-stone-200 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-bold">تنوع قیمت</h3><p className="mt-1 text-xs leading-6 text-stone-500">هر سفارش باید یک تنوع فعال را انتخاب کند؛ مبلغ انتخابی در سرور به قیمت سفارش افزوده می‌شود.</p></div><Button size="sm" variant="secondary" disabled={sellingMode === "weight"} onClick={() => addVariant()}><Icon name="plus" className="size-4"/> تنوع جدید</Button></div>
             {sellingMode === "weight" && <p className="mt-3 rounded-lg bg-blue-50 p-3 text-xs leading-5 text-blue-900">برای محصول وزنی، نرخ ترازو مبنای قیمت است و تنوع قیمت فعال نمی‌شود.</p>}
@@ -216,13 +302,28 @@ export default function CreateProductPage() {
         </Card>
 
         <Card className="space-y-4 p-4 sm:p-6">
-          <SectionTitle title="دستور تهیه" description="مقدار هر ماده را برای کل batch وارد کنید؛ تعداد خروجی در آنالیز قیمت، مقدار ذخیره‌شده برای هر واحد را محاسبه می‌کند." />
+          <SectionTitle title="گزینه‌ها و ویژگی‌های محصول" description="آیتم‌های این فرم هنگام افزودن و ویرایش یکسان‌اند و در صفحهٔ سفارش نیز به کار می‌روند." />
+          <div><p className="mb-2 text-sm font-semibold">آیکن محصول</p><div className="flex flex-wrap gap-2">{["", "", "", "", "", "", "", ""].map((glyph) => <button key={glyph} type="button" aria-label={`انتخاب آیکن ${glyph}`} aria-pressed={emoji === glyph} onClick={() => setEmoji(glyph)} className={`flex size-10 items-center justify-center rounded-xl border text-lg ${emoji === glyph ? "border-brand-500 bg-brand-50 text-brand-700 ring-2 ring-brand-200" : "border-stone-200 hover:bg-stone-50"}`}>{glyph}</button>)}</div></div>
+          <section className="space-y-3 rounded-2xl border border-stone-200 p-4" aria-label="افزودنی‌ها و انتخاب‌های محصول">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold">افزودنی‌ها و انتخاب‌ها</h3><p className="mt-1 text-xs text-stone-500">قیمت گزینه‌ها هنگام ثبت سفارش سمت سرور محاسبه می‌شود.</p></div><Button size="sm" variant="secondary" onClick={() => setModifierGroups((list) => [...list, { id: optionId("group"), name: "", required: false, min: 0, max: 1, active: true, options: [{ id: optionId("option"), name: "", priceDelta: 0, active: true }] }])}><Icon name="plus" className="size-4" />افزودن گروه</Button></div>
+            {modifierGroups.map((group) => <div key={group.id} className="space-y-3 rounded-xl bg-stone-50 p-3">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_6rem_6rem_auto] sm:items-end"><Field label="نام گروه"><Input value={group.name} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, name: event.target.value }))} placeholder="مثلاً مخلفات" /></Field><Field label="حداقل"><Input type="number" min="0" max="10" value={group.min} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, min: Number(event.target.value), required: Number(event.target.value) > 0 }))} /></Field><Field label="حداکثر"><Input type="number" min="1" max="10" value={group.max} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, max: Number(event.target.value) }))} /></Field><Button size="sm" variant="ghost" className="text-rose-600" onClick={() => setModifierGroups((list) => list.filter((entry) => entry.id !== group.id))}>حذف گروه</Button></div>
+              {group.options.map((option) => <div key={option.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto_auto] sm:items-center"><Input aria-label="نام گزینه" value={option.name} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, options: current.options.map((entry) => entry.id === option.id ? { ...entry, name: event.target.value } : entry) }))} placeholder="مثلاً پنیر اضافه" /><Input aria-label="تغییر قیمت گزینه" type="number" value={option.priceDelta} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, options: current.options.map((entry) => entry.id === option.id ? { ...entry, priceDelta: Number(event.target.value) } : entry) }))} placeholder="تغییر قیمت (تومان)" /><label className="flex items-center gap-2 text-xs"><input type="checkbox" className="checkbox checkbox-sm" checked={option.active} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, options: current.options.map((entry) => entry.id === option.id ? { ...entry, active: event.target.checked } : entry) }))} />فعال</label><Button size="sm" variant="ghost" disabled={group.options.length <= 1} onClick={() => updateModifierGroup(group.id, (current) => { const options = current.options.filter((entry) => entry.id !== option.id); return { ...current, options, min: Math.min(current.min, options.filter((entry) => entry.active).length), max: Math.max(1, Math.min(current.max, options.length)) }; })}>حذف</Button></div>)}
+              <div className="flex flex-wrap items-center justify-between gap-2"><Button size="sm" variant="ghost" onClick={() => updateModifierGroup(group.id, (current) => ({ ...current, options: [...current.options, { id: optionId("option"), name: "", priceDelta: 0, active: true }], max: Math.min(10, current.max + 1) }))}><Icon name="plus" className="size-4" />افزودن گزینه</Button><label className="flex items-center gap-2 text-xs"><input type="checkbox" className="checkbox checkbox-sm" checked={group.active} onChange={(event) => updateModifierGroup(group.id, (current) => ({ ...current, active: event.target.checked }))} />گروه فعال</label></div>
+            </div>)}
+          </section>
+          <div className="grid gap-4 sm:grid-cols-2"><fieldset><legend className="mb-2 text-sm font-bold">ویژگی‌های تغذیه‌ای</legend><div className="flex flex-wrap gap-2">{DIETARY_TAGS.map((tag) => <label key={tag.id} className="flex items-center gap-2 rounded-full bg-stone-100 px-3 py-2 text-xs"><input type="checkbox" className="checkbox checkbox-xs" checked={dietaryTags.includes(tag.id)} onChange={() => toggleProductTag("dietaryTags", tag.id)} />{tag.label}</label>)}</div></fieldset><fieldset><legend className="mb-2 text-sm font-bold">آلرژن‌های اعلام‌شده</legend><div className="flex flex-wrap gap-2">{ALLERGEN_TAGS.map((tag) => <label key={tag.id} className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-xs"><input type="checkbox" className="checkbox checkbox-xs" checked={allergenTags.includes(tag.id)} onChange={() => toggleProductTag("allergenTags", tag.id)} />{tag.label}</label>)}</div><p className="mt-2 text-xs text-stone-500">خالی بودن فهرست به معنی نبود آلرژن نیست.</p></fieldset></div>
+          {features.has("ar") && <Field label="مدل سه‌بعدی واقعیت افزوده (GLB)" hint="اختیاری؛ URL مدل سه‌بعدی محصول"><Input className="text-left" dir="ltr" value={arModelUrl} onChange={(event) => setArModelUrl(event.target.value)} placeholder="https://…/model.glb" /></Field>}
+        </Card>
+
+        <Card className="space-y-4 p-4 sm:p-6">
+          <SectionTitle title="دستور تهیه" description={editingId ? "مقدار هر ماده در این فرم به‌ازای یک واحد محصول است." : "مقدار هر ماده را برای کل batch وارد کنید؛ تعداد خروجی در آنالیز قیمت، مقدار ذخیره‌شده برای هر واحد را محاسبه می‌کند."} />
           {!hasRecipes && <p className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">دسترسی دستور تهیه در پلن فعلی فعال نیست. برای استفاده، پلن را ارتقا دهید.</p>}
           {materials.error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">دریافت مواد اولیه ممکن نشد: {materials.error}</p>}
           {ingredients.map((line, index) => {
             const material = materials.items.find((item) => item.id === Number(line.itemId));
             const materialCost = material ? currentRecipeMaterialCost(material.lastPurchaseCost, material.costPerUnit) : null;
-            return <div key={line.key} className="rounded-xl border border-stone-200 p-3 sm:p-4"><div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto] sm:items-end"><Field label={`ماده اولیه ${toFa(index + 1)}`}><Select disabled={!hasRecipes} value={line.itemId} onChange={(e) => changeIngredient(line.key, { itemId: e.target.value })}><option key="empty-material" value="">انتخاب ماده اولیه</option>{materials.items.filter((item) => item.isActive !== false || line.itemId === String(item.id)).map((item) => { const cost = currentRecipeMaterialCost(item.lastPurchaseCost, item.costPerUnit); return <option key={item.id} value={item.id} disabled={chosenIds.has(String(item.id)) && line.itemId !== String(item.id)}>{item.name} · {formatPrice(cost.costPerUnit)}/{item.unit}{item.isActive === false ? " · غیرفعال" : ""}</option>; })}</Select></Field><Field label={`مقدار مصرف (${material?.recipeUnit ?? "واحد"})`}><Input disabled={!hasRecipes} inputMode="decimal" value={line.quantity} onChange={(e) => changeIngredient(line.key, { quantity: e.target.value })} placeholder="۰" /></Field><button type="button" aria-label="حذف ماده اولیه" onClick={() => { setIngredients((list) => list.filter((item) => item.key !== line.key)); setPreview(null); }} className="min-h-10 rounded-lg px-3 text-rose-600 hover:bg-rose-50">حذف</button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_1fr]"><div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600">واحد مصرف: <b>{material?.recipeUnit ?? "—"}</b><br/>واحد انبار: <b>{material?.unit ?? "—"}</b><br/>ضریب: <b>{toFa(material?.recipeToStockFactor ?? 1)}</b></div><Field label={`بهای مبنا (تومان / ${material?.unit ?? "—"})`}><div className="flex h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 text-sm">{materialCost ? formatPrice(materialCost.costPerUnit) : "—"}</div>{materialCost && <small className="text-xs text-stone-500">{materialCost.costBasis === "last_purchase" ? "آخرین خرید ثبت‌شده" : "میانگین بهای موجودی"}</small>}</Field><Field label="ضایعات ٪"><Input disabled={!hasRecipes} type="number" min="0" max="99.9" step="0.1" value={line.wastePercent} onChange={(e) => changeIngredient(line.key, { wastePercent: e.target.value })} /></Field></div>{material && materialCost && <p className="mt-2 text-xs text-stone-500">هزینهٔ این خط پیش از تقسیم بر تعداد خروجی: {formatPrice(Math.round(numberText(line.quantity) * (material.recipeToStockFactor ?? 1) * (1 + numberText(line.wastePercent) / 100) * materialCost.costPerUnit))}</p>}</div>;
+            return <div key={line.key} className="rounded-xl border border-stone-200 p-3 sm:p-4"><div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto] sm:items-end"><Field label={`ماده اولیه ${toFa(index + 1)}`}><Select disabled={!hasRecipes} value={line.itemId} onChange={(e) => changeIngredient(line.key, { itemId: e.target.value })}><option key="empty-material" value="">انتخاب ماده اولیه</option>{materials.items.filter((item) => item.isActive !== false || line.itemId === String(item.id)).map((item) => { const cost = currentRecipeMaterialCost(item.lastPurchaseCost, item.costPerUnit); return <option key={item.id} value={item.id} disabled={chosenIds.has(String(item.id)) && line.itemId !== String(item.id)}>{item.name} · {formatPrice(cost.costPerUnit)}/{item.unit}{item.isActive === false ? " · غیرفعال" : ""}</option>; })}</Select></Field><Field label={`مقدار مصرف (${material?.recipeUnit ?? "واحد"})`}><Input disabled={!hasRecipes} inputMode="decimal" value={line.quantity} onChange={(e) => changeIngredient(line.key, { quantity: e.target.value })} placeholder="۰" /></Field><button type="button" aria-label="حذف ماده اولیه" disabled={!hasRecipes} onClick={() => { setIngredients((list) => list.filter((item) => item.key !== line.key)); setPreview(null); }} className="min-h-10 rounded-lg px-3 text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">حذف</button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_1fr]"><div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600">واحد مصرف: <b>{material?.recipeUnit ?? "—"}</b><br/>واحد انبار: <b>{material?.unit ?? "—"}</b><br/>ضریب: <b>{toFa(material?.recipeToStockFactor ?? 1)}</b></div><Field label={`بهای مبنا (تومان / ${material?.unit ?? "—"})`}><div className="flex h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 text-sm">{materialCost ? formatPrice(materialCost.costPerUnit) : "—"}</div>{materialCost && <small className="text-xs text-stone-500">{materialCost.costBasis === "last_purchase" ? "آخرین خرید ثبت‌شده" : "میانگین بهای موجودی"}</small>}</Field><Field label="ضایعات ٪"><Input disabled={!hasRecipes} type="number" min="0" max="99.9" step="0.1" value={line.wastePercent} onChange={(e) => changeIngredient(line.key, { wastePercent: e.target.value })} /></Field></div>{material && materialCost && <p className="mt-2 text-xs text-stone-500">هزینهٔ این خط {editingId ? "برای هر واحد" : "پیش از تقسیم بر تعداد خروجی"}: {formatPrice(Math.round(numberText(line.quantity) * (material.recipeToStockFactor ?? 1) * (1 + numberText(line.wastePercent) / 100) * materialCost.costPerUnit / (editingId ? 1 : numberText(outputUnits, 1))))}</p>}</div>;
           })}
           <Button variant="secondary" className="w-full" disabled={!hasRecipes || materials.loading || materials.items.length === 0} onClick={() => setIngredients((list) => [...list, { key: optionId("recipe"), itemId: "", quantity: "", wastePercent: "5" }])}><Icon name="plus" className="size-4"/> افزودن ماده اولیه</Button>
           <p className="text-xs leading-6 text-stone-500">مقدار مصرف به واحد مصرف در دستور تهیه وارد می‌شود و سرور با ضریب تبدیل، مقدار را به واحد انبار تبدیل می‌کند. ضایعات نیز پیش از محاسبهٔ هزینه و کسر موجودی اعمال می‌شود.</p>
@@ -231,7 +332,7 @@ export default function CreateProductPage() {
         <Card className="space-y-4 p-4 sm:p-6">
           <SectionTitle title="آنالیز قیمت از روی مواد اولیه" description="دستور تهیه، بهای روز مواد، ضایعات، بازده و حاشیهٔ سود هدف، قیمت فروش پیشنهادی را مشخص می‌کند." />
           {!hasCosting && <p className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">محاسبهٔ رسمی قیمت در پلن فعلی فعال نیست. برآورد محلی نمایش داده می‌شود؛ برای عدد سرور، پلن قیمت‌گذاری را فعال کنید.</p>}
-            <div className="grid gap-3 rounded-xl bg-blue-50/70 p-4 sm:grid-cols-2"><Field label="تعداد واحد خروجی" hint="مثلاً تعداد لیوان، بشقاب یا بسته‌ای که این دستور تهیه تولید می‌کند."><Input type="number" min="1" step="1" value={outputUnits} onChange={(e) => { setOutputUnits(e.target.value); setPreview(null); }} /></Field><Field label="مبنای قیمت هدف"><Select value={targetType} onChange={(e) => { setTargetType(e.target.value as PriceTargetType); setPreview(null); }}><option key="gross-margin" value="gross_margin">حاشیه سود ناخالص</option><option key="food-cost" value="food_cost">سهم بهای مواد از قیمت فروش</option></Select></Field><Field label={targetType === "gross_margin" ? "حاشیه سود هدف ٪" : "سهم هدف مواد ٪"} hint={targetType === "gross_margin" ? `سهم مواد از قیمت هدف: ${toFa(100 - numberText(targetPercent, 30))}٪` : "درصد بالاتر، قیمت پیشنهادی پایین‌تری می‌دهد."}><Input type="number" min="1" max="99" step="1" value={targetPercent} onChange={(e) => { setTargetPercent(e.target.value); setPreview(null); }} /></Field>{sellingMode === "weight" && <Field label="بازده خام به پخته (۰ تا ۱)"><Input type="number" min="0.01" max="1" step="0.01" value={yieldRatio} onChange={(e) => { setYieldRatio(e.target.value); setPreview(null); }} /></Field>}</div>
+          <div className="grid gap-3 rounded-xl bg-blue-50/70 p-4 sm:grid-cols-2">{!editingId ? <Field label="تعداد واحد خروجی" hint="مثلاً تعداد لیوان، بشقاب یا بسته‌ای که این دستور تهیه تولید می‌کند."><Input type="number" min="1" step="1" value={outputUnits} onChange={(e) => { setOutputUnits(e.target.value); setPreview(null); }} /></Field> : <p className="self-end rounded-lg bg-white/70 p-3 text-xs leading-5 text-stone-600">مقدارها به‌ازای یک واحد ثبت می‌شوند؛ بهای مواد و قیمت پیشنهادی نیز برای یک واحد نمایش داده می‌شود.</p>}<Field label="مبنای قیمت هدف"><Select value={targetType} onChange={(e) => { setTargetType(e.target.value as PriceTargetType); setPreview(null); }}><option key="gross-margin" value="gross_margin">حاشیه سود ناخالص</option><option key="food-cost" value="food_cost">سهم بهای مواد از قیمت فروش</option></Select></Field><Field label={targetType === "gross_margin" ? "حاشیه سود هدف ٪" : "سهم هدف مواد ٪"} hint={targetType === "gross_margin" ? `سهم مواد از قیمت هدف: ${toFa(100 - numberText(targetPercent, 30))}٪` : "درصد بالاتر، قیمت پیشنهادی پایین‌تری می‌دهد."}><Input type="number" min="1" max="99" step="1" value={targetPercent} onChange={(e) => { setTargetPercent(e.target.value); setPreview(null); }} /></Field>{sellingMode === "weight" && <Field label="بازده خام به پخته (۰ تا ۱)"><Input type="number" min="0.01" max="1" step="0.01" value={yieldRatio} onChange={(e) => { setYieldRatio(e.target.value); setPreview(null); }} /></Field>}</div>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
             <div className="overflow-hidden rounded-2xl border border-stone-200">
               <div className="border-b border-stone-200 bg-blue-50/70 px-4 py-3"><h3 className="font-bold">مواد اولیهٔ این محصول</h3><p className="mt-1 text-xs text-stone-500">مقدار، واحد، بهای واحد، ضایعات و هزینهٔ هر خط</p></div>
@@ -249,11 +350,20 @@ export default function CreateProductPage() {
         <Card className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5"><div><p className="font-bold">وضعیت محصول</p><p className="mt-1 text-xs text-stone-500">محصول ناموجود در منوی مشتری قابل سفارش نیست.</p></div><div className="flex flex-wrap gap-5"><label className="flex items-center gap-2 text-sm"><Switch checked={available} onChange={setAvailable} label="موجود در منو"/> موجود در منو</label><label className="flex items-center gap-2 text-sm"><Switch checked={featured} onChange={setFeatured} label="پیشنهاد ویژه"/> پیشنهاد ویژه</label></div></Card>
       </div>
 
-      <aside className="space-y-4 lg:sticky lg:top-4"><Card className="p-4 sm:p-5"><SectionTitle title="تصویر محصول" description="تصویر مربعی با حداقل اندازهٔ ۳۰۰ × ۳۰۰ پیکسل مناسب است."/><div className="mt-4"><ImageUpload value={imageUrl} emoji={emoji} onChange={setImageUrl}/></div><p className="mt-3 text-xs leading-5 text-stone-500">فرمت‌های مجاز: JPG، PNG، WEBP یا HEIC. تصویر را اینجا رها کنید یا برای انتخاب کلیک کنید.</p></Card><Card className="space-y-3 p-4"><div className="flex items-center gap-2"><span className="flex size-8 items-center justify-center rounded-full bg-blue-50 text-brand-700"><Icon name="list" className="size-4"/></span><b className="text-sm">پیش از ثبت بررسی کنید</b></div><ChecklistItem done={!!name.trim()} label="نام محصول"/><ChecklistItem done={!!categoryId} label="دسته‌بندی"/><ChecklistItem done={variants.some((v) => v.active && v.name.trim() && Number.isFinite(numberText(v.price, NaN)))} label="تنوع قیمت (اختیاری)"/><ChecklistItem done={ingredients.length > 0} label="دستور تهیه (اختیاری)"/><ChecklistItem done={!!activePreview} label="آنالیز رسمی مواد (اختیاری)"/></Card></aside>
-    </div>
+      <aside className="space-y-4 lg:sticky lg:top-4"><Card className="p-4 sm:p-5"><SectionTitle title="تصویر محصول" description="تصویر مربعی با حداقل اندازهٔ ۳۰۰ × ۳۰۰ پیکسل مناسب است."/><div data-tour="product-image" className="mt-4"><ImageUpload value={imageUrl} emoji={emoji} onChange={setImageUrl}/></div><p className="mt-3 text-xs leading-5 text-stone-500">فرمت‌های مجاز: JPG، PNG، WEBP یا HEIC. تصویر را اینجا رها کنید یا برای انتخاب کلیک کنید.</p></Card><Card className="space-y-3 p-4"><div className="flex items-center gap-2"><span className="flex size-8 items-center justify-center rounded-full bg-blue-50 text-brand-700"><Icon name="list" className="size-4"/></span><b className="text-sm">پیش از ثبت بررسی کنید</b></div><ChecklistItem done={!!name.trim()} label="نام محصول"/><ChecklistItem done={!!categoryId} label="دسته‌بندی"/><ChecklistItem done={variants.some((v) => v.active && v.name.trim() && Number.isFinite(numberText(v.price, NaN)))} label="تنوع قیمت (اختیاری)"/><ChecklistItem done={ingredients.length > 0} label="دستور تهیه (اختیاری)"/><ChecklistItem done={!!activePreview} label="آنالیز رسمی مواد (اختیاری)"/></Card></aside>
+    </div>}
 
-    {categoryModal && <div role="presentation" className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setCategoryModal(false); }}><div role="dialog" aria-modal="true" aria-labelledby="new-category-heading" className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-5 shadow-xl"><div className="flex items-start justify-between"><div><h2 id="new-category-heading" className="text-lg font-extrabold">دسته‌بندی جدید</h2><p className="mt-1 text-sm text-stone-500">یک دسته بسازید و به محصول وصل کنید.</p></div><button type="button" aria-label="بستن" onClick={() => setCategoryModal(false)} className="rounded-lg p-2 hover:bg-stone-100"><Icon name="x" className="size-4"/></button></div><Field label="نام دسته‌بندی" className="mt-4"><Input autoFocus value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void createCategory(); }} placeholder="مثلاً نوشیدنی گرم" /></Field><div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={() => setCategoryModal(false)}>انصراف</Button><Button loading={categoryBusy} onClick={createCategory}>ثبت دسته</Button></div></div></div>}
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 p-3 backdrop-blur lg:hidden"><div className="mx-auto flex max-w-screen-sm gap-2"><Button variant="ghost" className="flex-1" onClick={() => router.push("/dashboard/products")}>بازگشت</Button><Button className="flex-1" loading={busy} onClick={save}>افزودن محصول</Button></div></div>
+    <Modal
+      open={categoryModal}
+      onClose={() => setCategoryModal(false)}
+      title="دسته‌بندی جدید"
+      description="دسته را بسازید تا برای همین محصول انتخاب شود."
+      size="sm"
+      footer={<><Button variant="ghost" disabled={categoryBusy} onClick={() => setCategoryModal(false)}>انصراف</Button><Button loading={categoryBusy} onClick={createCategory}>ثبت دسته</Button></>}
+    >
+      <Field label="نام دسته‌بندی"><Input autoFocus value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void createCategory(); }} placeholder="مثلاً نوشیدنی گرم" /></Field>
+    </Modal>
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 p-3 backdrop-blur lg:hidden"><div className="mx-auto flex max-w-screen-sm gap-2"><Button variant="ghost" className="flex-1" onClick={() => router.push("/dashboard/products")}>بازگشت</Button><Button className="flex-1" loading={busy} disabled={productLoading || invalidEditId} onClick={save}>{editingMode ? "ذخیره تغییرات" : "افزودن محصول"}</Button></div></div>
   </div>;
 }
 

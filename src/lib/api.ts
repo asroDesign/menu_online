@@ -46,7 +46,7 @@ export function useCollection<T extends { id: number }>(url: string, opts: { pol
   const [error, setError] = useState<string | null>(null);
   const pending = useRef(0);
   const itemsRef = useRef<T[]>([]);
-  itemsRef.current = items;
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   const load = useCallback(
     async (silent = false) => {
@@ -64,7 +64,8 @@ export function useCollection<T extends { id: number }>(url: string, opts: { pol
   );
 
   useEffect(() => {
-     
+    // Loading is initiated by the hook lifecycle; updates are applied after the network request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     if (!opts.poll) return;
     const t = setInterval(() => {

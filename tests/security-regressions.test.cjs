@@ -45,6 +45,24 @@ function loadMenuImport() {
   return box.exports;
 }
 
+function loadTehranTime() {
+  const box = { exports: {} };
+  const js = ts.transpileModule(source('src/lib/tehran-time.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  vm.runInNewContext(js, { module: box, exports: box.exports, Date, String });
+  return box.exports;
+}
+
+function loadStaffCalendar() {
+  const box = { exports: {} };
+  const js = ts.transpileModule(source('src/lib/staff-calendar.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  vm.runInNewContext(js, { module: box, exports: box.exports, require, Date, Intl, String, Number, Math, Array });
+  return box.exports;
+}
+
 function loadChequeRules() {
   const box = { exports: {} };
   const js = ts.transpileModule(source('src/lib/cheques.ts'), {
@@ -512,6 +530,103 @@ test('staff schedule blocks overlapping shifts and self-service requests reveal 
   assert.match(leave, /overlap/);
 });
 
+test('staff schedule planning bounds monthly ranges, applies repeat-safe templates and records absence with audit', () => {
+  const { parseTehranDateTime } = loadTehranTime();
+  assert.equal(parseTehranDateTime('2026-10-22T09:00').toISOString(), '2026-10-22T05:30:00.000Z');
+  assert.equal(parseTehranDateTime('2026-10-22T09:00:00Z').toISOString(), '2026-10-22T09:00:00.000Z');
+  const schedule = source('src/app/api/staff-schedule/route.ts');
+  const templates = source('src/app/api/staff-schedule/templates/route.ts');
+  const shifts = source('src/app/api/staff-schedule/[id]/route.ts');
+  const migration = source('src/db/migrations/0040_staff_schedule_planning.sql');
+  assert.match(schedule, /end\.getTime\(\) - start\.getTime\(\) > 32 \* 86_400_000/);
+  assert.match(schedule, /inArray\(staffSchedules\.status, \["scheduled", "absent"\]\)/);
+  assert.match(templates, /eq\(staffShiftTemplates\.businessId, auth\.business\.id\)/);
+  assert.match(templates, /\.for\("update"\)/);
+  assert.match(templates, /eq\(staffSchedules\.templateId, template\.id\)/);
+  assert.match(templates, /eq\(staffLeaveRequests\.status, "approved"\)/);
+  assert.match(templates, /هیچ تغییری ثبت نشد/);
+  assert.match(shifts, /status === "absent" && current\.startsAt\.getTime\(\) > Date\.now\(\)/);
+  assert.match(shifts, /absenceRecordedBy: status === "absent" \? auth\.user\.id/);
+  assert.match(migration, /staff_schedules_template_instance_idx/);
+  assert.match(migration, /staff_shift_swaps_one_pending_per_schedule_idx/);
+});
+
+test('staff schedule calendar aligns Jalali months Saturday-first and handles leap Esfand and year navigation', () => {
+  const { buildStaffCalendarMonth, jalaliMonthStart, nextJalaliMonthStart, shiftJalaliMonth, tehranDateKey } = loadStaffCalendar();
+  const Farvardin = buildStaffCalendarMonth('2026-03-21');
+  assert.equal(Farvardin.label, 'فروردین ۱۴۰۵');
+  assert.equal(Farvardin.monthDays, 31);
+  assert.equal(Farvardin.rows[0][0].dateKey, '2026-03-21');
+  assert.ok(Farvardin.rows.every((week) => week.length === 7));
+  const Esfand = buildStaffCalendarMonth(jalaliMonthStart('2025-03-01'));
+  assert.equal(Esfand.label, 'اسفند ۱۴۰۳');
+  assert.equal(Esfand.monthDays, 30);
+  assert.equal(nextJalaliMonthStart('2025-02-19'), '2025-03-21');
+  assert.equal(shiftJalaliMonth('2026-03-21', -1), '2026-02-20');
+  assert.equal(tehranDateKey(new Date('2026-10-21T21:00:00.000Z')), '2026-10-22');
+  const moduleCode = source('src/modules/staff-schedule.tsx');
+  assert.match(moduleCode, /setScheduleView\("calendar"\)/);
+  assert.match(moduleCode, /setScheduleView\("table"\)/);
+  assert.match(moduleCode, /تقویم شیفت \$\{rangeLabel\}/);
+  assert.match(moduleCode, /day\.number\.toLocaleString\("fa-IR"\)/);
+  assert.match(moduleCode, /divide-y divide-base-200 md:hidden/);
+});
+
+test('staff shift swaps require tenant membership, target acceptance and manager approval with conflict checks', () => {
+  const swaps = source('src/app/api/staff-schedule/swaps/route.ts');
+  assert.match(swaps, /eq\(staffShiftSwapRequests\.businessId, auth\.business\.id\)/);
+  assert.match(swaps, /shift\.staffId !== ownId/);
+  assert.match(swaps, /request\.toStaffId !== ownId/);
+  assert.match(swaps, /request\.status !== "pending_manager"/);
+  assert.match(swaps, /eq\(staffSchedules\.staffId, request\.toStaffId\)/);
+  assert.match(swaps, /eq\(staffLeaveRequests\.status, "approved"\)/);
+  assert.match(swaps, /status: "approved"/);
+  assert.match(swaps, /version: sql`\$\{staffSchedules\.version\} \+ 1`/);
+});
+
+test('staff attendance is self-service, tenant-scoped, duplicate-safe, and manager corrections are auditable', () => {
+  const route = source('src/app/api/staff-schedule/attendance/route.ts');
+  const schema = source('src/db/schema.ts');
+  const migration = source('src/db/migrations/0041_staff_attendance.sql');
+  const moduleCode = source('src/modules/staff-schedule.tsx');
+  assert.match(route, /eq\(staff\.userId, auth\.user\.id\)/);
+  assert.match(route, /eq\(staffSchedules\.businessId, auth\.business\.id\)/);
+  assert.match(route, /eq\(staffSchedules\.staffId, member\.id\)/);
+  assert.match(route, /\.for\("update"\)/);
+  assert.match(route, /ورود این شیفت قبلاً ثبت شده است/);
+  assert.match(route, /ابتدا ورود خود را ثبت کنید/);
+  assert.match(route, /اصلاح سوابق حضور فقط برای مدیر مجاز است/);
+  assert.match(route, /previousAt, occurredAt, reason, recordedBy/);
+  assert.match(schema, /staffAttendanceEvents = pgTable\("staff_attendance_events"/);
+  assert.match(migration, /UNIQUE REFERENCES staff_schedules\(id\)/);
+  assert.match(migration, /staff_attendance_events_record_idx/);
+  assert.match(moduleCode, /حضور و غیاب · ۳۰ روز اخیر/);
+  assert.match(moduleCode, /ثبت ورود/);
+  assert.match(moduleCode, /اصلاح حضور با ثبت دلیل در سوابق انجام شد/);
+});
+
+test('staff schedule schema errors explain the required migrations and option rows keep stable React keys', () => {
+  const auth = source('src/lib/auth.ts');
+  const moduleCode = source('src/modules/staff-schedule.tsx');
+  assert.match(auth, /\["42P01", "42703"\]/);
+  assert.match(auth, /api\.staff_schedule_migration_required/);
+  assert.match(auth, /migrationهای 0040 و 0041/);
+  const options = [...moduleCode.matchAll(/<option\b[^>]*>/g)].map((match) => match[0]);
+  assert.ok(options.length, 'the schedule UI has selectable options');
+  for (const option of options) assert.match(option, /\bkey=/, option);
+});
+
+test('editing a future shift uses optimistic versioning and repeats tenant conflict checks', () => {
+  const route = source('src/app/api/staff-schedule/[id]/route.ts');
+  const moduleCode = source('src/modules/staff-schedule.tsx');
+  assert.match(route, /expectedVersion !== current\.version/);
+  assert.match(route, /eq\(staffSchedules\.version, expectedVersion\)/);
+  assert.match(route, /ne\(staffSchedules\.id, current\.id\)/);
+  assert.match(route, /eq\(staffLeaveRequests\.status, "approved"\)/);
+  assert.match(moduleCode, /status: "scheduled", version: editingSchedule\.version/);
+  assert.match(moduleCode, /ویرایش شیفت/);
+});
+
 test('stock transfer requests are tenant-scoped, lock rows, reject insufficient stock and apply paired movements atomically', () => {
   const route = source('src/app/api/stock-transfers/route.ts');
   const migration = source('src/db/migrations/0017_stock_transfers.sql');
@@ -780,6 +895,67 @@ test('smart pricing route preserves dashboard access controls and product form s
   assert.match(form, /currentRecipeMaterialCost\(material\.lastPurchaseCost, material\.costPerUnit\)/);
   assert.match(form, /line\.costBasis === "last_purchase"/);
   assert.match(source('src/lib/price-target.ts'), /lastPurchaseCost, costBasis/);
+});
+
+test('product create/edit shares the full recipe workflow and smart pricing can edit its materials', () => {
+  const list = source('src/app/dashboard/products/page.tsx');
+  const form = source('src/app/dashboard/products/create/page.tsx');
+  const pricing = source('src/modules/inventory.tsx');
+  const recipeEditor = source('src/components/product-recipe-editor.tsx');
+  assert.match(list, /router\.push\(`\/dashboard\/products\/create\?edit=\$\{p\.id\}`\)/);
+  assert.match(form, /searchParams\.get\("edit"\)/);
+  assert.match(form, /setInitialRecipes\(rows\)/);
+  assert.match(form, /method: "PATCH", body: payload/);
+  assert.match(form, /api\(`\/api\/r\/recipes\/\$\{recipe\.recipeId\}`/);
+  assert.match(pricing, /<ProductRecipeEditor productId=\{item\.id\}/);
+  assert.match(recipeEditor, /recipes\.update\(line\.id/);
+  assert.match(recipeEditor, /recipes\.create\(/);
+  assert.match(recipeEditor, /recipes\.remove\(line\.id\)/);
+  assert.match(recipeEditor, /selectedItem/);
+  assert.match(recipeEditor, /ویرایش کامل محصول/);
+});
+
+test('category management follows the reference table and persists parent metadata safely', () => {
+  const categories = source('src/app/dashboard/categories/page.tsx');
+  assert.match(categories, /const \[query, setQuery\]/);
+  assert.match(categories, /const productCounts = useMemo/);
+  assert.match(categories, /افزودن گروهی/);
+  assert.match(categories, /ایجاد دسته.?بندی/);
+  assert.match(categories, /sm:w-64/);
+  assert.match(categories, /لیست تمامی دسته‌بندی‌های منو/);
+  assert.match(categories, /نمایش \{toFa\(visibleCategories\.length \? 1 : 0\)\} تا/);
+  assert.match(categories, /<table/);
+  for (const label of ['تصویر', 'عنوان دسته‌بندی', 'تعداد محصولات', 'ردیف نمایش', 'وضعیت', 'مدیریت']) assert.ok(categories.includes(label));
+  assert.match(categories, /ImageUpload/);
+  assert.match(categories, /دسته‌بندی والد/);
+  assert.match(categories, /توضیحات دسته‌بندی/);
+  assert.match(categories, /category\.sortOrder/);
+  assert.doesNotMatch(categories, /selectedProducts|کارت‌های KPI/);
+  assert.match(categories, /products\.error/);
+
+  const resources = source('src/lib/resources.ts');
+  const schema = source('src/db/schema.ts');
+  const migration = source('src/db/migrations/0039_category_management_fields.sql');
+  assert.match(resources, /parentCategoryId: \{ type: "nullableInt"/);
+  assert.match(resources, /eq\(categories\.businessId, biz\.id\)/);
+  assert.match(resources, /categoryParentError\(id, data\.parentCategoryId/);
+  assert.match(schema, /parentCategoryId: integer\("parent_category_id"\)/);
+  assert.match(schema, /description: text\("description"\)/);
+  assert.match(schema, /imageUrl: text\("image_url"\)/);
+  assert.match(migration, /REFERENCES categories\(id\) ON DELETE SET NULL/);
+
+  const treeBox = { exports: {} };
+  const treeJs = ts.transpileModule(source('src/lib/category-tree.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  vm.runInNewContext(treeJs, { module: treeBox, exports: treeBox.exports });
+  const { categoryParentError } = treeBox.exports;
+  const rows = [{ id: 1, parentCategoryId: null }, { id: 2, parentCategoryId: 1 }, { id: 3, parentCategoryId: 2 }];
+  assert.equal(categoryParentError(undefined, 1, rows), null);
+  assert.match(categoryParentError(2, 2, rows), /والد خودش/);
+  assert.match(categoryParentError(1, 3, rows), /چرخه/);
+  assert.match(categoryParentError(2, 99, rows), /پیدا نشد/);
+  assert.equal(categoryParentError(2, null, rows), null);
 });
 
 test('SMS retention gates opt-in, phone, post-trigger purchase, segment changes, cooldown, and monthly frequency', () => {

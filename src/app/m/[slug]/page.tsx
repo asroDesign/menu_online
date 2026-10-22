@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MenuClient } from "@/components/menu-client";
-import { getPublicMenu } from "@/lib/public-menu";
+import { getPublicMenu, type PublicMenu } from "@/lib/public-menu";
 import { DEMO_SLUG, ensureDemoData } from "@/lib/seed";
 import { DEMO_ENABLED } from "@/lib/demo-mode";
 
@@ -23,7 +23,7 @@ export default async function PublicMenuPage({ params, searchParams }: Props) {
   const data = await getPublicMenu(slug);
   if (!data) notFound();
   const tableId = table && data.tables.some((t) => t.id === Number(table)) ? Number(table) : null;
-  const validTemplate = ["classic", "editorial", "compact"].includes(template ?? "") ? template as "classic" | "editorial" | "compact" : null;
+  const validTemplate = ["classic", "editorial", "compact", "bistro", "minimal"].includes(template ?? "") ? template as NonNullable<PublicMenu["business"]["menuTemplate"]> : null;
   const menuData = validTemplate ? { ...data, business: { ...data.business, menuTemplate: validTemplate } } : data;
   return <MenuClient data={JSON.parse(JSON.stringify(menuData))} initialTableId={tableId} readOnlyDemo={slug === DEMO_SLUG} readOnlyPreview={!!validTemplate && slug !== DEMO_SLUG} />;
 }

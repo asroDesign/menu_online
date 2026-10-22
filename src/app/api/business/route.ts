@@ -75,7 +75,7 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
   switch (key) {
     case "menuTemplate":
-      return ["classic", "editorial", "compact"].includes(String(v)) ? v : "classic";
+      return ["classic", "editorial", "compact", "bistro", "minimal"].includes(String(v)) ? v : "classic";
     case "promoBanners":
       return cleanMenuPromoBanners(v);
     case "miniSite": {

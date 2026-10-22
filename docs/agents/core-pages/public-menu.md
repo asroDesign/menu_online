@@ -8,11 +8,11 @@
 
 ## رابط و جریان
 
-SSR business/public menu؛ دسته‌بندی و جستجو؛ product cards و جزئیات/تصویر/مدل سه‌بعدی؛ cart qty/note؛ ورود شماره و واکشی cashback membership؛ کد تخفیف؛ پیش‌سفارش/date/time در صورت تنظیم؛ پرداخت آنلاین یا کارت‌به‌کارت بر مبنای settings؛ انتخاب نوع سفارش/table؛ خلاصه و دکمه ثابت ثبت. پس از ثبت شماره سفارش، payUrl یا instructions نشان داده شود.
+SSR business/public menu؛ دسته‌بندی و جستجو؛ product cards و جزئیات/تصویر/مدل سه‌بعدی؛ cart qty/note؛ ثبت اطلاعات سفارش؛ کد تخفیف؛ پیش‌سفارش/date/time در صورت تنظیم؛ پرداخت آنلاین یا کارت‌به‌کارت بر مبنای settings؛ انتخاب نوع سفارش/table؛ خلاصه و ثبت. ناوبری ثابت پایین صفحه چهار مقصد منو، سبد خرید، سفارش‌ها و پروفایل را دارد. ورود به پروفایل با OTP انجام می‌شود؛ سفارش‌های گذشته فقط پس از OTP و در محدوده همان رستوران برمی‌گردند.
 
 ## API و داده
 
-buildPublicMenu؛ GET /api/public/:slug/customer?phone=؛ GET /discount?code&subtotal؛ GET /recommendations?ids؛ POST /api/public/:slug/orders؛ optional pos API.
+`buildPublicMenu`; `GET /api/public/:slug/discount?code&subtotal`; `GET /api/public/:slug/recommendations?ids`; `POST /api/public/:slug/orders`; ورود مشتری با `POST /api/public/:slug/customer/otp/request` و `/otp/verify`; نشست پروفایل با `GET`/`DELETE /api/public/:slug/customer/session`. مسیر عمومی legacy مشتری با شماره خام، عضویت/اعتبار را افشا نمی‌کند. `GET /api/public/:slug/track` همچنان به bearer token رهگیری همان سفارش نیاز دارد.
 
 ## قواعد بازسازی
 
@@ -34,13 +34,21 @@ Cart هر قلم quantity، optionIds و توضیح/یادداشت اختیار�
 
 ثبت با `POST /api/public/:slug/orders` انجام می‌شود. پاسخ سفارش شماره/شناسه و در صورت نیاز لینک پرداخت یا دستور کارت‌به‌کارت و URL رهگیری hash-fragment دارد. کلاینت نباید با تغییر DOM/state قادر به تغییر قیمت نهایی باشد: route قیمت فعلی محصولات و optionها، تخفیف، هزینه‌ها و زمان‌پذیری را دوباره محاسبه می‌کند و rate limit اعمال می‌کند. صفحه `/track/:slug` فقط با توکن وضعیت/خلاصه را برمی‌گرداند و شماره، شناسه ترتیبی، نشانی، تلفن یا اطلاعات مشتری را افشا نمی‌کند.
 
+### نوار مشتری، پیگیری و ورود
+
+`src/components/public-menu-navigation.tsx` ناوبری ثابت پایین viewport را می‌سازد؛ منو به بالای صفحه برمی‌گردد، سبد checkout را باز می‌کند، سفارش‌ها را از نشست مرورگر یا پروفایل OTP نشان می‌دهد، و پروفایل ورود/خروج را مدیریت می‌کند. برای فضای safe-area موبایل و عرض دسکتاپ محدود است. پنج template از `business.settings.menuTemplate` می‌آیند و کارت محصول/ناوبری را عوض می‌کنند: `classic` (فهرست تصویری)، `editorial` (کارت عکس بزرگ)، `compact` (ردیف کم‌ارتفاع)، `bistro` (کارت عکس شبکه‌ای) و `minimal` (فهرست خلوت). `/dashboard/settings#menu-theme` پنج preview انتخابی دارد؛ query `?template=` فقط همین مقادیر را برای پیش‌نمایش read-only می‌پذیرد.
+
+`POST /customer/otp/request` وجود مشتری را فاش نمی‌کند و ارسال را با محدودکنندهٔ تلفن، IP و سقف tenant محدود می‌کند؛ کد از الگوی پیامک مرکزی OTP ارسال می‌شود. `POST /customer/otp/verify` challenge را به `customer:<businessId>` همان رستوران محدود می‌کند، کد مصرف‌نشده را بررسی می‌کند و پس از OTP مشتری را پیدا یا ایجاد می‌کند. حساب تازه با رضایت بازاریابی پیامکی خاموش ساخته می‌شود. نشست signed با `OTP_SECRET`، کوکی HttpOnly/SameSite=Lax/Secure در production و path اختصاصی `/api/public/:slug/customer` دارد و ۱۲ ساعت اعتبار دارد؛ هیچ شماره خامی به‌تنهایی نشست نمی‌سازد.
+
+`GET /customer/session` فقط با نشست tenant-matched، پروفایل، امتیاز و ۲۰ سفارش اخیر همان customer/business را می‌دهد؛ مبلغ/وضعیت سفارش برمی‌گردد، اما آدرس یا اطلاعات گیرندهٔ سفارش نه. خروج کوکی را پاک می‌کند. سفارش مهمان فقط از tracking URL تصادفی hash-fragment خودش قابل پیگیری است؛ حداکثر ۱۰ لینک در `sessionStorage` همان تب نگه داشته می‌شود و به سرور ارسال نمی‌شود. سبد و checkout به OTP وابسته نیستند.
+
 ### دسترس‌پذیری و آزمون بازسازی
 
-Checkout موبایل‌محور و دارای دکمه ثابت ثبت سفارش است؛ فضای پایین صفحه برای CTA محفوظ بماند. modalهای cart/پرداخت در Chrome دسکتاپ و viewport باریک آزموده شوند. حالت empty menu، خارج از ساعات کاری، محصول ناموجود، تخفیف نامعتبر، شکست شبکه، پرداخت لغوشده و ثبت موفق را پوشش بده. محتوای عمومی فقط فیلدهای لازم business و محصولات را افشا کند.
+Checkout موبایل‌محور است و فاصله پایین صفحه باید برای نوار ناوبری ثابت محفوظ بماند. modalهای cart/پرداخت و پروفایل در viewport باریک آزموده شوند. حالت empty menu، خارج از ساعات کاری، محصول ناموجود، تخفیف نامعتبر، شکست شبکه، پرداخت لغوشده و ثبت موفق را پوشش بده. محتوای عمومی فقط فیلدهای لازم business و محصولات را افشا کند.
 
 ### قالب و داده تغذیه‌ای
 
-سه layout کنترل‌شده از `business.settings.menuTemplate` انتخاب می‌شود. `?template=classic|editorial|compact` فقط preview read-only است و سفارش/رزرو را خاموش می‌کند. منو برچسب‌های allowlist تغذیه‌ای و آلرژن را نشان می‌دهد و فیلتر تغذیه‌ای فقط مقدار اعلام‌شده‌ی موجود را تطبیق می‌دهد. نبود برچسب آلرژن به معنی نبود آلرژن نیست؛ هر مقدار را ثبت‌شده توسط کسب‌وکار معرفی کن و برای حساسیت غذایی، مشتری را به هماهنگی مستقیم با رستوران ارجاع بده.
+پنج layout کنترل‌شده از `business.settings.menuTemplate` انتخاب می‌شود. `?template=classic|editorial|compact|bistro|minimal` فقط preview read-only است و سفارش/رزرو را خاموش می‌کند. منو برچسب‌های allowlist تغذیه‌ای و آلرژن را نشان می‌دهد و فیلتر تغذیه‌ای فقط مقدار اعلام‌شده‌ی موجود را تطبیق می‌دهد. نبود برچسب آلرژن به معنی نبود آلرژن نیست؛ هر مقدار را ثبت‌شده توسط کسب‌وکار معرفی کن و برای حساسیت غذایی، مشتری را به هماهنگی مستقیم با رستوران ارجاع بده.
 
 برای محصول وزنی، نرخ per-kg و وزن انتخاب‌شده از `product.price` و وزن ورودی سفارش derive می‌شوند؛ public menu به endpoint خصوصی ترازو دسترسی ندارد و مشتری وزن درخواستی را وارد می‌کند. وزن/قیمت نهایی در server محاسبه می‌شود. محدودیت بازده و receipt/recipe در [راهنمای فروش وزنی](../modules/weighted-sales.md) است.
 

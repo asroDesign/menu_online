@@ -43,7 +43,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   return {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
-      menuTemplate: ["classic", "editorial", "compact"].includes(String(st.menuTemplate)) ? st.menuTemplate : "classic",
+      menuTemplate: ["classic", "editorial", "compact", "bistro", "minimal"].includes(String(st.menuTemplate)) ? st.menuTemplate : "classic",
       promotionalBanners: visibleMenuPromoBanners(st.promoBanners),
       instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, logoUrl: biz.logoUrl, acceptOrders: biz.acceptOrders,
       taxPercent: biz.taxPercent, servicePercent: biz.servicePercent,

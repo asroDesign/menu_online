@@ -98,6 +98,37 @@ export async function requestOtp(phone: string, input: { purpose: "login" | "reg
   return { challengeId: challenge.id, expiresIn: 300, resendAfter: 60 };
 }
 
+/** Send a tenant-scoped customer login code without disclosing whether the phone has ordered here before. */
+export async function requestCustomerOtp(phone: string, businessId: number, req: Request) {
+  const cfg = await getPlatformSms();
+  if (!cfg.enabled) throw new HttpError(503, "پنل پیامک مرکزی غیرفعال است");
+  if (!process.env.OTP_SECRET || process.env.OTP_SECRET.length < 32) throw new HttpError(503, "ورود پیامکی به‌درستی پیکربندی نشده است");
+  const purpose = `customer:${businessId}`;
+  const identity = `${businessId}:${phone}`;
+  await enforceRateLimit(req, "customer-otp-business", String(businessId), 80, 60 * 60_000);
+  await enforceRateLimit(req, "customer-otp-cooldown", identity, 1, 60_000, false);
+  await enforceRateLimit(req, "customer-otp-phone", identity, 4, 15 * 60_000, false);
+  await enforceRateLimit(req, "customer-otp-phone-global", phone, 6, 15 * 60_000, false);
+  await enforceRateLimit(req, "customer-otp-ip", String(businessId), 20, 60 * 60_000);
+  const id = randomUUID();
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const [challenge] = await db.insert(otpChallenges).values({
+    id,
+    phone,
+    codeHash: hashCode(id, code).toString("hex"),
+    purpose,
+    expiresAt: new Date(Date.now() + 5 * 60_000),
+  }).returning({ id: otpChallenges.id });
+  const result = await sendPattern(phone, "otp", { code });
+  await db.insert(platformSmsLogs).values({ businessId, phone, kind: "customer_otp", periodKey: `otp:${id}`, provider: result.provider, status: result.status, detail: result.detail.slice(0, 300) });
+  if (result.status !== "sent") {
+    await db.delete(otpChallenges).where(eq(otpChallenges.id, id));
+    throw new HttpError(503, result.detail);
+  }
+  await db.update(otpChallenges).set({ expiresAt: new Date(Date.now() + 5 * 60_000) }).where(eq(otpChallenges.id, id));
+  return { challengeId: challenge.id, expiresIn: 300, resendAfter: 60 };
+}
+
 export async function verifyOtp(id: string, code: string) {
   if (!process.env.OTP_SECRET || process.env.OTP_SECRET.length < 32) throw new HttpError(503, "برای فعال‌سازی ورود پیامکی، OTP_SECRET را در فایل .env با یک مقدار تصادفی حداقل ۳۲ نویسه‌ای تنظیم کنید");
   const [challenge] = await db.select().from(otpChallenges).where(and(eq(otpChallenges.id, id), isNull(otpChallenges.consumedAt), gt(otpChallenges.expiresAt, new Date()))).limit(1);

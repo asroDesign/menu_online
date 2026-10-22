@@ -23,7 +23,15 @@ export function KitchenDisplay({ code }: { code: string }) {
       setErr("");
     } catch (e) { setErr((e as Error).message); }
   }
-  useEffect(() => { load(); const a = setInterval(load, 5000); const b = setInterval(() => tick((x) => x + 1), 30000); return () => { clearInterval(a); clearInterval(b); }; }, [code]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // Polling synchronizes this display with the device API; its state updates happen after fetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+    const a = setInterval(load, 5000);
+    const b = setInterval(() => tick((x) => x + 1), 30000);
+    return () => { clearInterval(a); clearInterval(b); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
   async function move(o: Order) {
     const [status] = NEXT[o.status];
     setOrders((x) => x?.map((y) => (y.id === o.id ? { ...y, status } : y)).filter((y) => y.status !== "served") ?? x);

@@ -53,7 +53,7 @@ export function AdminTickets({ me, params }: { me: Me; params: Record<string, st
             </button>
           ))}</IconText>
         </div>
-        <Thread id={openId} me={me} agents={agents} changed={() => list.reload(true)} />
+        <Thread key={openId ?? "none"} id={openId} me={me} agents={agents} changed={() => list.reload(true)} />
       </div>
     </div>
   );
@@ -67,7 +67,6 @@ function Thread({ id, me, agents, changed }: { id: number | null; me: Me; agents
   const [busy, setBusy] = useState(false);
   const [xfer, setXfer] = useState<{ department: string; note: string } | null>(null);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { setText(""); setMode("reply"); }, [id]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [d?.messages?.length]);
   const act = useCallback(async (body: Record<string, unknown>, msg?: string) => {
     setBusy(true);

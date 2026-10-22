@@ -2,10 +2,11 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { staff, staffLeaveRequests, staffSchedules } from "@/db/schema";
 import { HttpError, readJson, withAuth } from "@/lib/auth";
+import { parseTehranDateTime } from "@/lib/tehran-time";
 
 export const POST = withAuth(async (req, auth) => {
   const body = await readJson(req, 8 * 1024);
-  const startsAt = new Date(String(body.startsAt ?? "")), endsAt = new Date(String(body.endsAt ?? ""));
+  const startsAt = parseTehranDateTime(body.startsAt), endsAt = parseTehranDateTime(body.endsAt);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt || endsAt.getTime() - startsAt.getTime() > 31 * 86_400_000)
     throw new HttpError(400, "بازه مرخصی معتبر نیست.");
   const kind = ["personal", "sick", "unpaid"].includes(String(body.kind)) ? String(body.kind) : "personal";

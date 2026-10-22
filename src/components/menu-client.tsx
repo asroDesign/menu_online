@@ -13,9 +13,11 @@ import { BrandLogo } from "@/components/brand";
 import { haversineKm } from "@/lib/geo";
 import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select, Textarea, ToastProvider, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { ProductOptionPicker } from "@/components/product-option-picker";
+import { PublicMenuNavigation } from "@/components/public-menu-navigation";
 import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, type CartState } from "@/lib/order-cart";
 import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
 import { trackMenuEvent } from "@/lib/menu-analytics";
+import { rememberTrackedMenuOrder } from "@/lib/public-menu-orders";
 
 type Prod = PublicMenu["products"][number];
 type OType = "dine_in" | "takeaway" | "delivery";
@@ -39,6 +41,8 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const { business: biz, categories, products, tables, zones, caps, languages } = data;
   const editorial = biz.menuTemplate === "editorial";
   const compact = biz.menuTemplate === "compact";
+  const bistro = biz.menuTemplate === "bistro";
+  const minimal = biz.menuTemplate === "minimal";
   const toast = useToast();
   const [lang, setLang] = useState("fa");
   const t = (k: string) => (DICT[lang] ?? DICT.en)[k] ?? DICT.en[k];
@@ -175,6 +179,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
           discountCode: applied?.code ?? "", payment, note,
         },
       });
+      rememberTrackedMenuOrder(biz.slug, item.number, item.trackingUrl);
       setCart({});
       setSheet(false);
       if (item.payUrl) {
@@ -197,13 +202,13 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
     const qty = cartProductQuantity(cart, p.id);
     const off = p.oldPrice && p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
     return (
-      <div className={cn("flex gap-3 rounded-2xl bg-white shadow-sm ring-1 ring-stone-200/70", editorial ? "flex-col overflow-hidden p-0" : compact ? "gap-2 p-2" : "p-3", !p.isAvailable && "opacity-60")}>
-        <div className={cn("relative shrink-0", editorial && "w-full")}>
-          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn(editorial ? "h-44 w-full rounded-none" : compact ? "size-16 rounded-lg" : "size-24 rounded-xl sm:size-28")} />
+      <div className={cn("flex gap-3", editorial ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : bistro ? "flex-col gap-0 overflow-hidden rounded-[1.5rem] bg-white p-0 shadow-md ring-1 ring-stone-200/70" : minimal ? "gap-3 rounded-none border-b border-stone-200/80 bg-transparent p-2" : compact ? "rounded-2xl bg-white p-2 shadow-sm ring-1 ring-stone-200/70" : "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-stone-200/70", !p.isAvailable && "opacity-60")}>
+        <div className={cn("relative shrink-0", (editorial || bistro) && "w-full")}>
+          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn(editorial ? "h-44 w-full rounded-none" : bistro ? "h-36 w-full rounded-none" : compact ? "size-16 rounded-lg" : minimal ? "size-16 rounded-xl" : "size-24 rounded-xl sm:size-28")} />
           {off > 0 && <span className="absolute start-1 top-1 rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{toFa(off)}٪</span>}
           <IconText>{caps.ar && p.arModelUrl && <button onClick={() => setAr(p)} className="absolute inset-x-1 bottom-1 rounded-lg bg-stone-900/80 py-0.5 text-[10px] font-bold text-white backdrop-blur" aria-label={t("ar")}>{<EmojiIcon emoji="" />} AR</button>}</IconText>
         </div>
-        <div className={cn("flex min-w-0 flex-1 flex-col", editorial && "p-4", compact && "py-1")}>
+        <div className={cn("flex min-w-0 flex-1 flex-col", editorial && "p-4", bistro && "p-3.5", (compact || minimal) && "py-1")}>
           <h3 className="font-bold leading-6">{nameOf("product", p.id, p.name)}</h3>
           <p className="line-clamp-2 flex-1 text-xs leading-5 text-stone-500">{descOf(p)}</p>
           {(p.dietaryTags?.length || p.allergenTags?.length) && <div className="mt-1 flex flex-wrap gap-1">{(p.dietaryTags ?? []).map((id) => DIETARY_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800">{label} اعلام‌شده</span>)}{(p.allergenTags ?? []).map((id) => ALLERGEN_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-900">آلرژن ثبت‌شده: {label}</span>)}</div>}
@@ -241,8 +246,8 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   ];
 
   return (
-    <div dir={dir} style={accent} className={cn("mx-auto min-h-dvh bg-[#f6f5f3] pb-28 shadow-xl", editorial ? "max-w-5xl" : "max-w-2xl")}>
-      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center")} style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}cc 60%, #1c1917)` }}>
+    <div dir={dir} style={accent} className={cn("mx-auto min-h-dvh bg-[#f6f5f3] pb-28 shadow-xl", (editorial || bistro) ? "max-w-5xl" : "max-w-2xl")}>
+      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8")} style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}cc 60%, #1c1917)` }}>
         <div className="pointer-events-none absolute -end-10 -top-10 size-48 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute -bottom-16 start-10 size-40 rounded-full bg-white/10" />
         {languages.length > 1 && (
@@ -250,12 +255,12 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             {languages.map((l) => <button key={l} onClick={() => setLang(l)} className={cn("rounded-full px-3 py-1 text-xs font-bold backdrop-blur transition", lang === l ? "bg-white text-stone-900" : "bg-white/15 text-white")}>{LANGS[l]?.name ?? l}</button>)}
           </div>
         )}
-        <div className={cn("relative flex items-center gap-4", editorial && "flex-col gap-3")}>
+        <div className={cn("relative flex items-center gap-4", editorial && "flex-col gap-3", bistro && "gap-3")}>
           <span className="flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-white text-3xl shadow-lg"><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
           <div><h1 className="text-xl font-extrabold">{biz.name}</h1><p className="mt-1 text-xs text-white/80">{t("menu")}</p></div>
         </div>
         {biz.description && lang === "fa" && <p className="relative mt-4 text-sm leading-7 text-white/90">{biz.description}</p>}
-        <div className={cn("relative mt-4 flex flex-wrap gap-2 text-xs", editorial && "justify-center")}>
+        <div className={cn("relative mt-4 flex flex-wrap gap-2 text-xs", (editorial || bistro) && "justify-center")}>
           {biz.phone && <a href={`tel:${biz.phone}`} className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="phone" className="size-3.5" />{biz.phone}</a>}
           {biz.address && lang === "fa" && <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="pin" className="size-3.5" />{biz.address}</span>}
           {biz.instagram && <a href={`https://instagram.com/${biz.instagram}`} target="_blank" className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur" dir="ltr">@{biz.instagram}</a>}
@@ -309,20 +314,11 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         ) : grouped.map((s) => (
           <section key={s.key} data-cat={s.id} ref={(el) => { sectionRefs.current[s.key] = el; }} className="scroll-mt-32">
             <h2 className="mb-3 text-base font-extrabold">{s.title}</h2>
-            <div className={cn("space-y-3", editorial && "grid gap-4 space-y-0 sm:grid-cols-2", compact && "space-y-2")}>{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
+            <div className={cn("space-y-3", editorial && "grid gap-4 space-y-0 sm:grid-cols-2", bistro && "grid grid-cols-2 gap-3 space-y-0 sm:grid-cols-3", compact && "space-y-2", minimal && "space-y-0")}>{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
           </section>
         ))}</IconText>
         <footer className="pb-4 pt-6 text-center text-[11px] text-stone-400">Powered by <b>منوی دیجیتال</b></footer>
       </main>
-
-      {canOrder && count > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-2xl p-3 animate-slide-up">
-          <button onClick={openCheckout} style={{ background: biz.accentColor }} className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-white shadow-2xl active:scale-[0.99]">
-            <span className="flex items-center gap-3 font-bold"><span className="flex size-7 items-center justify-center rounded-full bg-white/25 text-sm">{toFa(count)}</span>{t("cart")}</span>
-            <span className="font-extrabold">{formatPrice(subtotal)}</span>
-          </button>
-        </div>
-      )}
 
       <Modal open={sheet} onClose={() => setSheet(false)} title="" footer={<Button size="lg" className="w-full !bg-[var(--accent)]" loading={busy} onClick={submit} disabled={!lines.length}>{t("submit")} · {formatPrice(total)}</Button>}>
         <div className="space-y-4" dir={dir}>
@@ -424,6 +420,23 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
 
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
       {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams); trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); }} />}
+      <PublicMenuNavigation
+        key={`${biz.slug}:${readOnlyDemo}:${readOnlyPreview}`}
+        slug={biz.slug}
+        accent={biz.accentColor}
+        template={biz.menuTemplate ?? "classic"}
+        language={lang}
+        cartCount={count}
+        subtotal={subtotal}
+        canOrder={canOrder}
+        readOnly={readOnlyDemo || readOnlyPreview}
+        onMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        onCart={() => {
+          if (!canOrder) return toast("ثبت سفارش در این پیش‌نمایش فعال نیست", "error");
+          if (!count) return toast("سبد خرید شما خالی است");
+          openCheckout();
+        }}
+      />
     </div>
   );
 }

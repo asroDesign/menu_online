@@ -474,7 +474,7 @@ export function VoicePager() {
   const [voiceOk, setVoiceOk] = useState(true);
   const seen = useRef<Set<number> | null>(null);
   const autoRef = useRef(auto);
-  autoRef.current = auto;
+  useEffect(() => { autoRef.current = auto; }, [auto]);
   const toast = useToast();
   function speak(n: number) {
     if (typeof speechSynthesis === "undefined") return setVoiceOk(false);
@@ -521,7 +521,14 @@ function SerialPagerBridge({ pagers, reload }: { pagers: Pager[]; reload: () => 
   const [baud, setBaud] = useState("9600");
   const sent = useRef<Set<string>>(new Set());
   const supported = typeof navigator !== "undefined" && "serial" in navigator;
-  useEffect(() => { const f = localStorage.getItem("pager.fmt"); const b = localStorage.getItem("pager.baud"); if (f) setFmt(f); if (b) setBaud(b); }, []);
+  useEffect(() => {
+    const f = localStorage.getItem("pager.fmt");
+    const b = localStorage.getItem("pager.baud");
+    /* eslint-disable react-hooks/set-state-in-effect -- restore persisted serial settings after mount */
+    if (f) setFmt(f);
+    if (b) setBaud(b);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
   const cmd = (n: number) => fmt.replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\{n(?::(\d+))?\}/g, (_, w) => String(n).padStart(Number(w ?? 0), "0"));
   async function write(n: number) {
     const w = port.writable.getWriter();

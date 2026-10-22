@@ -6,6 +6,7 @@ import type { CashierDebtInput } from "@/lib/cashier-debt-input";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import "./cashier-workspace.css";
+import "./waiter-workspace.css";
 import { api, useCollection } from "@/lib/api";
 import { formatPrice, statusInfo, toFa } from "@/lib/format";
 import type { Category, DiningTable, Order, Product, StaffMember } from "@/lib/types";
@@ -18,7 +19,6 @@ import {
   Icon,
   Input,
   Modal,
-  PageHeader,
   PersianDateInput,
   ProductThumb,
   Select,
@@ -492,22 +492,38 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
   );
 
   return (
-    <div className={cn("animate-fade-in pb-24 lg:pb-0", mode === "cashier" && "cashier-workspace")}>
+    <div className={cn("animate-fade-in", mode === "cashier" ? "pb-24 lg:pb-0 cashier-workspace" : "waiter-workspace pb-28 xl:pb-0")}>
       {mode === "cashier" ? <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <div><p className="text-[11px] font-semibold text-stone-500">سفارش‌گیر صندوق</p><h1 className="mt-0.5 text-base font-extrabold leading-tight text-stone-900">سفارش جدید</h1></div>
           <Button size="sm" variant="secondary" className="h-9 gap-1.5 rounded-lg px-2.5 text-xs" onClick={() => setWorkflowOpen(true)}><Icon name="list" className="size-4" /><span className="hidden sm:inline">مراحل سفارش</span><span className="sm:hidden">مراحل</span><Badge color="brand">{toFa(workflowPreset)}</Badge></Button>
         </div>
         <div className="text-xs text-stone-500">محصول را انتخاب کنید، سپس سفارش را ثبت کنید</div>
-      </div> : <PageHeader title="پنل گارسون" subtitle="میز را انتخاب کنید، محصولات را لمس کنید و سفارش را ثبت کنید" />}
-      <div className={cn(mode === "cashier" && "cashier-columns", "grid gap-3", mode === "cashier" ? "lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]" : "lg:grid-cols-[minmax(0,1fr)_400px]")}>
+      </div> : <header className="waiter-header mb-3">
+        <div className="min-w-0">
+          <p className="waiter-eyebrow"><Icon name="waiter" className="size-4" /> سفارش‌گیر سالن</p>
+          <h1>ثبت سفارش</h1>
+          <p className="waiter-header-hint">میز را انتخاب کنید، محصولات را اضافه کنید و سفارش را برای آشپزخانه بفرستید.</p>
+        </div>
+        <div className="waiter-header-status" aria-live="polite">
+          <span className={cn("waiter-status-chip", tableId === null ? "waiter-status-empty" : "waiter-status-ready")}>
+            <Icon name="table" className="size-4" />
+            {tableId === null ? "میز انتخاب نشده" : selectedTable?.name ?? (isDelivery ? "ارسال با پیک" : "بیرون‌بر")}
+          </span>
+          <span className="waiter-status-chip waiter-status-count"><Icon name="cart" className="size-4" /> {toFa(count)} قلم</span>
+        </div>
+      </header>}
+      <div className={cn(mode === "cashier" && "cashier-columns", mode === "waiter" && "waiter-columns", "grid gap-3", mode === "cashier" ? "lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]" : "xl:grid-cols-[minmax(0,1fr)_380px]")}>
         {mode === "cashier" && <CashierOrderDesk revision={orderRevision} workflowPreset={workflowPreset} docked />}
         <div className={cn("min-w-0", mode === "cashier" && "cashier-catalog")}>
-          <button onClick={chooseTable} className="mb-4 flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white px-4 text-start lg:hidden"><span className="flex items-center gap-2 text-sm font-bold"><Icon name="table" className="size-5 text-brand-600" />{selectedTable?.name ?? (tableId === "takeaway" ? "بیرون‌بر" : isDelivery ? "ارسال با پیک" : "برای کدام میز سفارش می‌گیرید؟")}</span><span className="text-xs font-semibold text-brand-700">انتخاب میز</span></button>
+          <button onClick={chooseTable} className={cn("mb-3 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border bg-white px-3.5 text-start shadow-sm transition hover:border-brand-300 hover:shadow", mode === "cashier" ? "lg:hidden border-stone-200" : "waiter-table-button xl:hidden")}>
+            <span className="flex min-w-0 items-center gap-2.5 text-sm font-bold"><span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Icon name="table" className="size-5" /></span><span className="min-w-0"><span className="block truncate">{selectedTable?.name ?? (tableId === "takeaway" ? "بیرون‌بر" : isDelivery ? "ارسال با پیک" : "انتخاب میز یا نوع سفارش")}</span><span className="mt-0.5 block text-[10px] font-normal text-stone-500">{tableId === null ? "برای شروع، میز سفارش را مشخص کنید" : "برای تغییر میز لمس کنید"}</span></span></span>
+            <span className="shrink-0 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-bold text-brand-700">{tableId === null ? "انتخاب میز" : "تغییر"}</span>
+          </button>
           {/* Products */}
           <section>
             <h2 className="mb-1.5 text-xs font-bold text-stone-700">منوی محصولات</h2>
-            <div className="sticky top-14 z-10 -mx-4 mb-2 space-y-2 bg-[#f6f5f3]/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0 lg:top-0">
+            <div className={cn("sticky top-14 z-10 -mx-4 mb-2 space-y-2 bg-[#f6f5f3]/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0 lg:top-0", mode === "waiter" && "waiter-filters")}>
               <div className="relative">
                 <Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
                 <Input className="ps-9" placeholder="جستجوی محصول…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -517,7 +533,7 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
                   <button
                     key={c.id}
                     onClick={() => setCatId(c.id)}
-                    className={cn("shrink-0 min-h-11 rounded-full px-3.5 py-2 text-sm font-medium transition", catId === c.id ? "bg-stone-900 text-white" : "bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50")}
+                    className={cn("shrink-0 min-h-10 rounded-full px-3 py-1.5 text-xs font-semibold transition sm:min-h-11 sm:px-3.5 sm:py-2 sm:text-sm", catId === c.id ? "bg-stone-900 text-white shadow-sm" : "bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50")}
                   >
                     {<EmojiIcon emoji={c.emoji} /> } {c.name}
                   </button>
@@ -526,13 +542,13 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
             </div>
 
             <IconText>{loading ? (
-              <div className={mode === "cashier" ? "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"}>{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-52 rounded-2xl" />)}</div>
+              <div className={mode === "cashier" ? "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3" : "waiter-product-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-4"}>{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-2xl sm:h-52" />)}</div>
             ) : products.items.length === 0 ? (
               <EmptyState emoji="" title="منو خالی است" description="ابتدا محصولاتی به منو اضافه کنید." action={mode === "cashier" ? <Link href="/dashboard/products"><Button size="sm">افزودن محصول</Button></Link> : undefined} />
             ) : visible.length === 0 ? (
               <EmptyState emoji="" title="محصولی پیدا نشد" description="عبارت جستجو یا دسته‌بندی را تغییر دهید." />
             ) : (
-              <div className={mode === "cashier" ? "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"}>
+              <div className={mode === "cashier" ? "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3" : "waiter-product-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-4"}>
                 {visible.map((p) => {
                   const qty = cartProductQuantity(cart, p.id);
                   const legacySeedImage = p.imageUrl?.startsWith("/food/");
@@ -540,8 +556,24 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
                   const productMedia = mode === "cashier" && fallbackImage ? <div className="relative h-24 w-full overflow-hidden bg-stone-100 sm:h-28"><Image src={fallbackImage} alt="" sizes="(min-width: 1280px) 260px, (min-width: 1024px) 180px, 50vw" loading={visible[0]?.id === p.id ? "eager" : "lazy"} fill className="object-cover transition duration-300 group-hover:scale-[1.02]" /></div> : <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={mode === "cashier" ? "h-24 w-full sm:h-28" : "h-28 w-full"} />;
                   const priceLabel = <>{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className="ms-1 text-[10px]">/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className="ms-1 text-[10px]">از</span>}</>;
                   return (
-                    <Card key={p.id} className={cn("group relative overflow-hidden transition", mode === "cashier" && "cashier-product rounded-xl border-stone-200 shadow-none hover:border-primary", qty > 0 && "ring-2 ring-brand-400")}>
-                      {mode === "cashier" ? <>
+                    <Card key={p.id} className={cn("group relative overflow-hidden transition", mode === "cashier" && "cashier-product rounded-xl border-stone-200 shadow-none hover:border-primary", mode === "waiter" && "waiter-product", qty > 0 && "ring-2 ring-brand-400")}>
+                      {mode === "waiter" ? <>
+                        <button aria-label={`افزودن ${p.name} به سفارش`} aria-pressed={qty > 0} className="waiter-product-main focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" onClick={() => add(p)}>
+                          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="waiter-product-image" />
+                          <span className="waiter-product-copy">
+                            <span className="waiter-product-title">{p.name}</span>
+                            <span className="waiter-product-price">{priceLabel}</span>
+                          </span>
+                        </button>
+                        <div className="waiter-product-bottom">
+                          {p.isFeatured ? <span className="waiter-featured"><EmojiIcon emoji="" /> ویژه</span> : <span className="waiter-option-hint">{p.modifierGroups?.some((group) => group.active) ? "انتخاب افزودنی" : p.sellingMode === "weight" ? "فروش وزنی" : ""}</span>}
+                          {qty > 0 ? <span role="group" aria-label={`تعداد ${p.name} در سفارش`} className="waiter-quantity-control">
+                            <button type="button" onClick={() => add(p, -1)} aria-label={`کم کردن ${p.name}`}><Icon name="minus" className="size-4" /></button>
+                            <span>{toFa(qty)}</span>
+                            <button type="button" onClick={() => add(p)} aria-label={`زیاد کردن ${p.name}`}><Icon name="plus" className="size-4" /></button>
+                          </span> : <button type="button" aria-label={`افزودن ${p.name}`} className="waiter-add-button" onClick={() => add(p)}><Icon name="plus" className="size-5" /><span>افزودن</span></button>}
+                        </div>
+                      </> : mode === "cashier" ? <>
                         <button aria-label={`افزودن ${p.name} به سفارش`} aria-pressed={qty > 0} className="block w-full text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" onClick={() => add(p)}>
                           {productMedia}
                           <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{p.name}</p></div>
@@ -576,25 +608,25 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
         </div>
 
         {/* Desktop cart */}
-        <aside className={cn("hidden lg:block", mode === "cashier" && "cashier-cart")}>
-          <Card className={cn("sticky top-6 min-h-0 overflow-hidden", mode === "cashier" ? "h-[calc(100dvh-11rem)] min-h-[28rem] rounded-2xl shadow-sm" : "h-[calc(100dvh-19rem)]")}>{cartPanel}</Card>
+        <aside className={cn(mode === "cashier" ? "hidden lg:block cashier-cart" : "hidden xl:block waiter-cart")}>
+          <Card className={cn("sticky top-6 min-h-0 overflow-hidden", mode === "cashier" ? "h-[calc(100dvh-11rem)] min-h-[28rem] rounded-2xl shadow-sm" : "h-[calc(100dvh-12rem)] min-h-[32rem] rounded-2xl border-stone-200 shadow-sm")}>{cartPanel}</Card>
         </aside>
       </div>
 
       {/* Mobile cart bar */}
-      <div className="fixed inset-x-0 bottom-0 z-30 bg-white/90 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+      <div className={cn("fixed inset-x-0 bottom-0 z-30 bg-white/90 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] backdrop-blur", mode === "cashier" ? "lg:hidden" : "waiter-cart-bar xl:hidden")}>
         <button
           onClick={() => setSheet(true)}
-          className={cn("flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-white shadow-2xl", mode === "cashier" ? "bg-primary" : "bg-stone-900")}
+          className={cn("flex w-full items-center justify-between rounded-2xl px-4 py-3 text-white shadow-lg transition active:scale-[.99]", mode === "cashier" ? "bg-primary" : "waiter-cart-trigger")}
         >
           <span className="flex items-center gap-2.5 text-sm font-semibold">
             <span className="relative">
-              <Icon name="cart" />
-              {count > 0 && <span className="absolute -end-2 -top-2 flex size-4 items-center justify-center rounded-full bg-brand-500 text-[10px] font-bold">{toFa(count)}</span>}
+              <span className="flex size-9 items-center justify-center rounded-xl bg-white/15"><Icon name="cart" className="size-5" /></span>
+              {count > 0 && <span className="absolute -end-2 -top-1 flex min-w-5 items-center justify-center rounded-full bg-amber-300 px-1 text-[10px] font-extrabold text-stone-900">{toFa(count)}</span>}
             </span>
-            مشاهده سفارش
+            <span className="text-start"><span className="block">مشاهده سفارش</span><span className="block text-[10px] font-medium text-white/70">{tableId === null ? "ابتدا میز را انتخاب کنید" : selectedTable?.name ?? (isDelivery ? "ارسال با پیک" : "بیرون‌بر")}</span></span>
           </span>
-          <span className="text-sm font-extrabold">{formatPrice(total)}</span>
+          <span className="flex items-center gap-2 text-sm font-extrabold">{formatPrice(total)}<Icon name="chevronLeft" className="size-4" /></span>
         </button>
       </div>
       <Modal open={sheet} onClose={() => setSheet(false)} title="سفارش جاری" size="md">

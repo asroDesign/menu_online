@@ -10,8 +10,9 @@ export function JalaliInput({ value, onChange, className, end, placeholder = "۱
   const [bad, setBad] = useState(false);
   useEffect(() => {
     const cur = parseJ(text);
-    if (value) { if (!cur || fmtJ(cur) !== fmtJ(value)) setText(fmtJ(value)); }
-    else if (cur) setText("");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep the editable draft aligned with parent form changes
+    if (value) { if (!cur || fmtJ(cur) !== fmtJ(value)) { setText(fmtJ(value)); setBad(false); } }
+    else if (cur) { setText(""); setBad(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
   return (

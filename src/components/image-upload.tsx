@@ -27,7 +27,7 @@ async function prepare(file: File): Promise<Blob> {
   throw new Error("تصویر پس از فشرده‌سازی هم بزرگ است؛ تصویر کوچک‌تری انتخاب کنید");
 }
 
-export function ImageUpload({ value, emoji, onChange, uploadUrl = "/api/upload", label = "تصویر محصول", description = "تصویر را بکشید و رها کنید یا از دستگاه انتخاب کنید. تصویر خودکار کوچک و بهینه می‌شود (JPG، PNG، WebP، GIF).", disabled = false }: { value: string; emoji: string; onChange: (url: string) => void; uploadUrl?: string; label?: string; description?: string; disabled?: boolean }) {
+export function ImageUpload({ value, emoji, onChange, uploadUrl = "/api/upload", label = "تصویر محصول", description = "تصویر را بکشید و رها کنید یا از دستگاه انتخاب کنید. تصویر خودکار کوچک و بهینه می‌شود (JPG، PNG، WebP، GIF).", disabled = false, compact = false }: { value: string; emoji: string; onChange: (url: string) => void; uploadUrl?: string; label?: string; description?: string; disabled?: boolean; compact?: boolean }) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -51,10 +51,10 @@ export function ImageUpload({ value, emoji, onChange, uploadUrl = "/api/upload",
       onDragOver={(e) => { e.preventDefault(); if (!disabled) setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => { e.preventDefault(); setDrag(false); void upload(e.dataTransfer.files?.[0]); }}
-      className={cn("flex flex-wrap items-center gap-4 rounded-2xl border-2 border-dashed p-4 transition", disabled && "opacity-60", drag ? "border-brand-400 bg-brand-50" : "border-stone-300 bg-stone-50")}
+      className={cn("flex flex-wrap items-center gap-4 rounded-2xl border-2 border-dashed p-4 transition", compact && "gap-3 !p-3", disabled && "opacity-60", drag ? "border-brand-400 bg-brand-50" : "border-stone-300 bg-stone-50")}
     >
-      <ProductThumb imageUrl={value} emoji={emoji} className="size-24 shrink-0 rounded-2xl text-4xl" />
-      <div className="min-w-48 flex-1 space-y-2">
+      <ProductThumb imageUrl={value} emoji={emoji} className={cn("shrink-0 rounded-2xl", compact ? "size-16 text-2xl" : "size-24 text-4xl")} />
+      <div className={cn("flex-1 space-y-2", compact ? "min-w-0" : "min-w-48")}>
         <p className="text-sm font-semibold">{value ? `${label} ثبت شده` : `${label} انتخاب نشده`}</p>
         <p className="text-xs leading-6 text-stone-500">{description}</p>
         <div className="flex flex-wrap gap-2">

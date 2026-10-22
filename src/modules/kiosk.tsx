@@ -48,6 +48,8 @@ export default function Kiosk() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
+    // The browser origin is only available after this client component mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOrigin(location.origin);
     api<{ item: { slug: string; settings: Settings } }>("/api/business").then((r) => {
       const k = { template: "classic", welcomeTitle: "", welcomeSubtitle: "", idleSeconds: 90, allowCounter: true, allowOnline: false, askPhone: true, allowPos: false, ...(r.item.settings.kiosk ?? {}) };

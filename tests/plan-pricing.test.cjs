@@ -7,10 +7,10 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 function load(file) {
-  const module = { exports: {} };
+  const mod = { exports: {} };
   const js = ts.transpileModule(fs.readFileSync(path.join(root, file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
-  vm.runInNewContext(js, { module, exports: module.exports, require: name => name === '@/lib/plans' ? load('src/lib/plans.ts') : require(name) });
-  return module.exports;
+  vm.runInNewContext(js, { module: mod, exports: mod.exports, require: name => name === '@/lib/plans' ? load('src/lib/plans.ts') : require(name) });
+  return mod.exports;
 }
 const { pricePlan } = load('src/lib/plan-pricing.ts');
 const { PLANS } = load('src/lib/plans.ts');

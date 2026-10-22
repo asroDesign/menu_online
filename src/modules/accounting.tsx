@@ -45,7 +45,11 @@ export function Accounting() {
       setAccounts((await api<{ items: Acc[] }>("/api/acc/accounts")).items);
     } catch (e) { setErr((e as Error).message); }
   }, []);
-  useEffect(() => { loadMeta(); }, [loadMeta]);
+  useEffect(() => {
+    // Load initial chart metadata when the accounting workspace mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadMeta();
+  }, [loadMeta]);
 
   const year = years.find((y) => String(y.id) === range.year);
   const tabs: [typeof tab, string, string][] = [["docs", "اسناد", "file"], ["chart", "سرفصل حساب‌ها", "layers"], ["journal", "دفتر روزنامه", "book"], ["ledger", "دفتر کل / معین / تفصیلی", "book"], ["trial", "تراز آزمایشی", "scale"], ["statements", "صورت‌های مالی", "chart"], ["years", "سال مالی", "calendar"]];
@@ -206,6 +210,7 @@ function DocEditor({ open, doc, accounts, onClose, saved, standalone = false }: 
   const blank = (): EdLine => ({ accountId: "", debit: "", credit: "", description: "" });
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initialize the editable journal draft from its selected document
     if (doc) { setDate(doc.date); setKind(doc.kind); setDesc(doc.description); setLines(doc.lines.map((l) => ({ accountId: String(l.accountId), debit: l.debit ? String(l.debit) : "", credit: l.credit ? String(l.credit) : "", description: l.description }))); }
     else { setDate(new Date().toISOString()); setKind("general"); setDesc(""); setLines([blank(), blank()]); }
   }, [open, doc]);
@@ -303,23 +308,29 @@ export function NewAccountingDocumentPage() {
 
 function DocView({ id, onClose, changed, toast }: { id: number | null; onClose: () => void; changed: () => void; toast: (m: string, t?: "success" | "error") => void }) {
   const [d, setD] = useState<DocFull | null>(null);
-  useEffect(() => { setD(null); if (id) api<{ item: DocFull }>(`/api/acc/documents/${id}`).then((r) => setD(r.item)).catch((e) => toast(e.message, "error")); }, [id, toast]);
+  useEffect(() => {
+    if (!id) return;
+    let live = true;
+    api<{ item: DocFull }>(`/api/acc/documents/${id}`).then((r) => { if (live) setD(r.item); }).catch((e) => { if (live) toast(e.message, "error"); });
+    return () => { live = false; };
+  }, [id, toast]);
+  const current = id && d?.id === id ? d : null;
   async function reverse() {
-    if (!d) return;
-    try { await api(`/api/acc/documents/${d.id}/reverse`, { method: "POST", body: {} }); toast("سند برگشتی صادر شد"); changed(); onClose(); } catch (e) { toast((e as Error).message, "error"); }
+    if (!current) return;
+    try { await api(`/api/acc/documents/${current.id}/reverse`, { method: "POST", body: {} }); toast("سند برگشتی صادر شد"); changed(); onClose(); } catch (e) { toast((e as Error).message, "error"); }
   }
-  const td = d?.lines.reduce((s, l) => s + l.debit, 0) ?? 0, tc = d?.lines.reduce((s, l) => s + l.credit, 0) ?? 0;
+  const td = current?.lines.reduce((s, l) => s + l.debit, 0) ?? 0, tc = current?.lines.reduce((s, l) => s + l.credit, 0) ?? 0;
   return (
-    <Modal open={!!id} onClose={onClose} title={d ? `سند شماره ${toFa(d.number)} — ${fmtJ(d.date)}` : "…"} size="lg" footer={d && <>
-      <IconText>{d.status === "posted" && !d.reversed && !d.reversedOf && d.kind !== "closing" && <Button variant="ghost" className="me-auto text-rose-600" onClick={reverse}>{<EmojiIcon emoji="" />} برگشت سند</Button>}</IconText>
-      <a href={`/print/doc/${d.id}`} target="_blank"><Button><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ روکش سند</Button></a></>}>
-      {!d ? <Skeleton className="h-40" /> : (
+    <Modal open={!!id} onClose={onClose} title={current ? `سند شماره ${toFa(current.number)} — ${fmtJ(current.date)}` : "…"} size="lg" footer={current && <>
+      <IconText>{current.status === "posted" && !current.reversed && !current.reversedOf && current.kind !== "closing" && <Button variant="ghost" className="me-auto text-rose-600" onClick={reverse}>{<EmojiIcon emoji="" />} برگشت سند</Button>}</IconText>
+      <a href={`/print/doc/${current.id}`} target="_blank"><Button><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ روکش سند</Button></a></>}>
+      {!current ? <Skeleton className="h-40" /> : (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs"><Badge color="violet">{KIND[d.kind]}</Badge><Badge color={SRC[d.source]?.[1]}>{SRC[d.source]?.[0]}</Badge>{d.status === "draft" ? <Badge color="amber">پیش‌نویس</Badge> : d.reversed ? <Badge color="rose">برگشت‌خورده</Badge> : <Badge color="emerald">قطعی</Badge>}<span className="text-stone-500">{d.yearTitle} · تنظیم: {d.createdBy || "—"}</span></div>
-          <p className="text-sm leading-7">{d.description}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs"><Badge color="violet">{KIND[current.kind]}</Badge><Badge color={SRC[current.source]?.[1]}>{SRC[current.source]?.[0]}</Badge>{current.status === "draft" ? <Badge color="amber">پیش‌نویس</Badge> : current.reversed ? <Badge color="rose">برگشت‌خورده</Badge> : <Badge color="emerald">قطعی</Badge>}<span className="text-stone-500">{current.yearTitle} · تنظیم: {current.createdBy || "—"}</span></div>
+          <p className="text-sm leading-7">{current.description}</p>
           <div className="overflow-x-auto rounded-xl ring-1 ring-stone-200">
             <table className="w-full min-w-[560px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-2.5 text-start">حساب</th><th className="p-2.5 text-start">شرح</th><th className="p-2.5 text-end">بدهکار</th><th className="p-2.5 text-end">بستانکار</th></tr></thead>
-              <tbody className="divide-y divide-stone-100">{d.lines.map((l) => <tr key={l.id}><td className="p-2.5"><b>{toFa(l.code)}</b> {l.name}<span className="block text-[11px] text-stone-400">{l.kol} ‹ {l.moein}</span></td><td className="p-2.5 text-xs text-stone-500">{l.description}</td><td className="p-2.5 text-end font-semibold">{num(l.debit)}</td><td className="p-2.5 text-end font-semibold">{num(l.credit)}</td></tr>)}</tbody>
+              <tbody className="divide-y divide-stone-100">{current.lines.map((l) => <tr key={l.id}><td className="p-2.5"><b>{toFa(l.code)}</b> {l.name}<span className="block text-[11px] text-stone-400">{l.kol} ‹ {l.moein}</span></td><td className="p-2.5 text-xs text-stone-500">{l.description}</td><td className="p-2.5 text-end font-semibold">{num(l.debit)}</td><td className="p-2.5 text-end font-semibold">{num(l.credit)}</td></tr>)}</tbody>
               <tfoot><tr className="bg-stone-50 font-extrabold"><td colSpan={2} className="p-2.5">جمع</td><td className="p-2.5 text-end">{formatNumber(td)}</td><td className="p-2.5 text-end">{formatNumber(tc)}</td></tr></tfoot></table>
           </div>
         </div>
@@ -381,18 +392,18 @@ function ChartTab({ accounts, reload }: { accounts: Acc[]; reload: () => void })
 
 /* ------------------------------------------------------------- reports */
 function useRep<T>(path: string, range: Range, extra: Record<string, string>, version: number) {
-  const [d, setD] = useState<T | null>(null);
-  const [err, setErr] = useState("");
+  const [result, setResult] = useState<{ request: string; data?: T; error?: string }>({ request: "" });
   const key = qs(range, extra);
+  const request = `${path}?${key}#${version}`;
   useEffect(() => {
     let live = true;
-    setD(null); setErr("");
     if (extra.account === "") return;
-    api<T>(`/api/acc/reports/${path}?${key}`).then((r) => live && setD(r)).catch((e) => live && setErr(e.message));
+    api<T>(`/api/acc/reports/${path}?${key}`).then((data) => { if (live) setResult({ request, data }); }).catch((e) => { if (live) setResult({ request, error: e.message }); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, key, version]);
-  return { d, err };
+  const current = result.request === request;
+  return { d: current ? result.data ?? null : null, err: current ? result.error ?? "" : "" };
 }
 
 function JournalTab({ range, version, openDoc }: { range: Range; version: number; openDoc: (id: number) => void }) {

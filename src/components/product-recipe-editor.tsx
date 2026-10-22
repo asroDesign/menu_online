@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api, useCollection } from "@/lib/api";
 import { useFeatures } from "@/components/features";
@@ -11,7 +12,7 @@ type InventoryItem = { id: number; name: string; unit: string; recipeUnit?: stri
 type RecipeLine = { id: number; productId: number; itemId: number; quantity: number; wastePercent: number };
 type Draft = { itemId: string; quantity: string; wastePercent: string };
 
-const digits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/[٬,\s]/g, "");
+const digits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[٬,\s]/g, "").replace("٫", ".");
 
 /** Shared recipe editor used by product editing and smart-pricing material details. */
 export function ProductRecipeEditor({ productId, productName, sellingMode, yieldRatio = 1, onChanged, onApplySuggestedPrice }: {
@@ -60,6 +61,10 @@ export function ProductRecipeEditor({ productId, productName, sellingMode, yield
       setError("ماده، مقدار مصرف و درصد ضایعات را بررسی کنید.");
       return;
     }
+    if (lines.some((other) => other.id !== line.id && other.itemId === Number(draft.itemId))) {
+      setError("هر مادهٔ اولیه را فقط یک بار می‌توان به دستور تهیه افزود.");
+      return;
+    }
     setBusyId(line.id); setError("");
     try {
       await recipes.update(line.id, { productId, itemId: Number(draft.itemId), quantity, wastePercent });
@@ -92,8 +97,8 @@ export function ProductRecipeEditor({ productId, productName, sellingMode, yield
 
   return <section className="space-y-3 rounded-2xl border border-base-300 p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h3 className="font-bold">دستور تهیه و بهای مواد</h3><p className="mt-1 text-xs leading-5 text-base-content/55">مصرف هر ماده برای یک واحد محصول ثبت می‌شود؛ قیمت مبنا از خرید یا موجودی انبار می‌آید.</p></div>
-      <div className="flex items-center gap-2"><Badge>{toFa(lines.length)} ماده</Badge><Button size="sm" variant="secondary" onClick={() => setOpen(true)}><Icon name="edit" className="size-4" />{canEdit ? "ویرایش مواد" : "نمایش مواد"}</Button></div>
+      <div><h3 className="font-bold">دستور تهیه و بهای مواد</h3><p className="mt-1 text-xs leading-5 text-base-content/55">رسپی از مواد اولیهٔ همین محصول می‌آید؛ هزینهٔ هر ماده از آخرین خرید و در نبود آن از میانگین موجودی انبار محاسبه می‌شود.</p></div>
+      <div className="flex flex-wrap items-center gap-2"><Badge>{toFa(lines.length)} ماده</Badge>{features.isManager && <Link className="btn btn-ghost btn-sm" href={`/dashboard/products/create?edit=${productId}`}><Icon name="edit" className="size-4" />ویرایش کامل محصول</Link>}<Button size="sm" variant="secondary" onClick={() => setOpen(true)}><Icon name="edit" className="size-4" />{canEdit ? "ویرایش مواد" : "نمایش مواد"}</Button></div>
     </div>
       <div className="grid gap-3 rounded-xl bg-base-200/50 p-3 sm:grid-cols-[1fr_1fr]">
         <div className="flex items-center justify-between gap-2 text-sm"><span className="text-base-content/60">بهای مواد برای هر واحد</span><b>{lines.length ? formatPrice(Math.round(totalCost)) : "هنوز دستور تهیه ثبت نشده"}</b></div>
@@ -108,16 +113,19 @@ export function ProductRecipeEditor({ productId, productName, sellingMode, yield
         {lines.map((line) => {
           const item = inventory.items.find((entry) => entry.id === line.itemId);
           const draft = drafts[line.id] ?? { itemId: String(line.itemId), quantity: String(line.quantity), wastePercent: String(line.wastePercent ?? 0) };
-          const basis = item ? currentRecipeMaterialCost(item.lastPurchaseCost, item.costPerUnit) : null;
-          const contribution = item && basis ? Number(digits(draft.quantity)) * (item.recipeToStockFactor ?? 1) * (1 + Number(digits(draft.wastePercent)) / 100) * basis.costPerUnit : 0;
+          const selectedItem = inventory.items.find((entry) => entry.id === Number(draft.itemId)) ?? item;
+          const basis = selectedItem ? currentRecipeMaterialCost(selectedItem.lastPurchaseCost, selectedItem.costPerUnit) : null;
+          const quantity = Number(digits(draft.quantity));
+          const wastePercent = Number(digits(draft.wastePercent));
+          const contribution = selectedItem && basis && Number.isFinite(quantity) && Number.isFinite(wastePercent) ? quantity * (selectedItem.recipeToStockFactor ?? 1) * (1 + wastePercent / 100) * basis.costPerUnit : 0;
           return <Card key={line.id} className="space-y-3 p-3">
             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_8rem]">
-              <Field label="ماده اولیه"><Select disabled={!canEdit} value={draft.itemId} onChange={(event) => setDrafts((all) => ({ ...all, [line.id]: { ...draft, itemId: event.target.value } }))}><option value="">انتخاب ماده</option>{inventory.items.filter((entry) => (entry.isActive !== false || entry.id === line.itemId) && !lines.some((other) => other.id !== line.id && other.itemId === entry.id)).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}{entry.isActive === false ? " · غیرفعال" : ""}</option>)}</Select></Field>
-              <Field label={`مصرف هر واحد (${item?.recipeUnit ?? item?.unit ?? "—"})`}><Input disabled={!canEdit} inputMode="decimal" value={draft.quantity} onChange={(event) => setDrafts((all) => ({ ...all, [line.id]: { ...draft, quantity: event.target.value } }))} /></Field>
+              <Field label="ماده اولیه"><Select disabled={!canEdit} value={draft.itemId} onChange={(event) => setDrafts((all) => ({ ...all, [line.id]: { ...draft, itemId: event.target.value } }))}><option value="">انتخاب ماده</option>{inventory.items.filter((entry) => (entry.isActive !== false || entry.id === line.itemId || entry.id === Number(draft.itemId)) && !lines.some((other) => other.id !== line.id && other.itemId === entry.id)).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}{entry.isActive === false ? " · غیرفعال" : ""}</option>)}</Select></Field>
+              <Field label={`مصرف هر واحد (${selectedItem?.recipeUnit ?? selectedItem?.unit ?? "—"})`}><Input disabled={!canEdit} inputMode="decimal" value={draft.quantity} onChange={(event) => setDrafts((all) => ({ ...all, [line.id]: { ...draft, quantity: event.target.value } }))} /></Field>
               <Field label="ضایعات ٪"><Input disabled={!canEdit} type="number" min="0" max="99.9" step="0.1" value={draft.wastePercent} onChange={(event) => setDrafts((all) => ({ ...all, [line.id]: { ...draft, wastePercent: event.target.value } }))} /></Field>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-base-content/60">
-              {item && basis ? <span>بهای مبنا: {formatPrice(basis.costPerUnit)} / {item.unit} · {basis.costBasis === "last_purchase" ? "آخرین خرید" : "میانگین موجودی"} · سهم: <b className="text-base-content">{formatPrice(Math.round(contribution))}</b></span> : <span>مادهٔ انبار برای این ردیف یافت نشد.</span>}
+              {selectedItem && basis ? <span>مصرف: {Number.isFinite(quantity) ? toFa(quantity) : "—"} {selectedItem.recipeUnit ?? selectedItem.unit} = {Number.isFinite(quantity) ? toFa(quantity * (selectedItem.recipeToStockFactor ?? 1)) : "—"} {selectedItem.unit} · بهای مبنا: {formatPrice(basis.costPerUnit)} / {selectedItem.unit} · {basis.costBasis === "last_purchase" ? "آخرین خرید" : "میانگین موجودی"} · سهم: <b className="text-base-content">{formatPrice(Math.round(contribution))}</b></span> : <span>مادهٔ انبار برای این ردیف یافت نشد.</span>}
               {canEdit && <div className="flex gap-1"><Button size="sm" disabled={!drafts[line.id] || busyId !== null} loading={busyId === line.id} onClick={() => void saveLine(line)}>ذخیره</Button><Button size="sm" variant="ghost" className="text-error" disabled={busyId !== null} onClick={() => void removeLine(line)}>حذف</Button></div>}
             </div>
           </Card>;

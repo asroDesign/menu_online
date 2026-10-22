@@ -6,6 +6,8 @@
 
 برای دید کلی قابلیت‌ها و کاربردهای ماژول‌های موجود، ابتدا [کاتالوگ قابلیت‌ها و کاربرد ماژول‌ها](module-capabilities.md) را ببین؛ سپس راهنمای تفصیلی ماژول مربوط را بخوان.
 
+برای سابقهٔ رفع اشکال‌های فنی state/lint و نتایج بررسی‌های اجراشده، [راهنمای دیباگ](debugging.md) را ببین.
+
 سیستم طراحی مشترک، tokenهای رنگ سازمانی، منبع رنگ پیش‌فرض و جداسازی رنگ رستوران/سامانه در [راهنمای تم و رنگ سازمانی](modules/brand-theme.md) ثبت شده است. برای بازتولید همین ظاهر در ماژول تازه، آن راهنما و `src/components/ui.tsx` را مبنا قرار بده.
 
 رفتار ورود نخست مالک رستوران، ذخیرهٔ وضعیت پایان/رد راهنما و ساخت گام‌ها بر مبنای entitlementهای پلن در [راهنمای تور راه‌اندازی](modules/onboarding-tour.md) مستند شده است.
@@ -86,9 +88,9 @@
 | `/dashboard/voice-pager` | [modules/voice-pager.md](modules/voice-pager.md) — اعلام صوتی سفارش |
 | `/dashboard/food-court-pager` | [modules/food-court-pager.md](modules/food-court-pager.md) — پیجر فودکورت |
 | `/dashboard` | [modules/dashboard-overview.md](modules/dashboard-overview.md) — داشبورد اصلی |
-| `/dashboard/products` | [modules/products.md](modules/products.md) — محصولات منو |
-| `/dashboard/products/create` | [modules/products.md](modules/products.md) — ساخت محصول، تنوع قیمت، recipe و آنالیز مواد اولیه |
-| `/dashboard/categories` | [modules/categories.md](modules/categories.md) — دسته‌بندی منو |
+| `/dashboard/products` | [modules/products.md](modules/products.md) — فهرست محصولات؛ دکمهٔ ویرایش به فرم کامل مشترک create/edit می‌رود |
+| `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، recipe و آنالیز مواد |
+| `/dashboard/categories` | [modules/categories.md](modules/categories.md) — جدول دسته‌ها، جستجو، ایجاد گروهی، تصویر/والد/توضیحات و ترتیب نمایش |
 | `/dashboard/settings` | [modules/settings.md](modules/settings.md) — مرکز پنج‌گروهی تنظیمات کافه، هویت، ساعت/منو، بنر، سفارش/تسویه و امنیت |
 | راهنمای راه‌اندازی | [modules/onboarding-tour.md](modules/onboarding-tour.md) — تور نخستین ورود مالک و گام‌های متناسب با پلن |
 
@@ -101,7 +103,7 @@
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه و تنظیم برند |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
-| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی و ثبت سفارش |
+| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP و پنج قالب قابل انتخاب |
 | [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو میز سمت مشتری |
 | [core-pages/kiosk-client.md](core-pages/kiosk-client.md) | کیوسک مشتری |
 | [core-pages/kitchen-display.md](core-pages/kitchen-display.md) | نمایشگر آشپزخانه |
@@ -143,3 +145,8 @@
 > اصلاح تور راه‌اندازی (۲۰۲۶-۱۰-۱۹): راهنما اکنون روی کنترل‌های صفحات واقعی است؛ فرم مستقل ندارد. مشخصات فعلی و مسیر بازسازی در [مستند تور](modules/onboarding-tour.md) ثبت شده است.
 
 برای ادامهٔ درخواست صندوق و پرینترهای مرجع، [گزارش تطبیق صندوق/چاپ](../../POS_REFERENCE_PARITY.md) را بخوانید؛ این فایل امکانات کدنویسی‌شده، آزمون‌شده و باقی‌مانده را جدا ثبت می‌کند.
+
+
+## کامپوننت‌های رابط مشترک
+
+برای بازسازی، نگهداری و استفادهٔ یکدست از Button، Field، Modal و ConfirmDialog، سند [کامپوننت‌های رابط](modules/ui-components.md) را بخوانید. تغییر مشترک modal باید در همان سند و گزارش روت ثبت شود.

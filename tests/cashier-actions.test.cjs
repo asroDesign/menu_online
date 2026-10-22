@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 function load(path,mocks={}) {
-  const module={exports:{}};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{module,exports:module.exports,require:id=>{if(!(id in mocks))throw Error(id);return mocks[id]},Response,Date});
-  return module.exports;
+  const mod={exports:{}};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{module:mod,exports:mod.exports,require:id=>{if(!(id in mocks))throw Error(id);return mocks[id]},Response,Date});
+  return mod.exports;
 }
 const {parseCashierDebt}=load('src/lib/cashier-debt-input.ts');
 const person={name:'مشتری',phone:'۰۹۱۲۳۴۵۶۷۸۹',type:'person'};

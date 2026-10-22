@@ -18,7 +18,15 @@ export function SmsSendModal({ open, onClose, audience, numbers, count, title }:
   const [discount, setDiscount] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setTpls(null); api<{ items: Tpl[] }>("/api/r/smstemplates").then((r) => setTpls(r.items.filter((t) => t.isActive))).catch(() => setTpls([])); setName(title); } }, [open, title]);
+  useEffect(() => {
+    if (open) {
+      /* eslint-disable react-hooks/set-state-in-effect -- reset this modal for the selected SMS audience */
+      setTpls(null);
+      setName(title);
+      /* eslint-enable react-hooks/set-state-in-effect */
+      api<{ items: Tpl[] }>("/api/r/smstemplates").then((r) => setTpls(r.items.filter((t) => t.isActive))).catch(() => setTpls([]));
+    }
+  }, [open, title]);
   const cur = tpls?.find((t) => String(t.id) === tplId) ?? tpls?.[0];
   async function send() {
     if (!cur) return;

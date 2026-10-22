@@ -41,6 +41,27 @@ const getServerOrigin = () => "";
 
 const LOGOS = ["", "", "", ""];
 const TYPES: Record<string, string> = { cafe: "کافه", restaurant: "رستوران", fastfood: "فست‌فود", bakery: "نان و شیرینی", shop: "فروشگاه / کاتالوگ" };
+const MENU_TEMPLATES: { id: NonNullable<Settings["menuTemplate"]>; title: string; subtitle: string }[] = [
+  { id: "classic", title: "کلاسیک", subtitle: "فهرست تصویری و آشنا" },
+  { id: "editorial", title: "مجله‌ای", subtitle: "تصویرهای بزرگ و چیدمان داستانی" },
+  { id: "compact", title: "فشرده", subtitle: "نمایش تعداد بیشتری از کالاها" },
+  { id: "bistro", title: "بیسترو", subtitle: "کارت‌های تصویری با حس کافه‌ای" },
+  { id: "minimal", title: "مینیمال", subtitle: "فهرست خلوت با تمرکز روی قیمت" },
+];
+
+function MenuTemplatePreview({ template, accent }: { template: NonNullable<Settings["menuTemplate"]>; accent: string }) {
+  const photo = "bg-gradient-to-br from-amber-200 via-orange-300 to-rose-400";
+  const line = "h-1.5 rounded-full bg-stone-200";
+  return <div className="overflow-hidden rounded-xl border border-stone-200 bg-white p-2 shadow-sm" aria-hidden="true">
+    <div className="mb-2 flex items-center justify-between"><div className="flex items-center gap-1.5"><span className="size-4 rounded-md" style={{ backgroundColor: accent }} /><span className="h-1.5 w-12 rounded-full bg-stone-300" /></div><span className="h-1.5 w-8 rounded-full bg-stone-100" /></div>
+    {template === "editorial" ? <div className="grid grid-cols-2 gap-1.5">{[0, 1].map((i) => <div key={i} className="overflow-hidden rounded-lg bg-stone-50"><div className={`h-12 ${photo}`} /><div className="space-y-1 p-1.5"><div className={`${line} w-2/3`} /><div className="flex items-center justify-between"><div className={`${line} w-8`} /><span className="size-3 rounded-full" style={{ backgroundColor: accent }} /></div></div></div>)}</div>
+      : template === "compact" ? <div className="space-y-1">{[0, 1, 2].map((i) => <div key={i} className="flex items-center gap-1.5 rounded-md bg-stone-50 p-1"><span className={`size-7 shrink-0 rounded ${photo}`} /><div className="flex-1 space-y-1"><div className={`${line} w-1/2`} /><div className={`${line} w-2/3 opacity-60`} /></div><span className="h-1.5 w-7 rounded-full bg-emerald-100" /></div>)}</div>
+      : template === "bistro" ? <div className="grid grid-cols-2 gap-1.5">{[0, 1].map((i) => <div key={i} className="overflow-hidden rounded-xl bg-[#f8f3ec]"><div className={`h-14 ${photo}`} /><div className="space-y-1 p-1.5"><div className={`${line} w-3/4`} /><div className="flex items-center justify-between"><div className="h-1.5 w-8 rounded-full bg-stone-400" /><span className="flex size-4 items-center justify-center rounded-full text-[8px] text-white" style={{ backgroundColor: accent }}>+</span></div></div></div>)}</div>
+      : template === "minimal" ? <div className="space-y-1.5 px-1 py-1">{[0, 1, 2].map((i) => <div key={i} className="flex items-center gap-2 border-b border-stone-100 pb-1.5"><div className="min-w-0 flex-1 space-y-1"><div className={`${line} w-1/3`} /><div className={`${line} w-2/3 opacity-50`} /></div><div className="h-1.5 w-9 rounded-full" style={{ backgroundColor: `${accent}55` }} /></div>)}</div>
+      : <div className="space-y-1.5">{[0, 1].map((i) => <div key={i} className="flex items-center gap-2 rounded-lg bg-stone-50 p-1.5"><span className={`size-9 shrink-0 rounded-md ${photo}`} /><div className="flex-1 space-y-1.5"><div className={`${line} w-1/2`} /><div className={`${line} w-3/4 opacity-60`} /></div><span className="size-4 rounded-md" style={{ backgroundColor: `${accent}50` }} /></div>)}</div>}
+    <div className="mt-2 flex items-center justify-around rounded-lg border border-stone-100 bg-white px-2 py-1"><span className="h-1 w-4 rounded-full" style={{ backgroundColor: accent }} /><span className="h-1 w-4 rounded-full bg-stone-200" /><span className="h-1 w-4 rounded-full bg-stone-200" /><span className="h-1 w-4 rounded-full bg-stone-200" /></div>
+  </div>;
+}
 
 export default function SettingsPage() {
   const features = useFeatures();
@@ -173,15 +194,18 @@ export default function SettingsPage() {
             <h2 id="menu-theme" className="mb-4 scroll-mt-24 font-bold">قالب و ظاهر منوی دیجیتال</h2>
             <div className="space-y-5">
               <div>
-                <Field label="قالب چیدمان منوی مشتری" hint="پیش‌نمایش زیر قبل از ذخیره قابل بررسی است؛ قالب روی منوی عمومی اعمال می‌شود.">
-                  <Select value={biz.settings.menuTemplate ?? "classic"} onChange={(e) => setSettings({ menuTemplate: e.target.value as NonNullable<Settings["menuTemplate"]> })}>
-                    <option value="classic">کلاسیک — فهرست تصویری</option><option value="editorial">مجله‌ای — کارت‌های بزرگ</option><option value="compact">فشرده — فهرست کم‌حجم</option>
-                  </Select>
+                <Field label="قالب منوی مشتری" hint="هر قالب، چیدمان محصولات و نوار ناوبری منو را تغییر می‌دهد. انتخاب پس از ذخیره روی منوی عمومی اعمال می‌شود.">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {MENU_TEMPLATES.map((template) => {
+                      const selected = (biz.settings.menuTemplate ?? "classic") === template.id;
+                      return <button key={template.id} type="button" aria-pressed={selected} onClick={() => setSettings({ menuTemplate: template.id })} className={cn("group rounded-2xl border p-2.5 text-start transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500", selected ? "border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20" : "border-stone-200 bg-white hover:border-stone-300")}>
+                        <MenuTemplatePreview template={template.id} accent={biz.accentColor} />
+                        <span className="mt-2 flex items-start justify-between gap-2"><span><b className="block text-sm">{template.title}</b><span className="mt-0.5 block text-[11px] leading-5 text-stone-500">{template.subtitle}</span></span><span className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border text-xs", selected ? "border-brand-600 bg-brand-600 text-white" : "border-stone-300 text-transparent")}>✓</span></span>
+                      </button>;
+                    })}
+                  </div>
                 </Field>
-                <div className={cn("mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-3", biz.settings.menuTemplate === "editorial" ? "max-w-xl" : "max-w-md")} aria-live="polite" aria-label="پیش‌نمایش قالب منو">
-                  {biz.settings.menuTemplate === "editorial" ? <div className="grid gap-3 sm:grid-cols-2"><div className="h-32 rounded-xl bg-gradient-to-br from-amber-200 to-orange-500"/><div className="space-y-2"><div className="h-4 w-2/3 rounded bg-stone-300"/><div className="h-3 w-full rounded bg-stone-200"/><div className="h-3 w-4/5 rounded bg-stone-200"/><div className="mt-4 h-8 w-1/2 rounded-lg bg-stone-900"/></div></div> : biz.settings.menuTemplate === "compact" ? <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="flex items-center gap-3 rounded-lg bg-white p-2"><div className="size-10 shrink-0 rounded-lg bg-stone-200"/><div className="flex-1 space-y-1"><div className="h-3 w-1/2 rounded bg-stone-300"/><div className="h-2 w-2/3 rounded bg-stone-100"/></div><div className="h-3 w-14 rounded bg-emerald-200"/></div>)}</div> : <div className="space-y-3">{[0, 1].map((i) => <div key={i} className="flex items-center gap-3 rounded-xl bg-white p-2"><div className="size-16 shrink-0 rounded-lg bg-gradient-to-br from-amber-100 to-orange-300"/><div className="flex-1 space-y-2"><div className="h-4 w-1/2 rounded bg-stone-300"/><div className="h-3 w-3/4 rounded bg-stone-100"/></div><div className="size-8 rounded-lg bg-emerald-200"/></div>)}</div>}
-                </div>
-                <Link href={`/m/${biz.slug}?template=${biz.settings.menuTemplate ?? "classic"}`} target="_blank" className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-stone-900 px-4 text-sm font-bold text-white">پیش‌نمایش منوی واقعی با این قالب</Link>
+                <Link href={`/m/${biz.slug}?template=${biz.settings.menuTemplate ?? "classic"}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-xl bg-stone-900 px-4 text-sm font-bold text-white transition hover:bg-stone-800">پیش‌نمایش منوی واقعی با این قالب</Link>
               </div>
               <BrandColorPicker
                 value={biz.accentColor}

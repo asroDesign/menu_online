@@ -12,6 +12,7 @@ import {
   doublePrecision,
   bigint,
   date,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { ProductOptionGroup, ProductOptionSnapshot } from "@/lib/product-options";
@@ -108,13 +109,16 @@ export const categories = pgTable(
     businessId: integer("business_id")
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
+    parentCategoryId: integer("parent_category_id").references((): AnyPgColumn => categories.id, { onDelete: "set null" }),
     name: text("name").notNull(),
+    description: text("description").notNull().default(""),
     emoji: text("emoji").notNull().default(""),
+    imageUrl: text("image_url").notNull().default(""),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("categories_business_idx").on(t.businessId)],
+  (t) => [index("categories_business_idx").on(t.businessId), index("categories_parent_idx").on(t.businessId, t.parentCategoryId)],
 );
 
 export const products = pgTable(
@@ -193,20 +197,81 @@ export const staff = pgTable(
   (t) => [index("staff_business_idx").on(t.businessId)],
 );
 
+export const staffShiftTemplates = pgTable("staff_shift_templates", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  weekdays: text("weekdays").notNull(), // comma-separated ISO weekdays: Sunday=0 through Saturday=6
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  location: text("location").notNull().default(""),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_shift_templates_business_idx").on(t.businessId, t.staffId)]);
+
 export const staffSchedules = pgTable("staff_schedules", {
   id: serial("id").primaryKey(),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
   staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  templateId: integer("template_id").references(() => staffShiftTemplates.id, { onDelete: "set null" }),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
   location: text("location").notNull().default(""),
-  status: text("status").notNull().default("scheduled"), // scheduled | canceled
+  status: text("status").notNull().default("scheduled"), // scheduled | canceled | absent
+  absenceNote: text("absence_note").notNull().default(""),
+  absenceRecordedBy: integer("absence_recorded_by").references(() => users.id),
+  absenceRecordedAt: timestamp("absence_recorded_at", { withTimezone: true }),
   version: integer("version").notNull().default(1),
   createdBy: integer("created_by").notNull().references(() => users.id),
   updatedBy: integer("updated_by").notNull().references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("staff_schedules_business_time_idx").on(t.businessId, t.startsAt), index("staff_schedules_staff_time_idx").on(t.staffId, t.startsAt)]);
+
+export const staffAttendanceRecords = pgTable("staff_attendance_records", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  scheduleId: integer("schedule_id").notNull().unique().references(() => staffSchedules.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  checkInAt: timestamp("check_in_at", { withTimezone: true }),
+  checkOutAt: timestamp("check_out_at", { withTimezone: true }),
+  checkInBy: integer("check_in_by").references(() => users.id),
+  checkOutBy: integer("check_out_by").references(() => users.id),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_attendance_business_time_idx").on(t.businessId, t.checkInAt), index("staff_attendance_staff_time_idx").on(t.staffId, t.checkInAt)]);
+
+export const staffAttendanceEvents = pgTable("staff_attendance_events", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  recordId: integer("record_id").notNull().references(() => staffAttendanceRecords.id, { onDelete: "cascade" }),
+  action: text("action").notNull(), // check_in | check_out | adjust_check_in | adjust_check_out
+  previousAt: timestamp("previous_at", { withTimezone: true }),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  reason: text("reason").notNull().default(""),
+  recordedBy: integer("recorded_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_attendance_events_record_idx").on(t.recordId, t.createdAt)]);
+
+export const staffShiftSwapRequests = pgTable("staff_shift_swap_requests", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  scheduleId: integer("schedule_id").notNull().references(() => staffSchedules.id, { onDelete: "cascade" }),
+  fromStaffId: integer("from_staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  toStaffId: integer("to_staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  requestedBy: integer("requested_by").notNull().references(() => users.id),
+  status: text("status").notNull().default("pending_target"), // pending_target | pending_manager | approved | rejected
+  reason: text("reason").notNull().default(""),
+  decisionNote: text("decision_note").notNull().default(""),
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("staff_shift_swaps_business_status_idx").on(t.businessId, t.status, t.createdAt),
+  uniqueIndex("staff_shift_swaps_one_pending_per_schedule_idx").on(t.scheduleId).where(sql`${t.status} in ('pending_target', 'pending_manager')`),
+]);
 
 export const staffLeaveRequests = pgTable("staff_leave_requests", {
   id: serial("id").primaryKey(),

@@ -70,13 +70,15 @@ test('tour points to real controls and section anchors', () => {
 
 test('product guidance visits price and image before the real save control', () => {
   const fields = tourModule.exports.setupFields.products;
+  const listPage = fs.readFileSync(path.join(root, 'src/app/dashboard/products/page.tsx'), 'utf8');
+  const productForm = fs.readFileSync(path.join(root, 'src/app/dashboard/products/create/page.tsx'), 'utf8');
   assert.equal(fields[0].target, 'product-name');
   assert.equal(fields[1].target, 'product-category');
   assert.ok(fields.findIndex(field => field.target === 'product-price') > 1);
   assert.equal(fields.at(-1).target, 'product-save');
   assert.equal(fields.filter(field => field.save).length, 1);
   for (const field of fields) {
-    assert.ok(fs.readFileSync(path.join(root, 'src/app/dashboard/products/page.tsx'), 'utf8').includes(`data-tour="${field.target}"`));
+    assert.ok(listPage.includes(`data-tour="${field.target}"`) || productForm.includes(`data-tour="${field.target}"`), field.target);
   }
 });
 
