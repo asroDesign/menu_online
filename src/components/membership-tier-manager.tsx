@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { MembershipTierRule } from "@/lib/membership-core";
-import { Badge, Button, Card, Field, Icon, Input, Modal, Switch, useToast } from "@/components/ui";
+import { AmountInput, Badge, Button, Card, Field, Icon, Input, Modal, Switch, useToast } from "@/components/ui";
 
 type EditableTier = Omit<MembershipTierRule, "minSpent" | "minOrders" | "validityDays" | "discountPercent" | "maxDiscount"> & {
   minSpent: string; minOrders: string; validityDays: string; discountPercent: string; maxDiscount: string;
@@ -91,11 +91,11 @@ export function MembershipTierManager() {
             <Button type="button" size="sm" variant="ghost" onClick={() => setTiers((current) => current?.filter((_, i) => i !== index) ?? null)}><Icon name="trash" className="size-4 text-rose-600" /> حذف</Button>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="حداقل خرید پرداخت‌شده (تومان)" hint="۰ یعنی این شرط استفاده نشود."><Input inputMode="numeric" dir="ltr" value={tier.minSpent} onChange={(event) => update(index, { minSpent: event.target.value })} /></Field>
+            <Field label="حداقل خرید پرداخت‌شده (تومان)" hint="۰ یعنی این شرط استفاده نشود."><AmountInput dir="ltr" value={tier.minSpent} onValueChange={(minSpent) => update(index, { minSpent })} /></Field>
             <Field label="حداقل تعداد خرید" hint="۰ یعنی این شرط استفاده نشود."><Input inputMode="numeric" dir="ltr" value={tier.minOrders} onChange={(event) => update(index, { minOrders: event.target.value })} /></Field>
             <Field label="بازهٔ محاسبه و اعتبار (روز)"><Input inputMode="numeric" dir="ltr" value={tier.validityDays} onChange={(event) => update(index, { validityDays: event.target.value })} /></Field>
             <Field label="درصد تخفیف عضویت"><Input inputMode="numeric" dir="ltr" value={tier.discountPercent} onChange={(event) => update(index, { discountPercent: event.target.value })} /></Field>
-            <Field label="سقف تخفیف (تومان)" hint="۰ یعنی بدون سقف جدا از مبلغ سفارش."><Input inputMode="numeric" dir="ltr" value={tier.maxDiscount} onChange={(event) => update(index, { maxDiscount: event.target.value })} /></Field>
+            <Field label="سقف تخفیف (تومان)" hint="۰ یعنی بدون سقف جدا از مبلغ سفارش."><AmountInput dir="ltr" value={tier.maxDiscount} onValueChange={(maxDiscount) => update(index, { maxDiscount })} /></Field>
           </div>
           <p className="text-[11px] leading-5 text-stone-500">مزیت روی جمع اقلام اعمال می‌شود؛ مالیات و خدمات پس از تخفیف محاسبه می‌شوند. سطح واجد شرایط در لحظهٔ ثبت سفارش دوباره در سرور بررسی و جزئیاتش روی همان سفارش ثبت می‌شود.</p>
         </Card>)}

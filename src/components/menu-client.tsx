@@ -14,7 +14,7 @@ import { haversineKm } from "@/lib/geo";
 import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select, Textarea, ToastProvider, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { ProductOptionPicker } from "@/components/product-option-picker";
 import { PublicMenuNavigation } from "@/components/public-menu-navigation";
-import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, type CartState } from "@/lib/order-cart";
+import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
 import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
 import { trackMenuEvent } from "@/lib/menu-analytics";
 import { rememberTrackedMenuOrder } from "@/lib/public-menu-orders";
@@ -23,10 +23,10 @@ type Prod = PublicMenu["products"][number];
 type OType = "dine_in" | "takeaway" | "delivery";
 
 const DICT: Record<string, Record<string, string>> = {
-  fa: { search: "جستجو در منو…", featured: " پیشنهاد ویژه", cart: "مشاهده و ثبت سفارش", sold: "ناموجود", submit: "ثبت سفارش", total: "مبلغ نهایی", sub: "جمع اقلام", suggest: "همراه با سفارش شما پیشنهاد می‌کنیم", ar: "نمایش سه‌بعدی (AR)", menu: "منوی دیجیتال", empty: "موردی پیدا نشد" },
-  en: { search: "Search the menu…", featured: " Featured", cart: "View order", sold: "Sold out", submit: "Place order", total: "Total", sub: "Subtotal", suggest: "Goes well with your order", ar: "View in 3D / AR", menu: "Digital menu", empty: "Nothing found" },
-  ar: { search: "ابحث في القائمة…", featured: " مميز", cart: "عرض الطلب", sold: "نفدت الكمية", submit: "إرسال الطلب", total: "المجموع", sub: "المجموع الفرعي", suggest: "يناسب طلبك", ar: "عرض ثلاثي الأبعاد", menu: "القائمة الرقمية", empty: "لا نتائج" },
-  tr: { search: "Menüde ara…", featured: " Öne çıkanlar", cart: "Siparişi gör", sold: "Tükendi", submit: "Siparişi ver", total: "Toplam", sub: "Ara toplam", suggest: "Siparişinize yakışır", ar: "3D / AR görüntüle", menu: "Dijital menü", empty: "Sonuç yok" },
+  fa: { search: "جستجو در منو…", featured: " پیشنهاد ویژه", cart: "مشاهده و ثبت سفارش", sold: "ناموجود", submit: "ثبت سفارش", total: "مبلغ نهایی", sub: "جمع اقلام", suggest: "همراه با سفارش شما پیشنهاد می‌کنیم", ar: "نمایش سه‌بعدی (AR)", menu: "منوی دیجیتال", empty: "موردی پیدا نشد", zeroPrice: "قیمت این محصول صفر است و امکان افزودن آن به سبد وجود ندارد." },
+  en: { search: "Search the menu…", featured: " Featured", cart: "View order", sold: "Sold out", submit: "Place order", total: "Total", sub: "Subtotal", suggest: "Goes well with your order", ar: "View in 3D / AR", menu: "Digital menu", empty: "Nothing found", zeroPrice: "This product has a zero price and cannot be added to the cart." },
+  ar: { search: "ابحث في القائمة…", featured: " مميز", cart: "عرض الطلب", sold: "نفدت الكمية", submit: "إرسال الطلب", total: "المجموع", sub: "المجموع الفرعي", suggest: "يناسب طلبك", ar: "عرض ثلاثي الأبعاد", menu: "القائمة الرقمية", empty: "لا نتائج", zeroPrice: "سعر هذا المنتج صفر ولا يمكن إضافته إلى السلة." },
+  tr: { search: "Menüde ara…", featured: " Öne çıkanlar", cart: "Siparişi gör", sold: "Tükendi", submit: "Siparişi ver", total: "Toplam", sub: "Ara toplam", suggest: "Siparişinize yakışır", ar: "3D / AR görüntüle", menu: "Dijital menü", empty: "Sonuç yok", zeroPrice: "Bu ürünün fiyatı sıfır olduğu için sepete eklenemez." },
 };
 
 export function MenuClient(props: { data: PublicMenu; initialTableId: number | null; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
@@ -120,13 +120,18 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
 
   const add = (p: Prod, d = 1) => {
     if (d > 0) {
+      if (!Number.isSafeInteger(p.price) || p.price <= 0) { toast(t("zeroPrice"), "error"); return; }
       trackMenuEvent(biz.slug, "product_view", { productId: p.id });
       if (p.sellingMode === "weight" || p.modifierGroups?.some((group) => group.active)) { setOptionProduct(p); return; }
       trackMenuEvent(biz.slug, "add_to_cart", { productId: p.id });
     }
     setCart((current) => changeAnyCartVariant(current, p.id, d));
   };
-  const addVariant = (p: Prod, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => setCart((current) => changeCartVariant(current, p.id, optionIds, delta, 50, weightGrams, tareGrams));
+  const addVariant = (p: Prod, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => {
+    if (delta > 0 && !hasPositiveCartLinePrice(p, optionIds, weightGrams, tareGrams)) { toast(t("zeroPrice"), "error"); return false; }
+    setCart((current) => changeCartVariant(current, p.id, optionIds, delta, 50, weightGrams, tareGrams));
+    return true;
+  };
   const lines = cartLines(products, cart).map((line) => ({ ...line, p: line.product }));
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
@@ -419,7 +424,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
       </Modal>
 
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
-      {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams); trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); }} />}
+      {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) { trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); } }} />}
       <PublicMenuNavigation
         key={`${biz.slug}:${readOnlyDemo}:${readOnlyPreview}`}
         slug={biz.slug}

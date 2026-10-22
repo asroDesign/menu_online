@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "@/lib/api";
 import { formatDate, formatPrice, formatNumber } from "@/lib/format";
-import { Badge, Button, Card, Field, Icon, Input, Modal, PageHeader, PersianDateInput, Select, Textarea } from "@/components/ui";
+import { AmountInput, Badge, Button, Card, Field, Icon, Input, Modal, PageHeader, PersianDateInput, Select, Textarea } from "@/components/ui";
 
 type Account = { id: number; name: string; type: string; phone: string; customerId: number | null };
 type Debt = {
@@ -90,10 +90,13 @@ export default function Receivables() {
   }
 
   async function submitDebt(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setError("");
+    const amount = Number(debtAmount);
+    if (!Number.isSafeInteger(amount) || amount <= 0) { setError("مبلغ طلب باید عدد صحیح و بیشتر از صفر باشد."); return; }
+    setBusy(true);
     try {
       await api("/api/receivables", { method: "POST", body: {
-        accountId: Number(debtAccountId), amount: Number(debtAmount), dueAt: debtDueAt || null, description: debtDescription,
+        accountId: Number(debtAccountId), amount, dueAt: debtDueAt || null, description: debtDescription,
       } });
       setDebtOpen(false); setDebtAmount(""); setDebtDueAt(""); setDebtDescription(""); await refresh();
     } catch (e) { setError(e instanceof ApiError ? e.message : "ثبت طلب انجام نشد"); }
@@ -102,10 +105,12 @@ export default function Receivables() {
 
   async function submitPayment(event: FormEvent) {
     event.preventDefault(); if (!paymentFor) return;
+    const amount = Number(payAmount);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > paymentFor.balance) { setError("مبلغ دریافت باید مثبت و حداکثر برابر با ماندهٔ بدهی باشد."); return; }
     setBusy(true); setError("");
     try {
       await api(`/api/receivables/${paymentFor.id}/payments`, { method: "POST", body: {
-        amount: Number(payAmount), method: payMethod, bankAccountId: payMethod === "cash" ? null : Number(payBank),
+        amount, method: payMethod, bankAccountId: payMethod === "cash" ? null : Number(payBank),
         idempotencyKey: crypto.randomUUID(), note: payNote,
       } });
       setPaymentFor(null); setPayAmount(""); setPayNote(""); await refresh();
@@ -132,10 +137,12 @@ export default function Receivables() {
   async function submitReversal(event: FormEvent) {
     event.preventDefault();
     if (!statement || !reversalTarget) return;
+    const amount = Number(reversalAmount);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > reversalTarget.amount) { setError("مبلغ برگشت باید مثبت و حداکثر برابر با مبلغ قابل برگشت باشد."); return; }
     setBusy(true); setError("");
     try {
       await api(`/api/receivables/${statement.item.id}/payments/${reversalTarget.paymentId}/reverse`, { method: "POST", body: {
-        amount: Number(reversalAmount), reason: reversalReason, idempotencyKey: crypto.randomUUID(),
+        amount, reason: reversalReason, idempotencyKey: crypto.randomUUID(),
       } });
       setReversalTarget(null); setReversalReason(""); setReversalAmount("");
       await Promise.all([refresh(), showStatement(statement.item.id)]);
@@ -205,7 +212,7 @@ export default function Receivables() {
     <Modal open={debtOpen} onClose={() => setDebtOpen(false)} title="ثبت طلب دستی" footer={<><Button variant="secondary" onClick={() => setDebtOpen(false)}>انصراف</Button><Button loading={busy} form="receivable-form">ثبت طلب</Button></>}>
       <form id="receivable-form" onSubmit={submitDebt} className="space-y-4">
         <Field label="حساب بدهکار"><Select value={debtAccountId} onChange={(e) => setDebtAccountId(e.target.value)} required><option value="">انتخاب کنید</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.phone ? ` — ${a.phone}` : ""}</option>)}</Select></Field>
-        <Field label="مبلغ طلب (تومان)"><Input value={debtAmount} onChange={(e) => setDebtAmount(e.target.value)} type="number" min="1" step="1" inputMode="numeric" required /></Field>
+        <Field label="مبلغ طلب (تومان)"><AmountInput value={debtAmount} onValueChange={setDebtAmount} required /></Field>
         <Field label="تاریخ سررسید (اختیاری)"><PersianDateInput value={debtDueAt} onChange={setDebtDueAt} /></Field>
         <Field label="شرح"><Textarea value={debtDescription} onChange={(e) => setDebtDescription(e.target.value)} maxLength={500} placeholder="شرح فاکتور یا علت ایجاد طلب" /></Field>
         <p className="rounded-lg bg-blue-50 p-3 text-xs leading-6 text-blue-900">ثبت طلب، حساب دریافتنی را بدهکار و حساب درآمد متفرقه را بستانکار می‌کند؛ سند در دفتر حسابداری ذخیره می‌شود.</p>
@@ -215,7 +222,7 @@ export default function Receivables() {
     <Modal open={Boolean(paymentFor)} onClose={() => setPaymentFor(null)} title="ثبت دریافت از بدهکار" footer={<><Button variant="secondary" onClick={() => setPaymentFor(null)}>انصراف</Button><Button loading={busy} form="receivable-payment-form">ثبت دریافت</Button></>}>
       {paymentFor && <form id="receivable-payment-form" onSubmit={submitPayment} className="space-y-4">
         <p className="rounded-lg bg-base-200/70 p-3 text-sm">{paymentFor.accountName} · مانده {formatPrice(paymentFor.balance)}</p>
-        <Field label="مبلغ دریافت (تومان)"><Input value={payAmount} onChange={(e) => setPayAmount(e.target.value)} type="number" min="1" max={paymentFor.balance} step="1" inputMode="numeric" required /></Field>
+        <Field label="مبلغ دریافت (تومان)"><AmountInput value={payAmount} onValueChange={setPayAmount} required /></Field>
         <Field label="روش دریافت"><Select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>{Object.entries(methodLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
         {payMethod !== "cash" && <Field label="حساب بانکی"><Select value={payBank} onChange={(e) => setPayBank(e.target.value)} required><option value="">انتخاب کنید</option>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.name}{bank.bank ? ` — ${bank.bank}` : ""}</option>)}</Select></Field>}
         <Field label="توضیح (اختیاری)"><Input value={payNote} onChange={(e) => setPayNote(e.target.value)} maxLength={300} /></Field>
@@ -233,7 +240,7 @@ export default function Receivables() {
     </Modal>
 
     <Modal open={Boolean(reversalTarget)} onClose={() => setReversalTarget(null)} title="برگشت یا اصلاح دریافت" footer={<><Button variant="secondary" onClick={() => setReversalTarget(null)}>انصراف</Button><Button loading={busy} form="receivable-reversal-form" variant="danger">ثبت برگشت</Button></>}>
-      {reversalTarget && <form id="receivable-reversal-form" onSubmit={submitReversal} className="space-y-4"><p className="rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-900">ثبت برگشت یک سند معکوس و تراکنش خروجی می‌سازد؛ receipt قبلی حذف یا ویرایش نمی‌شود.</p><Field label="مبلغ برگشت"><Input value={reversalAmount} onChange={(e) => setReversalAmount(e.target.value)} type="number" min="1" max={reversalTarget.amount} step="1" required /></Field><Field label="علت (الزامی)"><Textarea value={reversalReason} onChange={(e) => setReversalReason(e.target.value)} maxLength={300} required /></Field></form>}
+      {reversalTarget && <form id="receivable-reversal-form" onSubmit={submitReversal} className="space-y-4"><p className="rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-900">ثبت برگشت یک سند معکوس و تراکنش خروجی می‌سازد؛ receipt قبلی حذف یا ویرایش نمی‌شود.</p><Field label="مبلغ برگشت"><AmountInput value={reversalAmount} onValueChange={setReversalAmount} required /></Field><Field label="علت (الزامی)"><Textarea value={reversalReason} onChange={(e) => setReversalReason(e.target.value)} maxLength={300} required /></Field></form>}
     </Modal>
   </div>;
 }

@@ -47,3 +47,11 @@ export function changeAnyCartVariant(cart: CartState, productId: number, delta: 
 export function cartProductQuantity(cart: CartState, productId: number) {
   return Object.values(cart).reduce((sum, line) => line.productId === productId ? sum + line.quantity : sum, 0);
 }
+
+/** True only when this exact count/weight variant produces a positive-priced cart line. */
+export function hasPositiveCartLinePrice<T extends CartProduct>(product: T, optionIds: string[] = [], weightGrams?: number, tareGrams = 0) {
+  if (!Number.isSafeInteger(product.price) || product.price <= 0) return false;
+  const draft = changeCartVariant({}, product.id, optionIds, 1, 1, weightGrams, tareGrams);
+  const line = cartLines([product], draft)[0];
+  return !!line && Number.isSafeInteger(line.price) && line.price > 0 && line.lineTotal > 0;
+}

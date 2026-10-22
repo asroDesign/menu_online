@@ -16,7 +16,7 @@ import { BrandColorPicker } from "@/components/brand-color-picker";
 import { ImageUpload } from "@/components/image-upload";
 import { SettingsCenter } from "@/components/settings-center";
 import { AccountSecuritySettings } from "@/components/account-security-settings";
-import { Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
+import { AmountInput, Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 type Biz = {
   name: string; slug: string; type: string; description: string; phone: string; address: string; instagram: string;
@@ -185,7 +185,7 @@ export default function SettingsPage() {
             {features.has("reservations") ? <div className="space-y-4">
               <div className="flex items-center justify-between rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">پذیرش رزرو آنلاین</p><p className="text-xs text-stone-500">پیوند رزرو در منوی مشتری نمایش داده می‌شود.</p></div><span data-tour="reservation-enabled"><Switch checked={reservation.enabled} onChange={(enabled) => setSettings({ reservations: { ...reservation, enabled } })} label="رزرو میز" /></span></div>
               <div className="flex items-center justify-between gap-4 rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">دریافت پیش‌پرداخت</p><p className="text-xs text-stone-500">در صورت فعال‌بودن، رزرو تا ثبت دریافت مبلغ در انتظار می‌ماند.</p></div><span data-tour="reservation-deposit"><Switch checked={reservation.requireDeposit} disabled={!reservation.enabled} onChange={(requireDeposit) => setSettings({ reservations: { ...reservation, requireDeposit } })} label="پیش‌پرداخت رزرو" /></span></div>
-              {reservation.requireDeposit && <Field label="پیش‌پرداخت به‌ازای هر نفر (تومان)"><Input data-tour="reservation-amount" inputMode="numeric" value={String(reservation.depositPerGuest)} onChange={(e) => setSettings({ reservations: { ...reservation, depositPerGuest: Number(e.target.value.replace(/\D/g, "")) || 0 } })} /></Field>}
+              {reservation.requireDeposit && <Field label="پیش‌پرداخت به‌ازای هر نفر (تومان)"><AmountInput data-tour="reservation-amount" value={reservation.depositPerGuest} onValueChange={(value) => setSettings({ reservations: { ...reservation, depositPerGuest: Number(value) || 0 } })} /></Field>}
               <Field label="مدت هر رزرو (دقیقه)" hint="برای محاسبه‌ی ظرفیت میزها استفاده می‌شود."><Input data-tour="reservation-duration" inputMode="numeric" value={String(reservation.durationMinutes)} onChange={(e) => setSettings({ reservations: { ...reservation, durationMinutes: Number(e.target.value.replace(/\D/g, "")) || 90 } })} /></Field>
             </div> : <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-800">دسترسی این ماژول را مدیر سامانه از تنظیم تعرفه‌ها فعال می‌کند.</p>}
           </Card>

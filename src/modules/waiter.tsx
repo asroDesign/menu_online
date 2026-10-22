@@ -12,6 +12,7 @@ import { formatPrice, statusInfo, toFa } from "@/lib/format";
 import type { Category, DiningTable, Order, Product, StaffMember } from "@/lib/types";
 import {
   Badge,
+  AmountInput,
   Button,
   Card,
   EmptyState,
@@ -33,7 +34,7 @@ import { MapPicker } from "@/components/map-picker";
 import { TableManager } from "@/components/table-manager";
 import { CashierOrderDesk } from "@/components/cashier-order-desk";
 import { ProductOptionPicker } from "@/components/product-option-picker";
-import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, type CartState } from "@/lib/order-cart";
+import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
 
 type CashShift = { id: number; openingCash: number; cashSales: number; nonCashSales: number; expectedCash: number; byMethod: { method: string; amount: number }[] };
 type MembershipPreview = { eligible: true; tier: { id: string; name: string }; discountAmount: number; discountPercent: number; maxDiscount: number; expiresAt: string } | { eligible: false; reason: string };
@@ -231,10 +232,21 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
   }
 
   const add = (product: Product, d = 1) => {
+    if (d > 0 && (!Number.isSafeInteger(product.price) || product.price <= 0)) {
+      toast(`قیمت «${product.name}» صفر یا نامعتبر است؛ ابتدا قیمت محصول را اصلاح کنید.`, "error");
+      return;
+    }
     if (d > 0 && (product.sellingMode === "weight" || product.modifierGroups?.some((group) => group.active))) setOptionProduct(product);
     else setCart((current) => changeAnyCartVariant(current, product.id, d));
   };
-  const addVariant = (product: Product, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => setCart((current) => changeCartVariant(current, product.id, optionIds, delta, 50, weightGrams, tareGrams));
+  const addVariant = (product: Product, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => {
+    if (delta > 0 && !hasPositiveCartLinePrice(product, optionIds, weightGrams, tareGrams)) {
+      toast(`قیمت «${product.name}» صفر یا نامعتبر است؛ ابتدا قیمت محصول را اصلاح کنید.`, "error");
+      return false;
+    }
+    setCart((current) => changeCartVariant(current, product.id, optionIds, delta, 50, weightGrams, tareGrams));
+    return true;
+  };
 
   const customerPhoneForSubmit = phone;
   const customerNameForSubmit = customerName;
@@ -333,13 +345,13 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
         {!cashShift ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
           <p className="text-xs font-bold text-amber-950">شیفت صندوق باز نیست</p>
           <p className="mt-0.5 text-[11px] leading-5 text-amber-900">برای ثبت فروش در گزارش صندوق، موجودی نقد آغاز را وارد کنید.</p>
-          <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-2"><Input className="h-9 text-xs" inputMode="numeric" aria-label="موجودی نقد آغاز شیفت" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="موجودی آغاز (تومان)"/><Button size="sm" className="h-9 min-h-0 px-3" loading={shiftBusy} onClick={openCashShift}>شروع شیفت</Button></div>
+          <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-2"><AmountInput className="h-9 text-xs" aria-label="موجودی نقد آغاز شیفت" value={openingCash} onValueChange={setOpeningCash} placeholder="موجودی آغاز (تومان)"/><Button size="sm" className="h-9 min-h-0 px-3" loading={shiftBusy} onClick={openCashShift}>شروع شیفت</Button></div>
           <Input className="mt-1.5 h-9 text-xs" aria-label="توضیح شیفت" value={shiftNote} maxLength={500} onChange={(e) => setShiftNote(e.target.value)} placeholder="توضیح آغاز شیفت (اختیاری)" />
         </div> : <div className="space-y-2 rounded-xl bg-sky-50 p-2.5">
           <div className="flex items-center justify-between"><p className="text-sm font-bold text-sky-950">شیفت فعال #{toFa(cashShift.id)}</p><span className="badge badge-success badge-sm">باز</span></div>
           <div className="grid grid-cols-2 gap-2 text-xs"><p>فروش نقدی: <b>{formatPrice(cashShift.cashSales)}</b></p><p>غیرنقدی: <b>{formatPrice(cashShift.nonCashSales)}</b></p><p className="col-span-2">موجودی نقد مورد انتظار: <b>{formatPrice(cashShift.expectedCash)}</b></p>{cashShift.byMethod.map((row) => <p key={row.method}>{paymentMethodLabels[row.method] ?? row.method}: <b>{formatPrice(row.amount)}</b></p>)}</div>
           <Input aria-label="توضیح بستن شیفت" value={shiftNote} maxLength={500} onChange={(e) => setShiftNote(e.target.value)} placeholder="توضیح پایان شیفت (اختیاری)" />
-          <div className="flex gap-2"><Input inputMode="numeric" aria-label="موجودی نقد پایان شیفت" value={closingCash} onChange={(e) => setClosingCash(e.target.value)} placeholder="شمارش نقد پایان شیفت"/><Button size="sm" variant="secondary" loading={shiftBusy} onClick={closeCashShift}>بستن شیفت</Button></div>
+          <div className="flex gap-2"><AmountInput aria-label="موجودی نقد پایان شیفت" value={closingCash} onValueChange={setClosingCash} placeholder="شمارش نقد پایان شیفت"/><Button size="sm" variant="secondary" loading={shiftBusy} onClick={closeCashShift}>بستن شیفت</Button></div>
         </div>}
       </div></details>}
       <div className={cn("border-b border-stone-100", mode === "cashier" ? "space-y-2.5 bg-white p-3" : "space-y-3 bg-stone-50/70 p-4")}>
@@ -432,7 +444,7 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
                 <Select aria-label="نوع تخفیف صندوق" value={manualDiscountMode} disabled={!!(open && append) || !!applied || useMembership} onChange={(e) => setManualDiscountMode(e.target.value as "amount" | "percent")}>
                   <option value="amount">مبلغی</option><option value="percent">درصدی</option>
                 </Select>
-                <Input inputMode="decimal" dir="ltr" className="text-left" placeholder={manualDiscountMode === "amount" ? "مبلغ تخفیف (تومان)" : "درصد تخفیف (۰ تا ۱۰۰)"} value={manualDiscountValue} disabled={!!(open && append) || !!applied || useMembership} onChange={(e) => { setManualDiscountValue(e.target.value); setCode(""); setApplied(null); setUseMembership(false); }} />
+                {manualDiscountMode === "amount" ? <AmountInput dir="ltr" className="text-left" placeholder="مبلغ تخفیف (تومان)" value={manualDiscountValue} disabled={!!(open && append) || !!applied || useMembership} onValueChange={(value) => { setManualDiscountValue(value); setCode(""); setApplied(null); setUseMembership(false); }} /> : <Input inputMode="decimal" dir="ltr" className="text-left" placeholder="درصد تخفیف (۰ تا ۱۰۰)" value={manualDiscountValue} disabled={!!(open && append) || !!applied || useMembership} onChange={(e) => { setManualDiscountValue(e.target.value); setCode(""); setApplied(null); setUseMembership(false); }} />}
               </div>
               {applied && <p className="text-xs font-medium text-emerald-700">کد «{applied.code}» اعمال شد.</p>}
               {open && append && <p className="text-[11px] leading-5 text-stone-500">برای اعمال تخفیف، ابتدا افزودن به سفارش جاری را غیرفعال کنید.</p>}
@@ -710,7 +722,7 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
       <Modal open={mapOpen} onClose={() => setMapOpen(false)} title="محل تحویل روی نقشه" size="lg" footer={<><Button variant="ghost" onClick={() => { setPin(null); setMapOpen(false); }}>حذف موقعیت</Button><Button onClick={() => setMapOpen(false)}>تأیید</Button></>}>
         <MapPicker value={pin} height={380} onChange={(lat, lng) => setPin({ lat, lng })} onAddress={(a) => setAddress((cur) => cur.trim() ? cur : a)} origin={bizLoc} radii={zones.map((z) => z.radiusKm).filter((r) => r > 0)} />
       </Modal>
-      {optionProduct && <ProductOptionPicker product={optionProduct} scaleReadings={scaleReadings} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams); setOptionProduct(null); }} />}
+      {optionProduct && <ProductOptionPicker product={optionProduct} scaleReadings={scaleReadings} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) setOptionProduct(null); }} />}
     </div>
   );
 }

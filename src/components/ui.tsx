@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -33,6 +34,7 @@ import DatePicker from "react-multi-date-picker";
 import persian from "react-date-object/calendars/persian";
 import persianFa from "react-date-object/locales/persian_fa";
 import DateObject from "react-date-object";
+import { formatAmountInput, normalizeAmountInput } from "@/lib/amount-format";
 
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -202,6 +204,65 @@ const controlCls =
 
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn("input input-bordered h-10", controlCls, className)} {...rest} />;
+}
+
+type AmountInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "defaultValue" | "onChange" | "inputMode"> & {
+  value: string | number | null | undefined;
+  onValueChange: (value: string) => void;
+  inputMode?: "numeric" | "decimal";
+  allowNegative?: boolean;
+};
+
+/** Amount entry with grouped Persian digits; onValueChange always receives plain ASCII digits. */
+export function AmountInput({ value, onValueChange, inputMode = "numeric", allowNegative = false, ...rest }: AmountInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const pendingDigitOffset = useRef<number | null>(null);
+  const [negativeSignDraft, setNegativeSignDraft] = useState(false);
+  const displayValue = negativeSignDraft ? "-" : formatAmountInput(value, allowNegative);
+
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    const offset = pendingDigitOffset.current;
+    if (!input || offset === null) return;
+
+    if (input === document.activeElement) {
+      if (offset === 0) input.setSelectionRange(allowNegative && displayValue.startsWith("-") ? 1 : 0, allowNegative && displayValue.startsWith("-") ? 1 : 0);
+      else {
+        let seen = 0;
+        let cursor = displayValue.length;
+        for (let index = 0; index < displayValue.length; index++) {
+          if (normalizeAmountInput(displayValue[index]).length > 0 && ++seen >= offset) {
+            cursor = index + 1;
+            break;
+          }
+        }
+        input.setSelectionRange(cursor, cursor);
+      }
+    }
+    pendingDigitOffset.current = null;
+  });
+
+  return <input
+    {...rest}
+    ref={inputRef}
+    type="text"
+    inputMode={inputMode}
+    data-amount-input="true"
+    className={cn("input input-bordered h-10", controlCls, rest.className)}
+    value={displayValue}
+    onChange={(event) => {
+      const typed = event.currentTarget.value;
+      const caret = event.currentTarget.selectionStart ?? typed.length;
+      pendingDigitOffset.current = normalizeAmountInput(typed.slice(0, caret), allowNegative).replace(/^-/, "").length;
+      const normalized = normalizeAmountInput(typed, allowNegative);
+      if (allowNegative && normalized === "-") {
+        setNegativeSignDraft(true);
+        return;
+      }
+      setNegativeSignDraft(false);
+      onValueChange(normalized);
+    }}
+  />;
 }
 
 const twoDigits = (n: number) => String(n).padStart(2, "0");

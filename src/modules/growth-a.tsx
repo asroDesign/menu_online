@@ -13,7 +13,7 @@ import { SettingCard } from "@/components/setting-card";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
 import { MembershipTierManager } from "@/components/membership-tier-manager";
 import {
-  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
+  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, AmountInput, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 type Customer = { id: number; name: string; phone: string; note: string; points: number; walletBalance: number; totalSpent: number; ordersCount: number; birthMonth: number | null; birthDay: number | null; smsOptIn: boolean; lastOrderAt: string | null; segment: string };
 
@@ -27,7 +27,7 @@ function SegmentSettings() {
     <>
       <Button size="sm" variant="secondary" onClick={() => setOpen(true)}><IconText>{<EmojiIcon emoji="" />}</IconText> قوانین طبقه‌بندی</Button>
       <Modal open={open} onClose={() => setOpen(false)} title="قوانین طبقه‌بندی خودکار مشتریان" size="md" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button onClick={async () => { try { await api("/api/business", { method: "PATCH", body: { settings: { segments: Object.fromEntries(Object.entries(v ?? {}).map(([k, x]) => [k, Number(x.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, ""))])) } } }); toast("قوانین ذخیره شد؛ طبقه‌بندی به‌روز می‌شود"); setOpen(false); location.reload(); } catch (e) { toast((e as Error).message, "error"); } }}>ذخیره</Button></>}>
-        {!v ? <div className="skeleton h-40" /> : <div className="grid gap-4 sm:grid-cols-2">{F.map(([k, l, u]) => <Field key={k} label={l} hint={u}><Input inputMode="numeric" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></Field>)}</div>}
+        {!v ? <div className="skeleton h-40" /> : <div className="grid gap-4 sm:grid-cols-2">{F.map(([k, l, u]) => <Field key={k} label={l} hint={u}>{k.endsWith("Spent") ? <AmountInput value={v[k]} onValueChange={(value) => setV({ ...v, [k]: value })} /> : <Input inputMode="numeric" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} />}</Field>)}</div>}
         <p className="mt-4 text-xs leading-6 text-stone-500">طبقه‌بندی به‌صورت خودکار و بر اساس سفارش‌های پرداخت‌شده محاسبه می‌شود؛ نیازی به ثبت دستی نیست.</p>
       </Modal>
     </>

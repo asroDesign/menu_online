@@ -816,6 +816,28 @@ test('weighted sales calculate net grams, price, and raw yield safely from serve
   assert.match(bridgeAgent, /if \(d\.weightUnit === "g"\) weight \/= 1000/);
 });
 
+test('zero-priced products and variants are rejected before adding to every order cart', () => {
+  const { hasPositiveCartLinePrice } = loadOrderCart();
+  assert.equal(hasPositiveCartLinePrice({ id: 11, name: 'رایگان', price: 0 }, []), false);
+  assert.equal(hasPositiveCartLinePrice({ id: 12, name: 'عادی', price: 1000 }, []), true);
+  const discountedToZero = {
+    id: 13,
+    name: 'محصول با گزینه',
+    price: 1000,
+    modifierGroups: [{ id: 'g', name: 'افزودنی', required: false, min: 0, max: 1, active: true, options: [{ id: 'free', name: 'رایگان', priceDelta: -1000, active: true }] }],
+  };
+  assert.equal(hasPositiveCartLinePrice(discountedToZero, ['free']), false);
+  assert.equal(hasPositiveCartLinePrice({ id: 14, name: 'وزنی', price: 1, sellingMode: 'weight' }, [], 1, 0), false, 'a rounded zero-value weight line is not purchasable');
+
+  const orders = source('src/lib/orders.ts');
+  assert.match(orders, /p\.price <= 0/);
+  assert.match(orders, /price <= 0/);
+  assert.match(orders, /weighed\.lineTotal <= 0/);
+  for (const file of ['src/modules/waiter.tsx', 'src/components/menu-client.tsx', 'src/components/kiosk-client.tsx']) {
+    assert.match(source(file), /hasPositiveCartLinePrice/);
+  }
+});
+
 test('target price math uses the documented food-cost and gross-margin formulas with integer Toman rounding', () => {
   const { calculateTargetPrice } = loadPriceTargetRules();
   assert.equal(calculateTargetPrice(30_000, 30, 'food_cost'), 100_000);

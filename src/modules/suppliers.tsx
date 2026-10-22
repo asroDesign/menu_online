@@ -6,7 +6,7 @@ import { useFeatures } from "@/components/features";
 import { JalaliInput } from "@/components/jalali-input";
 import { formatNumber, formatPrice, toFa } from "@/lib/format";
 import { fmtJ } from "@/lib/jalali";
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
+import { AmountInput, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 export type Supplier = { id: number; name: string; contactPerson: string; phone: string; address: string; taxId: string; bankInfo: string; note: string; isActive: boolean; purchased: number; paid: number; balance: number };
 type Line = { id: number; docId: number; number: number; date: string; description: string; debit: number; credit: number; balance: number };
@@ -117,7 +117,7 @@ export default function Suppliers() {
       <Modal open={!!pay} onClose={() => setPay(null)} title={pay ? `پرداخت بدهی به ${pay.name}` : ""} size="sm" footer={<><Button variant="ghost" onClick={() => setPay(null)}>انصراف</Button><Button onClick={doPay} disabled={!payForm.amount}>ثبت پرداخت و صدور سند</Button></>}>
         {pay && <div className="space-y-4">
           <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-800">مانده بدهی فعلی: <b>{formatPrice(pay.balance)}</b></p>
-          <Field label="مبلغ پرداخت (تومان)"><Input inputMode="numeric" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} /></Field>
+          <Field label="مبلغ پرداخت (تومان)"><AmountInput value={payForm.amount} onValueChange={(amount) => setPayForm({ ...payForm, amount })} /></Field>
           <Field label="پرداخت از"><Select value={payForm.from} onChange={(e) => setPayForm({ ...payForm, from: e.target.value })}><option value="cash">صندوق (نقدی)</option><option value="bank">بانک</option></Select></Field>
           <Field label="تاریخ پرداخت (شمسی)"><JalaliInput value={payForm.date} onChange={(v) => v && setPayForm({ ...payForm, date: v })} /></Field>
           <Field label="توضیح"><Input value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} placeholder="شماره چک / فیش…" /></Field>

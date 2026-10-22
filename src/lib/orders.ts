@@ -212,6 +212,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     const p = byId.get(it.productId);
     if (!p) throw new HttpError(400, "یکی از محصولات پیدا نشد");
     if (!p.isAvailable) throw new HttpError(400, `«${p.name}» در حال حاضر موجود نیست`);
+    if (!Number.isSafeInteger(p.price) || p.price <= 0) throw new HttpError(400, `قیمت «${p.name}» صفر یا نامعتبر است؛ ابتدا قیمت محصول را اصلاح کنید`);
   }
 
   const newItems = input.items.map((it) => {
@@ -224,11 +225,13 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     } catch (error) {
       throw new HttpError(400, error instanceof Error ? error.message : "گزینه‌های محصول نامعتبر است");
     }
+    if (price <= 0) throw new HttpError(400, `قیمت نهایی «${p.name}» باید بیشتر از صفر باشد`);
     if (p.sellingMode === "weight") {
       if (selection.snapshot.length) throw new HttpError(400, "گزینه‌های محصول وزنی قابل استفاده نیستند");
       let weighed: ReturnType<typeof calculateWeightedSale>;
       try { weighed = calculateWeightedSale({ sellingMode: "weight", pricePerUnit: p.price, grossGrams: it.weightGrams, tareGrams: it.tareGrams, yieldRatio: p.yieldRatio }); }
       catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "وزن محصول معتبر نیست"); }
+      if (weighed.lineTotal <= 0) throw new HttpError(400, `مبلغ «${p.name}» برای این وزن صفر است؛ وزن را افزایش دهید یا قیمت محصول را اصلاح کنید`);
       return { productId: p.id, name: p.name, emoji: p.emoji, price: p.price, quantity: it.quantity, weightGrams: weighed.netGrams, tareGrams: weighed.tareGrams, yieldRatioSnapshot: weighed.yieldRatio, lineTotal: weighed.lineTotal * it.quantity, note: it.note ?? "", optionSnapshot: [] };
     }
     if (it.weightGrams !== null) throw new HttpError(400, "برای محصول تعدادی نمی‌توان وزن وارد کرد");

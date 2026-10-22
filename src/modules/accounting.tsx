@@ -8,7 +8,7 @@ import { JalaliInput } from "@/components/jalali-input";
 import { formatNumber, toFa } from "@/lib/format";
 import { fmtJ, toJ, jYearRange } from "@/lib/jalali";
 import {
-  Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, Select, Skeleton, Switch, cn, useToast,
+  AmountInput, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, Select, Skeleton, Switch, cn, useToast,
  EmojiIcon, IconText} from "@/components/ui";
 
 type Acc = { id: number; code: string; name: string; level: "kol" | "moein" | "tafsili"; parentId: number | null; type: string; nature: string; isSystem: boolean; isActive: boolean };
@@ -246,8 +246,8 @@ function DocEditor({ open, doc, accounts, onClose, saved, standalone = false }: 
           {lines.map((l, i) => (
             <div key={i} className="grid gap-2 rounded-xl bg-stone-50 p-2 md:grid-cols-[1.6fr_1fr_1fr_1.2fr_32px] md:bg-transparent md:p-0">
               <AccountSelect accounts={accounts} value={l.accountId} onChange={(v) => set(i, { accountId: v })} />
-              <Input inputMode="numeric" placeholder="بدهکار" value={l.debit} onChange={(e) => set(i, { debit: e.target.value, credit: e.target.value ? "" : l.credit })} />
-              <Input inputMode="numeric" placeholder="بستانکار" value={l.credit} onChange={(e) => set(i, { credit: e.target.value, debit: e.target.value ? "" : l.debit })} />
+              <AmountInput placeholder="بدهکار" value={l.debit} onValueChange={(debit) => set(i, { debit, credit: debit ? "" : l.credit })} />
+              <AmountInput placeholder="بستانکار" value={l.credit} onValueChange={(credit) => set(i, { credit, debit: credit ? "" : l.debit })} />
               <Input placeholder="شرح" value={l.description} onChange={(e) => set(i, { description: e.target.value })} />
               <IconButton icon="x" label="حذف ردیف" disabled={lines.length <= 2} onClick={() => setLines(lines.filter((_, j) => j !== i))} />
             </div>

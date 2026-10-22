@@ -8,7 +8,7 @@ import { recipeToStockFactor } from "@/lib/inventory-units";
 import { notifySetupSaved } from "@/lib/onboarding-tour";
 import { formatPrice, toFa } from "@/lib/format";
 import { useFeatures } from "@/components/features";
-import { Badge, Button, Card, ErrorState, Field, Icon, Input, PersianDateInput, Select, Switch, Textarea, cn, useToast } from "@/components/ui";
+import { AmountInput, Badge, Button, Card, ErrorState, Field, Icon, Input, PersianDateInput, Select, Switch, Textarea, cn, useToast } from "@/components/ui";
 
 type Named = { id: number; name: string };
 type Saved = Named & { unit: string; stock: number; costPerUnit: number; warehouseId: number | null; trackStock: boolean };
@@ -198,8 +198,8 @@ export function InventoryItemCreate() {
 
         <Section number="۳" title="موجودی و قیمت آغازین" description="اگر موجودی فعلی دارید، مقدار و بهای ورود اولیه را ثبت کنید." icon="file">
           <Field label={`موجودی اول دوره (${unit})`} hint="این مقدار به‌عنوان ورود آغازین در سوابق گردش انبار ثبت می‌شود."><Input type="number" min="0" step="any" inputMode="decimal" disabled={busy} value={openingStock} onChange={(event) => setOpeningStock(event.target.value)} /></Field>
-          <Field label="بهای واحد موجودی آغازین (تومان)" hint="برای ثبت ارزش موجودی و سند افتتاحیهٔ حسابداری."><Input type="number" min="0" step="1" inputMode="numeric" disabled={busy} value={openingUnitCost} onChange={(event) => setOpeningUnitCost(event.target.value)} /></Field>
-          <Field label="آخرین قیمت خرید (تومان)" hint="برای نمایش در برآوردها و خرید بعدی نگهداری می‌شود."><Input type="number" min="0" step="1" inputMode="numeric" disabled={busy} value={lastPurchaseCost} onChange={(event) => setLastPurchaseCost(event.target.value)} /></Field>
+          <Field label="بهای واحد موجودی آغازین (تومان)" hint="برای ثبت ارزش موجودی و سند افتتاحیهٔ حسابداری."><AmountInput disabled={busy} value={openingUnitCost} onValueChange={setOpeningUnitCost} /></Field>
+          <Field label="آخرین قیمت خرید (تومان)" hint="برای نمایش در برآوردها و خرید بعدی نگهداری می‌شود."><AmountInput disabled={busy} value={lastPurchaseCost} onValueChange={setLastPurchaseCost} /></Field>
           <div className="flex min-h-[76px] flex-col justify-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3"><span className="text-[11px] font-semibold text-slate-500">ارزش موجودی آغازین</span><b className="mt-1 text-base font-extrabold tabular-nums text-slate-900">{formatPrice(Number.isSafeInteger(openingValue) ? openingValue : 0)}</b><span className="mt-0.5 text-[10px] text-slate-400">مقدار × بهای واحد</span></div>
           <Field label="یادداشت ورود اولیه" className="sm:col-span-2" hint="مثلاً شماره فاکتور یا علت ثبت موجودی آغازین."><Textarea disabled={busy} maxLength={300} rows={2} value={openingNote} onChange={(event) => setOpeningNote(event.target.value)} placeholder="یادداشت اختیاری برای سابقهٔ انبار" /></Field>
         </Section>

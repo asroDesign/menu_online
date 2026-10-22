@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
 import { toFa } from "@/lib/format";
 import type { Settings } from "@/lib/plans";
-import { Button, Card, Field, Input, Skeleton, Switch, useToast , EmojiIcon, IconText} from "@/components/ui";
+import { AmountInput, Button, Card, Field, Input, Skeleton, Switch, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 const n = (s: string) => Number(s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "")) || 0;
 
@@ -42,7 +42,7 @@ export function CashbackSettingsCard() {
       </div>
       <div className={`mt-4 grid gap-4 sm:grid-cols-3 transition ${st.on ? "" : "pointer-events-none opacity-40"}`}>
         <Field label="درصد کش‌بک (٪)" hint="۰ تا ۵۰"><Input inputMode="numeric" value={st.pct} onChange={(e) => setSt({ ...st, pct: e.target.value })} /></Field>
-        <Field label="حداقل مبلغ سفارش برای کش‌بک" hint="تومان؛ ۰ = بدون محدودیت"><Input inputMode="numeric" value={st.min} onChange={(e) => setSt({ ...st, min: e.target.value })} /></Field>
+        <Field label="حداقل مبلغ سفارش برای کش‌بک" hint="تومان؛ ۰ = بدون محدودیت"><AmountInput value={st.min} onValueChange={(min) => setSt({ ...st, min })} /></Field>
         <Field label="حداکثر سهم کش‌بک در پرداخت (٪)" hint="مثلاً ۵۰٪ از مبلغ سفارش"><Input inputMode="numeric" value={st.max} onChange={(e) => setSt({ ...st, max: e.target.value })} /></Field>
       </div>
       <div className="mt-4 flex items-center justify-between"><p className="text-xs text-stone-500">{st.on ? `مشتری ${toFa(n(st.pct))}٪ از هر خرید را به‌عنوان اعتبار دریافت می‌کند.` : "برنامه‌ی کش‌بک غیرفعال است."}</p><Button size="sm" onClick={save} loading={busy} disabled={JSON.stringify(st) === orig}>ذخیره</Button></div>

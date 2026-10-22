@@ -92,6 +92,9 @@ export function DashboardShell({ business, user, features, planFeatures, role, p
 }) {
   const pathname = usePathname();
   const cashierWorkspace = pathname === "/dashboard/cashier";
+  const orderWorkspace = cashierWorkspace || pathname === "/dashboard/waiter";
+  const showInvoiceShortcut = (role === "waiter" || role === "cashier") && !orderWorkspace;
+  const invoiceShortcutHref = role === "waiter" ? "/dashboard/waiter" : "/dashboard/cashier";
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -230,6 +233,7 @@ export function DashboardShell({ business, user, features, planFeatures, role, p
         <main className={cashierWorkspace ? "cashier-main" : "mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8"}>
           {cashierWorkspace ? <details className="cashier-notices"><summary>اعلان‌های سامانه</summary><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></details> : <div className="mb-5 empty:hidden"><DashboardBanners impersonating={impersonating} canManage={role === "owner" || role === "manager"} /></div>}{children}</main>
       </div>
+      {showInvoiceShortcut && <Link href={invoiceShortcutHref} aria-label="ثبت فاکتور جدید" title="ثبت فاکتور جدید" className="no-print fixed end-4 bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-30 inline-flex min-h-12 items-center gap-2 rounded-full bg-primary px-4 text-sm font-extrabold text-primary-content shadow-xl shadow-primary/25 transition hover:-translate-y-0.5 hover:shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:end-6 sm:px-5"><Icon name="orders" className="size-5"/><span>ثبت فاکتور</span><span className="flex size-6 items-center justify-center rounded-full bg-white/20"><Icon name="plus" className="size-3.5"/></span></Link>}
     </div>
   </FeaturesProvider></ToastProvider>;
 }

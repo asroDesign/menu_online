@@ -7,7 +7,7 @@ import type { PublicMenu } from "@/lib/public-menu";
 import { cn, ProductThumb, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { BrandLogo } from "@/components/brand";
 import { ProductOptionPicker } from "@/components/product-option-picker";
-import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, type CartState } from "@/lib/order-cart";
+import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
 
 type Prod = PublicMenu["products"][number];
 type Step = "welcome" | "type" | "menu" | "review" | "pospay" | "done";
@@ -65,10 +65,23 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   }, [step, reset]);
 
   const add = (p: Prod, d = 1) => {
+    if (d > 0 && (!Number.isSafeInteger(p.price) || p.price <= 0)) {
+      setErr(`قیمت «${p.name}» صفر یا نامعتبر است؛ ابتدا قیمت محصول را اصلاح کنید.`);
+      return;
+    }
+    if (d > 0) setErr("");
     if (d > 0 && (p.sellingMode === "weight" || p.modifierGroups?.some((group) => group.active))) setOptionProduct(p);
     else setCart((current) => changeAnyCartVariant(current, p.id, d, 30));
   };
-  const addVariant = (p: Prod, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => setCart((current) => changeCartVariant(current, p.id, optionIds, delta, 30, weightGrams, tareGrams));
+  const addVariant = (p: Prod, optionIds: string[], delta: number, weightGrams?: number, tareGrams?: number) => {
+    if (delta > 0 && !hasPositiveCartLinePrice(p, optionIds, weightGrams, tareGrams)) {
+      setErr(`قیمت «${p.name}» صفر یا نامعتبر است؛ ابتدا قیمت محصول را اصلاح کنید.`);
+      return false;
+    }
+    if (delta > 0) setErr("");
+    setCart((current) => changeCartVariant(current, p.id, optionIds, delta, 30, weightGrams, tareGrams));
+    return true;
+  };
   const lines = cartLines(products, cart).map((line) => ({ ...line, p: line.product }));
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
@@ -395,6 +408,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
   return (
     <div className={cn("flex h-dvh flex-col", bg)}>
       {header(biz.name, () => setStep("type"))}
+      {err && <div role="alert" className="fixed inset-x-4 top-20 z-[100] mx-auto flex max-w-2xl items-center justify-between gap-3 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-right text-base font-bold text-rose-800 shadow-xl sm:inset-x-8"><span>{err}</span><button type="button" onClick={() => setErr("")} className="shrink-0 rounded-lg px-3 py-1 text-rose-900 hover:bg-rose-100" aria-label="بستن پیام خطا">×</button></div>}
       {cats.length === 0 ? <p className="m-auto text-3xl opacity-60">منو هنوز تکمیل نشده است</p> : menuBody()}
       {tpl !== "wizard" || count > 0 ? (
         <footer className={cn("shrink-0 p-3 shadow-[0_-4px_16px_rgba(0,0,0,.1)]", dark ? "bg-[#17171f]" : "bg-white")}>
@@ -405,7 +419,7 @@ export function KioskClient({ data, cfg }: { data: PublicMenu; cfg: KioskCfg }) 
         </footer>
       ) : null}
       {overlay}
-      {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams); setOptionProduct(null); }} />}
+      {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) setOptionProduct(null); }} />}
     </div>
   );
 }

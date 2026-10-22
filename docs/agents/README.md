@@ -42,8 +42,8 @@
 | `/dashboard/orders` | [modules/orders.md](modules/orders.md) — سفارش‌ها و آرشیو رسید |
 | `/dashboard/suppliers` | [modules/suppliers.md](modules/suppliers.md) — تأمین‌کنندگان |
 | `/dashboard/kiosk` | [modules/kiosk.md](modules/kiosk.md) — تنظیم کیوسک |
-| `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون |
-| `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق |
+| `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
+| `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
 | `/dashboard/tables` | [modules/tables.md](modules/tables.md) — مدیریت میزها |
 | `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارکنان |
 | `/dashboard/customers` | [modules/customers.md](modules/customers.md) — مشتریان |
@@ -89,7 +89,7 @@
 | `/dashboard/food-court-pager` | [modules/food-court-pager.md](modules/food-court-pager.md) — پیجر فودکورت |
 | `/dashboard` | [modules/dashboard-overview.md](modules/dashboard-overview.md) — داشبورد اصلی |
 | `/dashboard/products` | [modules/products.md](modules/products.md) — فهرست محصولات؛ دکمهٔ ویرایش به فرم کامل مشترک create/edit می‌رود |
-| `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، recipe و آنالیز مواد |
+| `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، recipe و آنالیز مواد؛ راهنمای ثبت دستور و لینک افزودن ماده به انبار |
 | `/dashboard/categories` | [modules/categories.md](modules/categories.md) — جدول دسته‌ها، جستجو، ایجاد گروهی، تصویر/والد/توضیحات و ترتیب نمایش |
 | `/dashboard/settings` | [modules/settings.md](modules/settings.md) — مرکز پنج‌گروهی تنظیمات کافه، هویت، ساعت/منو، بنر، سفارش/تسویه و امنیت |
 | راهنمای راه‌اندازی | [modules/onboarding-tour.md](modules/onboarding-tour.md) — تور نخستین ورود مالک و گام‌های متناسب با پلن |
@@ -103,9 +103,9 @@
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه و تنظیم برند |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
-| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP و پنج قالب قابل انتخاب |
+| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، پنج قالب قابل انتخاب و جلوگیری از افزودن محصول رایگان |
 | [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو میز سمت مشتری |
-| [core-pages/kiosk-client.md](core-pages/kiosk-client.md) | کیوسک مشتری |
+| [core-pages/kiosk-client.md](core-pages/kiosk-client.md) | کیوسک مشتری و کنترل قیمت محصول در سبد و سرور |
 | [core-pages/kitchen-display.md](core-pages/kitchen-display.md) | نمایشگر آشپزخانه |
 | [core-pages/courier-app.md](core-pages/courier-app.md) | اپلیکیشن پیک |
 | [core-pages/survey-response.md](core-pages/survey-response.md) | فرم عمومی نظرسنجی |
@@ -149,4 +149,4 @@
 
 ## کامپوننت‌های رابط مشترک
 
-برای بازسازی، نگهداری و استفادهٔ یکدست از Button، Field، Modal و ConfirmDialog، سند [کامپوننت‌های رابط](modules/ui-components.md) را بخوانید. تغییر مشترک modal باید در همان سند و گزارش روت ثبت شود.
+برای بازسازی، نگهداری و استفادهٔ یکدست از Button، Field، Modal، ConfirmDialog و ورودی مبلغ `AmountInput`، سند [کامپوننت‌های رابط](modules/ui-components.md) را بخوانید. ورودی مبلغ در ظاهر ارقام را سه‌رقمی گروه‌بندی می‌کند اما مقدار خام می‌دهد؛ فیلدهای درصد/تعداد نباید به آن تبدیل شوند. تغییر مشترک رابط باید در همان سند و گزارش روت ثبت شود.

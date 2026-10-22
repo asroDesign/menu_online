@@ -17,10 +17,10 @@
 .mp-home h1,.mp-home h2,.mp-home h3,.mp-home p {
   margin:0}
 .mp-home main h2 {
-  font-size:clamp(27px,3.2vw,42px);
-  font-weight:850;
-  line-height:1.55;
-  letter-spacing:-1.3px}
+  font-size:clamp(25px,2.8vw,36px);
+  font-weight:800;
+  line-height:1.45;
+  letter-spacing:-.8px}
 .mp-home h3 {
   font-weight:800}
 .mp-home p {
@@ -551,7 +551,7 @@
   align-items:center;
   padding-bottom:88px}
 .mp-comparison h2 {
-  font-size:30px}
+  font-size:28px}
 .mp-comparison p {
   margin:18px 0 22px}
 .mp-compare-table {
@@ -688,7 +688,7 @@
   max-width:500px;
   margin-top:17px}
 .mp-final h2 {
-  font-size:40px}
+  font-size:36px}
 .mp-final-art {
   position:relative;
   display:flex;
@@ -833,7 +833,7 @@
 .mp-cost-grid {
   gap:30px}
 .mp-cost-grid h2 {
-  font-size:29px}
+  font-size:27px}
 .mp-cost-card {
   padding:19px}
 .mp-cost-heading {
@@ -866,7 +866,7 @@
   width:190px;
   height:190px}
 .mp-final h2 {
-  font-size:32px}
+  font-size:30px}
 .mp-pricing-help {
   flex-wrap:wrap}
 .mp-pricing-help>a {
@@ -880,8 +880,8 @@
   .mp-home .market-container {
   padding-inline:18px}
 .mp-home main h2 {
-  font-size:28px;
-  letter-spacing:-.8px}
+  font-size:25px;
+  letter-spacing:-.5px}
 .mp-section {
   padding-block:46px}
 .mp-hero h1 {
@@ -1078,7 +1078,7 @@
   padding:30px 25px;
   gap:30px}
 .mp-final h2 {
-  font-size:31px}
+  font-size:27px}
 .mp-final p {
   font-size:13px}
 .mp-final-art {

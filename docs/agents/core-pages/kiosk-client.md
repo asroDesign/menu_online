@@ -36,3 +36,7 @@ server public menu builder؛ GET /api/public/:slug/pos؛ GET/POST /api/public/:s
 
 همه دکمه‌ها touch target بزرگ داشته باشند؛ در نمایش landscape/portrait scroll و focus منطقی کار کند؛ session عمومی دسترسی tenant دیگری ندهد. قیمت و موجودی فقط از route سفارش تعیین شود؛ secret/token در URL یا log عمومی ذخیره نشود. timeout شبکه و خروج کابل POS مسیر retry/لغو روشن داشته باشد.
 
+## جلوگیری از افزودن قیمت صفر — ۲۰۲۶-۱۰-۲۲
+
+در `src/components/kiosk-client.tsx` محصول صفر/نامعتبر پیش از افزودن به cart با پیام خطای قابل مشاهده رد می‌شود. برای variant انتخابی و وزن نیز helper مشترک cart مبلغ نهایی را کنترل می‌کند. `POST /api/public/:slug/orders` کنترل نهایی را مستقل از رابط، از روی قیمت محصول جاری در سرور انجام می‌دهد.
+
