@@ -630,12 +630,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 /* ---------- Product visual ---------- */
 export function ProductThumb({ imageUrl, emoji, className }: { imageUrl?: string; emoji: string; className?: string }) {
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   return (
     <div className={cn("relative overflow-hidden bg-gradient-to-br from-brand-100 to-amber-50", className)}>
-      {imageUrl && !failed ? (
+      {imageUrl && imageUrl !== failedUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" loading="lazy" onError={() => setFailed(true)} className="size-full object-cover" />
+        <img src={imageUrl} alt="" loading="lazy" decoding="async" onError={() => setFailedUrl(imageUrl)} className="size-full object-cover" />
       ) : (
         <div className="flex size-full items-center justify-center text-primary"><EmojiIcon emoji={emoji} className="text-4xl" /></div>
       )}
