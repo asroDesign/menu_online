@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
-  BookOpenText, CakeSlice, Check, Clock3, Coffee, CupSoda, EggFried, Fish, Globe2,
+  ArrowUpRight, BookOpenText, CakeSlice, Check, Clock3, Coffee, CupSoda, EggFried, Fish, Globe2,
   MapPin, Minus, Pizza, Plus, Salad, Sandwich, ShoppingBag, Snowflake,
   Star, UtensilsCrossed, X,
 } from "lucide-react";
@@ -16,17 +16,17 @@ const productIcons: Record<DemoMenuProduct["mark"], LucideIcon> = {
   fish: Fish, salad: Salad, breakfast: EggFried, burger: Sandwich, drink: CupSoda,
 };
 
-const visual: Record<DemoMenuTheme, { cover: string; tile: string; accent: string; frame: string }> = {
-  narvan: { cover: "bg-gradient-to-br from-emerald-950 via-teal-900 to-stone-800", tile: "bg-gradient-to-br from-amber-300 via-orange-400 to-rose-400", accent: "text-emerald-800", frame: "border-emerald-900/10" },
-  softmenu: { cover: "bg-gradient-to-br from-indigo-950 via-violet-900 to-fuchsia-800", tile: "bg-gradient-to-br from-violet-300 via-fuchsia-300 to-orange-200", accent: "text-violet-800", frame: "border-violet-900/10" },
-  softmenuPlus: { cover: "bg-gradient-to-br from-sky-950 via-cyan-900 to-teal-800", tile: "bg-gradient-to-br from-cyan-200 via-sky-300 to-blue-400", accent: "text-cyan-900", frame: "border-cyan-900/10" },
-  captain: { cover: "bg-gradient-to-br from-slate-950 via-sky-950 to-cyan-900", tile: "bg-gradient-to-br from-sky-300 via-blue-400 to-indigo-500", accent: "text-sky-900", frame: "border-sky-900/10" },
-  haftkhan: { cover: "bg-gradient-to-br from-stone-950 via-red-950 to-amber-950", tile: "bg-gradient-to-br from-amber-200 via-yellow-500 to-orange-500", accent: "text-amber-900", frame: "border-amber-900/15" },
+const visual: Record<DemoMenuTheme, { cover: string; tile: string; accent: string; frame: string; active: string; card: string; categories: string }> = {
+  narvan: { cover: "bg-gradient-to-br from-emerald-950 via-teal-900 to-stone-800", tile: "bg-gradient-to-br from-amber-300 via-orange-400 to-rose-400", accent: "text-emerald-800", frame: "border-emerald-900/10", active: "bg-emerald-800 text-white", card: "bg-emerald-50/20 ring-emerald-900/10", categories: "bg-emerald-50/70" },
+  softmenu: { cover: "bg-gradient-to-br from-indigo-950 via-violet-900 to-fuchsia-800", tile: "bg-gradient-to-br from-violet-300 via-fuchsia-300 to-orange-200", accent: "text-violet-800", frame: "border-violet-900/10", active: "bg-violet-700 text-white", card: "bg-violet-50/30 ring-violet-200", categories: "bg-violet-50/70" },
+  softmenuPlus: { cover: "bg-gradient-to-br from-sky-950 via-cyan-900 to-teal-800", tile: "bg-gradient-to-br from-cyan-200 via-sky-300 to-blue-400", accent: "text-cyan-900", frame: "border-cyan-900/10", active: "bg-cyan-800 text-white", card: "bg-cyan-50/35 ring-cyan-200", categories: "bg-cyan-50/75" },
+  captain: { cover: "bg-gradient-to-br from-slate-950 via-sky-950 to-cyan-900", tile: "bg-gradient-to-br from-sky-300 via-blue-400 to-indigo-500", accent: "text-sky-900", frame: "border-sky-900/10", active: "bg-sky-900 text-white", card: "bg-sky-50/45 ring-sky-200", categories: "bg-sky-50/75" },
+  haftkhan: { cover: "bg-gradient-to-br from-stone-950 via-red-950 to-amber-950", tile: "bg-gradient-to-br from-amber-200 via-yellow-500 to-orange-500", accent: "text-amber-900", frame: "border-amber-900/15", active: "bg-amber-800 text-white", card: "bg-amber-50/55 ring-amber-200", categories: "bg-amber-50/80" },
 };
 
 /** Local-only menu samples. All category/cart/profile actions stay inside this preview. */
-export function DemoPreview() {
-  const [menuId, setMenuId] = useState(DEMO_MENUS[0].id);
+export function DemoPreview({ initialMenuId }: { initialMenuId?: string }) {
+  const [menuId, setMenuId] = useState(() => DEMO_MENUS.find((item) => item.id === initialMenuId)?.id ?? DEMO_MENUS[0].id);
   const [category, setCategory] = useState("همه");
   const [cart, setCart] = useState<Record<string, { productId: number; quantity: number; unitPrice: number; optionLabel?: string }>>({});
   const [notice, setNotice] = useState("");
@@ -50,6 +50,9 @@ export function DemoPreview() {
     setQuery("");
     setSelectedProduct(null);
     setAboutOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.set("menu", sample.id);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   };
   const change = (product: DemoMenuProduct, delta: number, option?: { label: string; price: number }) => setCart((current) => {
     const key = `${product.id}:${option?.label ?? "default"}`;
@@ -73,18 +76,27 @@ export function DemoPreview() {
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return <section aria-labelledby="sample-menu-title" className="space-y-4">
-    <div className="rounded-2xl border border-base-300 bg-base-100 p-3 sm:p-4">
+    <div className="rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm sm:p-4">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div><h2 className="font-extrabold">انتخاب منوی نمونه</h2><p className="mt-1 text-xs leading-5 text-base-content/55">۵ فضای متفاوت را بدون خروج از پیش‌نمایش بررسی کنید.</p></div>
-        <span className="badge badge-ghost">همهٔ اطلاعات ساختگی است</span>
+        <div><h2 className="font-extrabold">فهرست دموهای منو</h2><p className="mt-1 text-xs leading-5 text-base-content/55">یکی از نمونه‌ها را انتخاب کنید؛ لینک همان دمو در نوار آدرس نگه داشته می‌شود.</p></div>
+        <span className="badge badge-ghost">{toFa(DEMO_MENUS.length)} دمو · اطلاعات نمایشی</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" role="tablist" aria-label="منوهای دمو">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5" role="group" aria-label="انتخاب دموهای منو">
         {DEMO_MENUS.map((sample) => {
           const selected = sample.id === menu.id;
-          return <button key={sample.id} type="button" role="tab" aria-selected={selected} onClick={() => chooseMenu(sample)} className={`min-h-16 rounded-xl border px-3 py-2 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? "border-primary bg-primary/5 shadow-sm" : "border-base-300 bg-base-100 hover:bg-base-200"}`}>
-            <span className="block truncate text-xs font-extrabold sm:text-sm">{sample.label}</span>
-            <span className="mt-1 block truncate text-[10px] text-base-content/55">{sample.businessType}</span>
-          </button>;
+          const cardClass = `min-h-32 overflow-hidden rounded-xl border text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20" : "border-base-300 bg-base-100 hover:border-primary/35 hover:bg-base-200/60"}`;
+          const card = <>
+            <span className={`block h-2 ${visual[sample.theme].cover}`} />
+            <span className="block p-2.5 sm:p-3">
+              <span className="flex items-center justify-between gap-2"><span className="truncate text-xs font-extrabold sm:text-sm">{sample.businessName}</span>{selected && <Check size={14} className="shrink-0 text-primary" aria-label="دموی انتخاب‌شده"/>}</span>
+              <span className="mt-1 block text-[10px] font-bold text-base-content/55">{sample.label} · {sample.businessType}</span>
+              <span className="mt-1.5 line-clamp-2 block min-h-9 text-[10px] leading-5 text-base-content/60">{sample.description}</span>
+              <span className="mt-2 flex items-center justify-between border-t border-base-200 pt-2 text-[10px] font-bold text-primary"><span>{toFa(sample.categories.length - 1)} دسته · {toFa(sample.products.length)} قلم</span>{sample.id === "narvan" ? <span>انتخاب</span> : <span className="inline-flex items-center gap-1">دموی مستقل <ArrowUpRight size={12}/></span>}</span>
+            </span>
+          </>;
+          return sample.id === "narvan"
+            ? <button key={sample.id} type="button" aria-pressed={selected} onClick={() => chooseMenu(sample)} className={cardClass}>{card}</button>
+            : <Link key={sample.id} href={`/preview/${sample.id}`} className={cardClass}>{card}</Link>;
         })}
       </div>
     </div>
@@ -129,16 +141,16 @@ export function DemoPreview() {
         {notice && <div role="status" className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs leading-6 text-base-content sm:mx-4"><p>{notice}</p><button type="button" onClick={() => setNotice("")} className="flex size-7 shrink-0 items-center justify-center rounded-lg hover:bg-base-200" aria-label="بستن پیام"><X size={15}/></button></div>}
 
         {menu.hasSearch && <div className="border-b border-base-200 p-3 sm:px-4"><label className="input input-bordered flex h-10 items-center gap-2"><Globe2 size={15} className="opacity-50"/><span className="sr-only">جست‌وجو در منو</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجو در غذاها و نوشیدنی‌ها" className="grow text-sm"/><button type="button" onClick={() => setQuery("")} className="btn btn-ghost btn-xs" disabled={!query}>پاک‌کردن</button></label></div>}
-        <div className="sticky top-[50px] z-[9] flex gap-2 overflow-x-auto border-b border-base-200 bg-base-100/95 px-3 py-3 backdrop-blur sm:px-4" role="tablist" aria-label="دسته‌بندی منو">
-          {menu.categories.map((item) => <button key={item} type="button" role="tab" aria-selected={category === item} onClick={() => setCategory(item)} className={`btn btn-sm h-9 shrink-0 ${category === item ? "btn-primary" : "btn-ghost"}`}>{item}</button>)}
+        <div className={`sticky top-[50px] z-[9] flex gap-2 overflow-x-auto border-b border-base-200 px-3 py-3 backdrop-blur sm:px-4 ${style.categories}`} role="tablist" aria-label="دسته‌بندی منو">
+          {menu.categories.map((item) => <button key={item} type="button" role="tab" aria-selected={category === item} onClick={() => setCategory(item)} className={`btn btn-sm h-9 shrink-0 ${category === item ? style.active : "btn-ghost"}`}>{item}</button>)}
         </div>
 
-        <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4" aria-live="polite">
+        <div className={`grid gap-3 p-3 sm:p-4 ${menu.theme === "haftkhan" ? "sm:grid-cols-1" : "sm:grid-cols-2"}`} aria-live="polite">
           {visible.map((product) => {
             const Mark = productIcons[product.mark];
             const lines = cartLines.filter((line) => line.productId === product.id);
             const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
-            return <article key={product.id} className="card card-side min-h-[132px] min-w-0 overflow-hidden bg-base-100 ring-1 ring-base-300 transition hover:shadow-md">
+            return <article key={product.id} className={`card card-side min-h-[132px] min-w-0 overflow-hidden ring-1 transition hover:shadow-md ${style.card}`}>
               <button type="button" onClick={() => openProduct(product)} aria-label={`مشاهده جزئیات ${product.name}`} className={`grid w-[76px] shrink-0 place-items-center text-white sm:w-[92px] ${style.tile}`}><Mark size={30} strokeWidth={1.5}/></button>
               <div className="card-body min-w-0 gap-1 p-3 sm:p-3.5">
                 <div className="flex items-start justify-between gap-2"><h3 className="min-w-0 truncate text-sm font-extrabold"><button type="button" onClick={() => openProduct(product)} className="text-start hover:text-primary">{product.name}</button></h3><span className="badge badge-ghost badge-xs shrink-0">{product.category}</span></div>

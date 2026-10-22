@@ -20,6 +20,7 @@ import { SiteFooter } from "@/components/marketing/site-footer";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { Pricing } from "@/components/marketing/pricing";
 import { DashboardPreview } from "@/components/marketing/dashboard-preview";
+import { DemoMenuGallery } from "@/components/marketing/demo-menu-gallery";
 import { PlatformEventBeacon } from "@/components/marketing/platform-event-beacon";
 import "@/components/marketing/marketing.css";
 import { ProductTour } from "@/components/marketing/product-tour";
@@ -91,10 +92,12 @@ export default async function Home() {
       <span className="mp-kicker"><span className="mp-live-dot"/> از دل رستوران، برای رستوران</span>
       <h1>طعم خوب از شما.<br/><em>مدیریت منظم،<br className="mp-desktop"/> همراه شما.</em></h1>
       <p>{branding.siteName}؛ منوی دیجیتال، سفارش‌گیری و ابزارهای مدیریت رستوران در یک مسیر. ساخته‌شده با پشتوانهٔ <strong>بیش از ۲۰ سال تجربه در رستوران‌داری.</strong></p>
-      <div className="mp-actions"><Link href={auth ? "/dashboard" : "/register?trial=demo"} className="btn market-button">{auth ? "ورود به داشبورد" : `شروع ${days} روز رایگان`}<ArrowUpLeft size={18}/></Link><Link href="/preview" className="btn market-secondary"><Play size={16}/> منو را تجربه کنید</Link></div>
+      <div className="mp-actions"><Link href={auth ? "/dashboard" : "/register?trial=demo"} className="btn market-button">{auth ? "ورود به داشبورد" : `شروع ${days} روز رایگان`}<ArrowUpLeft size={18}/></Link><Link href="/preview" className="btn market-secondary"><Play size={16}/> دیدن ۵ منوی دمو</Link></div>
       <div className="mp-hero-notes"><span><CheckCheck size={16}/> امکانات پرمیوم پلاس در دوره آزمایشی</span><Link href="#buying-guide">راهنمای شروع <ArrowLeft size={14}/></Link></div>
     </div><div className="mp-hero-scene"><div className="mp-scene-label"><span><span className="mp-live-dot"/> یک نمای مشترک برای تیم شما</span><small>پیش‌نمایش نمایشی</small></div><DashboardPreview/><div className="mp-scene-footer"><span><QrCode size={19}/> منوی مشتری</span><i/><span><ReceiptText size={19}/> سفارش و صندوق</span><i/><span><Package size={19}/> مدیریت عملیات</span></div></div></div>
     <div className="market-container mp-audience"><span>برای شکل‌های مختلف مهمان‌نوازی</span><div>{[[Coffee,"کافه"],[UtensilsCrossed,"رستوران"],[ChefHat,"فست‌فود"],[Cookie,"قنادی"],[ReceiptText,"کترینگ و بیرون‌بر"]].map(([I,label])=>{const Icon=I as typeof Coffee;return <span key={String(label)}><Icon size={19}/>{String(label)}</span>})}</div></div></section>
+
+    <DemoMenuGallery/>
 
     <section id="why-us" className="market-container mp-section mp-experience"><div className="mp-years"><span>پشت این نرم‌افزار</span><strong>۲۰<span>+</span></strong><b>سال تجربهٔ رستوران‌داری</b><p>شناخت مسئله، پیش از نوشتن راه‌حل.</p><UtensilsCrossed size={100} strokeWidth={.6} aria-hidden="true"/></div><div><span className="mp-kicker">با زبان کسب‌وکار شما حرف می‌زنیم</span><h2>فقط نرم‌افزار نساخته‌ایم؛<br/>شلوغیِ ساعت ناهار را می‌شناسیم.</h2><p className="mp-lead">تجربه بیش از دو دهه فعالیت در حوزه رستوران و رستوران‌گردانی، مبنای طراحی این محصول بوده است. مسئله فقط ثبت یک سفارش نیست؛ هماهنگی آدم‌ها، کنترل هزینه‌ها و ساختن تجربه‌ای است که مشتری برایش برگردد.</p><div className="mp-pain-grid">{[["وقتی سفارش‌ها هم‌زمان می‌رسند","مسیر مشخص بین صندوق، گارسون و آماده‌سازی."],["وقتی قیمت مواد تغییر می‌کند","رسپی و تحلیل هزینه برای بازبینی آگاهانه قیمت‌ها."],["وقتی شیفت عوض می‌شود","نقش، برنامه کاری و اطلاعات عملیاتی در دسترس."],["وقتی مشتری دوباره برمی‌گردد","سابقه خرید و ابزارهای باشگاه مشتریان کنار تیم."]].map(([title,text])=><div key={title}><Check size={18}/><h3>{title}</h3><p>{text}</p></div>)}</div></div></section>
 
