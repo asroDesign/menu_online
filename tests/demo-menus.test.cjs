@@ -64,6 +64,10 @@ test('homepage and demo catalog expose every reference menu with a directly sele
 test('the four reference demos have independent page templates and direct routes', () => {
   const route = source('src/app/preview/[menuId]/page.tsx');
   const categoryRoute = source('src/app/preview/softmenu-test/category/[categoryId]/page.tsx');
+  const captainCategoryRoute = source('src/app/preview/captainm/category/[categoryId]/page.tsx');
+  const captainProductsRoute = source('src/app/preview/captainm/products/page.tsx');
+  const captain = source('src/components/marketing/demo-templates/captainm.tsx');
+  const haftkhan = source('src/components/marketing/demo-templates/haftkhan.tsx');
   const softmenu = source('src/components/marketing/demo-templates/softmenu-test.tsx');
   for (const [id, file, marker] of [
     ['softmenu-test3', 'src/components/marketing/demo-templates/softmenu-test3.tsx', 'باغ‌کافه آبان'],
@@ -78,6 +82,15 @@ test('the four reference demos have independent page templates and direct routes
   assert.match(softmenu, /href=\{`\/preview\/softmenu-test\/category\/\$\{index\}`\}/);
   assert.match(categoryRoute, /generateStaticParams/);
   assert.match(categoryRoute, /<SoftMenuTest initialCategory=\{category\}/);
+  assert.match(captain, /ENGLISH_CATEGORIES/);
+  assert.match(captain, /href="\/preview\/captainm\/products"/);
+  assert.match(captain, /href=\{`\/preview\/captainm\/category\/\$\{index\}`\}/);
+  assert.match(captainCategoryRoute, /generateStaticParams/);
+  assert.match(captainCategoryRoute, /<CaptainMDemo view="products" initialCategory=\{category\}/);
+  assert.match(captainProductsRoute, /<CaptainMDemo view="products"\/>/);
+  assert.match(haftkhan, /CATEGORY_ICONS/);
+  assert.match(haftkhan, /placeholder="نام غذا را جست‌وجو کنید"/);
+  assert.match(haftkhan, /grid-cols-2 gap-2\.5 sm:grid-cols-3/);
 });
 
 test('preview navigation stays local and never submits sample orders or customer data', () => {
