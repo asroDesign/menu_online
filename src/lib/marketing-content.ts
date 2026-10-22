@@ -9,8 +9,8 @@ export async function getPublicPost(slug: string) {
   const [post] = await db.select().from(blogPosts).where(and(eq(blogPosts.slug, slug), eq(blogPosts.status, "published"))).limit(1);
   return post ?? null;
 }
-export async function getPublicFaqs() {
-  return db.select().from(faqs).where(eq(faqs.isPublished, true)).orderBy(asc(faqs.sortOrder), asc(faqs.id)).limit(200);
+export async function getPublicFaqs(limit = 200) {
+  return db.select().from(faqs).where(eq(faqs.isPublished, true)).orderBy(asc(faqs.sortOrder), asc(faqs.id)).limit(limit);
 }
 export async function getPublicTestimonials(limit = 12) {
   return db.select().from(testimonials).where(eq(testimonials.isPublished, true)).orderBy(asc(testimonials.sortOrder), desc(testimonials.id)).limit(limit);

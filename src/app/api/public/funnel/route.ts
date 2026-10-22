@@ -16,7 +16,10 @@ export async function POST(req: Request) {
     if (!allowed.has(eventName) || !/^[0-9a-f-]{36}$/i.test(eventId))
       throw new HttpError(400, "رویداد قیف نامعتبر است");
     const inserted = await recordPlatformEvent(eventName as PublicPlatformFunnelEvent, eventId);
-    return Response.json({ accepted: inserted }, { headers: { "Cache-Control": "no-store" } });
+    // This acknowledgement contains no private data. POST responses are not
+    // stored by default; avoid no-store because Chrome treats it as a BFCache
+    // blocker for the page that initiated the request.
+    return Response.json({ accepted: inserted }, { headers: { "Cache-Control": "private, no-cache, max-age=0" } });
   } catch (error) {
     return errorResponse(error);
   }

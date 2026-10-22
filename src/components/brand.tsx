@@ -6,18 +6,26 @@ import type { PlatformBranding } from "@/lib/app-settings";
 import { DEFAULT_BRAND_COLOR, setRootBrandTheme } from "@/lib/brand-color";
 
 const DEFAULT_PLATFORM_BRANDING: PlatformBranding = { siteName: "منوی دیجیتال", logoUrl: "", brandColor: DEFAULT_BRAND_COLOR };
+let brandingRequest: Promise<PlatformBranding> | null = null;
+
+function readPlatformBranding() {
+  if (!brandingRequest) {
+    // Branding is public and changes infrequently. The endpoint uses a
+    // revalidating Cache-Control policy so this request does not disable BFCache.
+    brandingRequest = fetch("/api/public/branding")
+      .then((response) => response.ok ? response.json() as Promise<PlatformBranding> : null)
+      .then((value) => value?.siteName ? { siteName: value.siteName, logoUrl: value.logoUrl ?? "", brandColor: value.brandColor ?? DEFAULT_BRAND_COLOR } : DEFAULT_PLATFORM_BRANDING)
+      .catch(() => DEFAULT_PLATFORM_BRANDING);
+  }
+  return brandingRequest;
+}
 
 export function usePlatformBranding() {
   const [branding, setBranding] = useState(DEFAULT_PLATFORM_BRANDING);
 
   useEffect(() => {
     let active = true;
-    const load = () => {
-      fetch("/api/public/branding", { cache: "no-store" })
-        .then((response) => response.ok ? response.json() as Promise<PlatformBranding> : null)
-        .then((value) => { if (active && value?.siteName) setBranding({ siteName: value.siteName, logoUrl: value.logoUrl ?? "", brandColor: value.brandColor ?? DEFAULT_BRAND_COLOR }); })
-        .catch(() => {});
-    };
+    const load = () => { void readPlatformBranding().then((value) => { if (active) setBranding(value); }); };
     load();
     window.addEventListener("platform-branding-updated", load);
     return () => { active = false; window.removeEventListener("platform-branding-updated", load); };
@@ -27,13 +35,17 @@ export function usePlatformBranding() {
 }
 
 export function notifyPlatformBrandingUpdated() {
-  if (typeof window !== "undefined") window.dispatchEvent(new Event("platform-branding-updated"));
+  if (typeof window !== "undefined") {
+    brandingRequest = null;
+    window.dispatchEvent(new Event("platform-branding-updated"));
+  }
 }
 
 export function BrandLogo({ url, alt, className, fallback }: { url?: string | null; alt: string; className: string; fallback: ReactNode }) {
-  if (!url) return <>{fallback}</>;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (!url || failedUrl === url) return <>{fallback}</>;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={url} alt={alt} className={className} />;
+  return <img src={url} alt={alt} className={className} onError={() => setFailedUrl(url)} />;
 }
 
 export function PlatformSiteName() {

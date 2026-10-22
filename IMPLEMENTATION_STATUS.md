@@ -540,3 +540,28 @@ M12 صندوق آفلاین نیز اجرا نشده است. برای سفارش
 - سبد جاری تا عرض ۱۲۸۰ پیکسل در نوار پایین ثابت باز می‌شود و در نمایشگر عریض در ستون کناری قرار می‌گیرد. فضای پایین safe-area لحاظ شده است. استایل‌ها در `src/modules/waiter-workspace.css` محصورند تا حالت صندوقی همین کامپوننت تحت‌تأثیر قرار نگیرد.
 - رفتار ثبت سفارش، گزینه‌های محصول، محصولات وزنی، انتخاب میز و یادداشت سفارش حفظ شد. جزئیات و قرارداد بازسازی در `docs/agents/modules/waiter.md` ثبت شد.
 - بررسی نهایی: `npm run typecheck -- --incremental false`، `npx eslint src/modules/waiter.tsx` و `git diff --check` موفق شدند. رابط را در Chrome دسکتاپ دیداری بررسی کردم؛ آزمون viewport واقعی موبایل/تبلت در مرورگر انجام نشد.
+
+## بازطراحی صفحه اصلی برای معرفی و خرید — ۲۰۲۶-۱۰-۲۲
+
+- صفحه اصلی با هویت آبی/سرمه‌ای و بخش‌های پیوسته معرفی ارزش، تجربه بیش از ۲۰ سال رستوران‌داری، شش حوزه تعاملی امکانات، جریان سفارش، تحلیل آموزشی بهای غذا، کاربردهای صنفی و مقایسه با روش دستی بازطراحی شد.
+- راهنمای شش‌مرحله‌ای خرید منوی دیجیتال از نیازسنجی و آزمایش تا انتخاب پلان، پرداخت و انتشار QR اضافه شد. مدت دوره رایگان از trialPolicy و helper مشترک، نام و رنگ از تنظیمات برند دریافت می‌شود. تعرفه و تخفیف و خرید آنلاین مؤلفه Pricing موجود حفظ شد.
+- FAQ کامل خرید/ارتقا/پرداخت/تجهیزات با FAQ عمومی CMS ترکیب شد. نظرات و مقاله‌ها فقط از رکوردهای منتشرشده هستند. ساختار سه سایت مرجع بررسی شد، اما متن، آمار مشتری یا نظرات آن‌ها کپی نشده‌اند.
+- فایل‌های توسعه: `src/app/page.tsx`، `src/components/marketing/product-tour.tsx`، `home.css`، `site-header.tsx` و fallback تصویر خراب در `src/components/brand.tsx`. استایل صفحه محصور است؛ دامنه مشتری، قوانین پلن و backend مالی تغییر نکرده‌اند. migration ندارد.
+- مستند بازسازی در [راهنمای صفحه اصلی](docs/agents/home-page.md)، ارجاع core-pages و کاتالوگ قابلیت‌ها به‌روز شدند.
+- بررسی: TypeScript موفق؛ ۵۹ تست تعرفه و regression موفق؛ lint کل پروژه صفر خطا و ۱۸ هشدار. Chrome محلی برای نمای دسکتاپ، تغییر تب امکانات و تغییر لینک checkout به دوره شش‌ماهه بررسی شد. پرداخت/پیامک واقعی و تست خودکار viewport موبایل انجام نشد.
+
+## robots.txt، metadata SEO و بار سبک‌تر صفحه — ۲۰۲۶-۱۰-۲۲
+
+- چون کاربر گزارش داد فایل robots پیدا نمی‌شود، مسیر مستقیم `GET /robots.txt` به صورت Route Handler متن ساده اضافه شد. دستورهای crawler و URL sitemap از یک `getSiteUrl()` می‌آیند. `src/app/sitemap.ts` موجود است و باقی ماند.
+- metadata پایه به `metadataBase`, نام برنامه، کلیدواژه‌ها، robots/googlebot، Open Graph، Twitter Card و icon مجهز شد. صفحه اصلی title/description را با نام جاری پلتفرم می‌سازد و canonical را فقط برای دامنه اصلی اضافه می‌کند.
+- داده ساختاریافته Organization، WebSite، SoftwareApplication و FAQPage با محتوای واقعی قابل‌مشاهده اضافه شد؛ محتوای JSON-LD escape می‌شود.
+- import جهانی Font Awesome حذف شد چون در JSX فعلی آیکن مستقیم از آن دیده نشد؛ Lucide و Vazirmatn باقی ماندند. آیکن SVG جدید در `src/app/icon.svg`. صفحه اصلی برای جلوگیری از اجرای seed دمو در درخواست بازاریابی، `ensureDemoData` را فراخوانی نمی‌کند؛ مسیرهای ورود و preview داده‌محور seed مربوط به خود را نگه داشته‌اند. درخواست branding در سه مصرف‌کنندهٔ کلاینتی با promise مشترک deduplicate می‌شود. FAQ CMS در صفحه اصلی حداکثر ۸ مورد اول را می‌گیرد و صفحه `/faq` آرشیو کامل را نمایش می‌دهد.
+- TypeScript و ESLint هدفمند فایل‌های تغییریافته موفق شدند؛ `next build --webpack` نیز با موفقیت انجام شد و Next.js مسیرهای `/robots.txt` و `/sitemap.xml` را شناخت. نسخه production در Chrome/localhost: صفحه اصلی HTTP 200 با TTFB حدود ۱۸۱ms و پاسخ ۱۸۳ms/۱۹۱٬۶۰۳ بایت؛ robots HTTP 200 `text/plain`. metadata و JSON-LD در HTML SSR تأیید شدند. Lighthouse نصب نبود؛ امتیاز ۹۰+ هنوز عددی اندازه‌گیری نشده و صرفاً از TTFB استنتاج نمی‌شود. دو هشدار غیرمسدودکننده minifier درباره `@property`های DaisyUI باقی است.
+
+## رفع موانع back/forward cache صفحه اصلی — ۲۰۲۶-۱۰-۲۲
+
+- هشدار Chrome تأیید کرد که پاسخ document صفحه اصلی و دو درخواست آغازشده از JavaScript (`/api/public/branding` و ثبت رویداد `/api/public/funnel`) از `Cache-Control: no-store` استفاده می‌کردند. علت صفحه پویا، رندر وابسته به نشست ورود و host برای دامنه‌های اختصاصی است؛ این نیاز حفظ شد.
+- `src/proxy.ts` فقط برای مسیر `/` پاسخ `private, no-cache, max-age=0, must-revalidate` تنظیم می‌کند. محتوای شخصی در cache مشترک قرار نمی‌گیرد و پاسخ برای استفاده عادی نیازمند اعتبارسنجی است، در عین حال directive مسدودکننده `no-store` حذف شده است.
+- پاسخ GET نام/لوگو/رنگ برند در `src/app/api/public/branding/route.ts` همین سیاست را دارد و درخواست مشترک سمت کلاینت در `src/components/brand.tsx` از `cache: "no-store"` استفاده نمی‌کند. پاسخ موفق ثبت رویداد funnel در `src/app/api/public/funnel/route.ts` فقط یک acknowledgement عمومی می‌دهد و `no-store` از آن حذف شد.
+- APIهای حساس OTP/نشست/رهگیری و پنل‌ها دست‌نخورده ماندند. تغییر در [راهنمای صفحه اصلی](docs/agents/home-page.md) ثبت شد.
+- اعتبارسنجی: TypeScript، ESLint هدفمند و `next build --webpack` موفق. نسخه production محلی در `127.0.0.1:3000` پاسخ صفحه اصلی را با `Cache-Control: private, no-cache, max-age=0, must-revalidate` و API برند را با همان سیاست برگرداند؛ هیچ‌یک `no-store` نداشتند. آزمون BFCache در Lighthouse/Chrome پس از build به صورت کامل اجرا نشد؛ اجرای آزمایشی POST ثبت رویداد نیز به دلیل نوشتن داده telemetry انجام نشد.
