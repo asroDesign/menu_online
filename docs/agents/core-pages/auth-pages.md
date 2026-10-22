@@ -30,7 +30,7 @@
 
 ## حالت‌ها و بازسازی
 
-صفحه RTL و responsive است. OTP timer پنج دقیقه است و resend تا ۶۰ ثانیه بسته می‌ماند؛ state موقت challenge/phone/expiry فقط در `sessionStorage` است، ولی اثبات احراز هویت در کوکی HttpOnly قرار دارد. ورود/ثبت‌نام باید busy/error را نشان دهد و اطلاعات حساس را در URL یا log قرار ندهد. پاسخ خطای login نباید وجود حساب یا درستی password را لو بدهد. کد SMS یا demo credential را تست واقعی نکن؛ ارسال provider فقط با mock تست شود.
+صفحه RTL و responsive است. فیلد OTP از `OtpCodeInput` به شکل شش خانهٔ یکپارچه نمایش داده می‌شود؛ input واقعی `one-time-code` است تا paste و پرشدن خودکار SMS کار کند و ارقام فارسی/عربی را به ASCII نرمال می‌کند. OTP timer پنج دقیقه است و resend تا ۶۰ ثانیه بسته می‌ماند؛ state موقت challenge/phone/expiry فقط در `sessionStorage` است، ولی اثبات احراز هویت در کوکی HttpOnly قرار دارد. ورود/ثبت‌نام باید busy/error را نشان دهد و اطلاعات حساس را در URL یا log قرار ندهد. پاسخ خطای login نباید وجود حساب یا درستی password را لو بدهد. کد SMS یا demo credential را تست واقعی نکن؛ ارسال provider فقط با mock تست شود.
 
 برای رفتار دقیق trial، آزمون‌های تغییر و قرارداد API، [راهنمای سیاست دوره آزمایشی](../modules/trial-policy.md) و `tests/security-regressions.test.cjs` را بخوان. تست browser باید ترتیب OTP→اطلاعات→داشبورد/تور، فرم موبایل، حفظ `next` و رد OTP نامعتبر را پوشش دهد.
 

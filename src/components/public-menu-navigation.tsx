@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatPrice, toFa } from "@/lib/format";
 import { readTrackedMenuOrders, trackedMenuOrdersUpdateEvent, type TrackedMenuOrder } from "@/lib/public-menu-orders";
 import { Button, cn, Icon, Input, Modal } from "@/components/ui";
+import { OtpCodeInput } from "@/components/otp-code-input";
 import type { Settings } from "@/lib/plans";
 
 type Template = NonNullable<Settings["menuTemplate"]>;
@@ -23,10 +24,6 @@ const navLabels: Record<string, { menu: string; cart: string; orders: string; pr
   ar: { menu: "القائمة", cart: "السلة", orders: "الطلبات", profile: "حسابي" },
   tr: { menu: "Menü", cart: "Sepet", orders: "Siparişler", profile: "Profil" },
 };
-const normalizeDigits = (value: string) => value
-  .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-  .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)));
-
 async function customerRequest<T>(url: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(url, {
     method,
@@ -207,7 +204,7 @@ export function PublicMenuNavigation({
           <Button type="submit" className="w-full" loading={busy} disabled={!phone.trim()}>ارسال کد ورود</Button>
         </> : <>
           <div className="text-center"><span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Icon name="mobile" /></span><p className="mt-3 text-sm font-bold">کد ورود برای {phone} ارسال شد</p><p className="mt-1 text-xs text-stone-500">کد تا {toFa(Math.floor(seconds / 60))}:{toFa(String(seconds % 60).padStart(2, "0"))} اعتبار دارد.</p></div>
-          <Input autoComplete="one-time-code" inputMode="numeric" dir="ltr" className="text-center text-lg tracking-[.35em]" value={code} onChange={(event) => setCode(normalizeDigits(event.target.value).replace(/\D/g, "").slice(0, 6))} placeholder="------" maxLength={6} required />
+          <OtpCodeInput value={code} onChange={setCode} ariaLabel="کد ورود شش‌رقمی" required disabled={busy} />
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">نام نمایشی (برای حساب تازه)<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="نام شما" maxLength={80} /></label>
           <Button type="submit" className="w-full" loading={busy} disabled={code.length !== 6 || seconds === 0}>تأیید و ورود</Button>
           <div className="flex items-center justify-between gap-2 text-xs"><button type="button" onClick={() => { setChallengeId(""); setCode(""); setError(""); }} className="font-semibold text-stone-500">تغییر شماره</button><button type="button" disabled={retrySeconds > 0 || busy} onClick={() => { void requestCode(); }} className="font-bold text-blue-700 disabled:text-stone-400">{retrySeconds ? `ارسال دوباره تا ${toFa(retrySeconds)} ثانیه` : "ارسال دوباره کد"}</button></div>

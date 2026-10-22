@@ -101,6 +101,7 @@
 | راهنما | کارکرد |
 |---|---|
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
+| [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه و تنظیم برند |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
 | [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، پنج قالب قابل انتخاب و جلوگیری از افزودن محصول رایگان |
@@ -113,6 +114,7 @@
 | [core-pages/restaurant-directory.md](core-pages/restaurant-directory.md) | فهرست رستوران‌ها |
 | [core-pages/auth-pages.md](core-pages/auth-pages.md) | ورود، ثبت‌نام، trial و ساخت منو/دسته‌بندی آغازین بر اساس نوع کسب‌وکار |
 | [core-pages/platform-admin.md](core-pages/platform-admin.md) | پنل مدیر سامانه |
+| [modules/marketing-content.md](modules/marketing-content.md) | فهرست وبلاگ/آموزش، صفحه مستقل ساخت/ویرایش و ادیتور غنی امن محتوا |
 | [core-pages/payment-result.md](core-pages/payment-result.md) | نتیجه پرداخت |
 | [core-pages/print-views.md](core-pages/print-views.md) | رسیدها و اسناد چاپی |
 | [core-pages/error-pages.md](core-pages/error-pages.md) | خطا و ۴۰۴ |
@@ -149,4 +151,4 @@
 
 ## کامپوننت‌های رابط مشترک
 
-برای بازسازی، نگهداری و استفادهٔ یکدست از Button، Field، Modal، ConfirmDialog و ورودی مبلغ `AmountInput`، سند [کامپوننت‌های رابط](modules/ui-components.md) را بخوانید. ورودی مبلغ در ظاهر ارقام را سه‌رقمی گروه‌بندی می‌کند اما مقدار خام می‌دهد؛ فیلدهای درصد/تعداد نباید به آن تبدیل شوند. تغییر مشترک رابط باید در همان سند و گزارش روت ثبت شود.
+برای بازسازی، نگهداری و استفادهٔ یکدست از Button، Field، Modal، ConfirmDialog، ورودی مبلغ `AmountInput` و کد یک‌بارمصرف `OtpCodeInput`، سند [کامپوننت‌های رابط](modules/ui-components.md) را بخوانید. ورودی مبلغ در ظاهر ارقام را سه‌رقمی گروه‌بندی می‌کند اما مقدار خام می‌دهد؛ OTP شش خانهٔ نمایشی را با یک input واقعی و autofill پیامکی می‌سازد. فیلدهای درصد/تعداد نباید به `AmountInput` تبدیل شوند. تغییر مشترک رابط باید در همان سند و گزارش روت ثبت شود.

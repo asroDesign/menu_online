@@ -606,3 +606,27 @@ M12 صندوق آفلاین نیز اجرا نشده است. برای سفارش
 - `ProductThumb` اکنون URL خطادار را نگه می‌دارد، فقط همان URL را به fallback نماد تبدیل می‌کند و برای URL تازه دوباره بارگذاری را امتحان می‌کند. decode تصویر غیرهمزمان است. مسیرهای موجود منوی عمومی، کارت گارسون، کارت صندوق و پنج طرح کیوسک از همان رفتار مشترک بهره می‌برند؛ URLهای تصویر آپلودشده از `/api/files/:id` سرو می‌شوند.
 - راهنمای ماژول محصولات، منوی عمومی، گارسون، کیوسک و کاتالوگ قابلیت‌ها به‌روزرسانی شد. تغییر API، schema یا migration نیاز نبود.
 - اعتبارسنجی: ESLint هدفمند فایل‌های تغییرکرده، `npm run typecheck -- --incremental false` و `git diff --check` موفق شدند. بررسی بصری با دادهٔ واقعی رستوران اجرا نشد.
+
+## مرکز محتوای پیشرفتهٔ وبلاگ و آموزش — ۲۰۲۶-۱۰-۲۲
+
+- در `/admin#content`، فهرست وبلاگ و آموزش به نمای تحریریه‌ای با آمار انتشار، جستجو، فیلتر پیش‌نویس/منتشرشده، تصویر شاخص و لینک عمومی تبدیل شد. ایجاد/ویرایش محتوای طولانی از modal به صفحهٔ مستقل `/admin/content?type=posts|tutorials` منتقل شد؛ FAQ و نظرات همچنان فرم کوتاه دارند. صفحه بر اساس permission `content` در UI سرور و API محدود است.
+- ادیتور غنی ابزارهای bold/italic/underline/strike/code، تیتر، لیست، نقل‌قول، چینش، رنگ، پیوند، جدول، خط، undo/redo، پیش‌نمایش و شمارنده دارد. تصویر درون متن و تصویر شاخص تا ۲٫۵MB، ویدیوی متن/آموزش تا ۵۰MB از `/api/admin/media` بارگذاری و در `/api/files/:id` سرو می‌شوند؛ endpoint همچنان MIME signature و permission مدیریت محتوا را بررسی می‌کند.
+- بدنهٔ تازه در قالب AST نسخه‌دار `menupeak-rich-v1` ذخیره می‌شود. سرور mark/tag/URLها را allowlist می‌کند و صفحهٔ عمومی با React nodeهای امن رندر می‌کند؛ HTML خام اجرا نمی‌شود. محتوای Markdown قدیمی با renderer قبلی سازگار است؛ schema/migration لازم نبود. صفحه عمومی آموزش، ویدیوهای درون‌متنی را همراه ویدیوی اصلی هم پخش می‌کند.
+- فایل‌های اصلی: `src/components/admin/marketing.tsx`, `src/components/admin/content-editor-page.tsx`, `src/components/admin/rich-text-editor.tsx`, `src/components/marketing/rich-content.tsx`, `src/lib/rich-document.ts`, `src/lib/admin-api.ts`, `src/app/admin/content/page.tsx`. راهنمای بازسازی در `docs/agents/modules/marketing-content.md` و فهرست README/کاتالوگ ثبت شد.
+- اعتبارسنجی: `tests/marketing-rich-content.test.cjs` با ۳ تست، `tests/security-regressions.test.cjs` با ۵۵ تست، ESLint هدفمند، TypeScript و `git diff --check` موفق شدند. بارگذاری واقعی فایل/آزمون Chrome با دادهٔ سایت انجام نشد؛ فهرست محتوا همچنان حداکثر ۵۰۰ مورد می‌گیرد و صفحه‌بندی ندارد.
+
+## افزودن نمونه‌منوهای SoftMenu و MenuDigital به پیش‌نمایش — ۲۰۲۶-۱۰-۲۲
+
+- در `/preview` انتخاب‌گر پنج نمونه دارد: منوی نارون قبلی، دو سبک SoftMenu، کافه‌فست‌فود کاپیتان ام و رستوران هفت‌خوان. دسته‌های اصلی چهار مرجع به داده‌های mock افزوده/هم‌راستا شدند؛ برای منوهای نمونه فهرست محصولات نمایشی، تخفیف و تنوع قیمت تعریف شد.
+- دسته‌بندی و جست‌وجوی هفت‌خوان محلی‌اند. جزئیات و گزینهٔ اندازهٔ محصول در پنجرهٔ جزئیات باز می‌شود؛ سبد محلی قیمت هر تنوع را جدا حفظ می‌کند. ثبت سفارش غیرفعال است.
+- لینک‌های مرجع با مرورگر بررسی شدند: fragment دسته‌ها و سبد SoftMenu، باشگاه و مقاله، مسیر فهرست/دسته/جزئیات محصول و درباره/درخواست گارسون CaptainM، و جست‌وجو/دسته/جزئیات/About هفت‌خوان. لینک تلفن، نقشه، شبکه اجتماعی، PWA، ورود placeholder و API نظرسنجی در دمو به مقصد واقعی وصل نیستند؛ مقاله به `/blog` داخلی نگاشت شده است. الگوهای مسیر و لینک‌ها بررسی شدند، اما تک‌تک صفحات صدها محصول باز نشده‌اند.
+- داده‌ها و قیمت‌ها برای نمایش ساختگی‌اند؛ هیچ تصویر یا asset بیرونی، اتصال سفارش/سبد به API، حساب مشتری یا پرداختی اضافه نشده. رویداد عمومیِ بازدید صفحه که از قبل وجود داشت حفظ شده است و فقط نام رویداد را ثبت می‌کند. راهنمای رفتار و محدودیت‌ها در `docs/agents/core-pages/demo-preview.md` و ارجاع صفحه اصلی/کاتالوگ در `docs/agents/README.md`, `docs/agents/home-page.md`, `docs/agents/module-capabilities.md` ثبت شد.
+- فایل‌های تغییرکردهٔ این قابلیت: `src/lib/demo-menus.ts`, `src/components/marketing/demo-preview.tsx`, `src/app/preview/page.tsx`, `tests/demo-menus.test.cjs` و اسناد بالا. Migration یا تغییر backend لازم نبود.
+- اعتبارسنجی: `node --test tests/demo-menus.test.cjs` (۲ تست)، ESLint هدفمند، `npm run typecheck -- --incremental false` و `git diff --check` موفق شدند.
+
+## ورودی اختصاصی کد یک‌بارمصرف — ۲۰۲۶-۱۰-۲۲
+
+- ورودی کد پیامکی در ورود/ثبت‌نام سامانه و پروفایل مشتری منوی عمومی با کامپوننت مشترک `OtpCodeInput` جایگزین شد. یک input واقعی با شش خانهٔ بصری، autofill پیامک (`one-time-code`)، صفحه‌کلید عددی، paste، برچسب دسترس‌پذیر و پشتیبانی از رقم فارسی/عربی دارد.
+- `normalizeOtpCode` در `src/lib/otp-code.ts` ورودی را به ASCII نرمال می‌کند، فقط رقم را می‌پذیرد، طول را به شش محدود می‌کند و صفرهای ابتدایی را نگه می‌دارد. اعتبارسنجی کد، زمان انقضا و محدودیت ارسال مجدد همچنان متعلق به جریان‌های موجود است و تغییر نکرده است.
+- تغییرات در `src/components/otp-code-input.tsx`, `src/lib/otp-code.ts`, `src/components/auth-form.tsx`, `src/components/public-menu-navigation.tsx` و `tests/otp-code.test.cjs` ثبت شدند. راهنماهای [صفحه ورود](docs/agents/core-pages/auth-pages.md)، [منوی عمومی](docs/agents/core-pages/public-menu.md) و [اجزای رابط](docs/agents/modules/ui-components.md) قرارداد مصرف و نقش هر بخش را توضیح می‌دهند.
+- اعتبارسنجی: `node --test tests/otp-code.test.cjs tests/demo-menus.test.cjs` (۴ تست)، ESLint هدفمند چهار فایل و `npm run typecheck -- --incremental false` موفق شدند؛ `git diff --check` نیز بدون خطا بود. ورود واقعی یا ارسال پیامک آزمایش نشد.

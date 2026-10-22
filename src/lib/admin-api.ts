@@ -12,6 +12,7 @@ import { adminCan, adminDept, hashPassword, HttpError, readJson, startImpersonat
 import { ADMIN_DEPTS, permsOf, TICKET_DEPTS, type AdminPerm } from "@/lib/admin-meta";
 import { effectivePlan, getPlanOverrides, invalidatePlanCache } from "@/lib/entitlements";
 import { jMonthRange, jYearRange, toJ } from "@/lib/jalali";
+import { normalizeRichContent } from "@/lib/rich-document";
 import { FEATURES, PLAN_KEYS, planName } from "@/lib/plans";
 import { getPlatformSms, notifyPlatformManager, type PlatformSmsConfig, normalizedPhone } from "@/lib/platform-sms";
 
@@ -583,6 +584,13 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
     const collection = id;
     const table = collection === "posts" ? blogPosts : collection === "tutorials" ? tutorials : collection === "faqs" ? faqs : collection === "testimonials" ? testimonials : null;
     if (!table) throw new HttpError(404, "بخش محتوا پیدا نشد");
+    if (m === "GET" && act) {
+      const itemId = Number(act);
+      if (!Number.isSafeInteger(itemId) || itemId < 1) throw new HttpError(400, "شناسه محتوا نامعتبر است");
+      const [item] = await db.select().from(table).where(eq((table as any).id, itemId)).limit(1);
+      if (!item) throw new HttpError(404, "محتوا پیدا نشد");
+      return J({ item });
+    }
     if (m === "GET" && !act) {
       const items = collection === "posts" || collection === "tutorials"
         ? await db.select().from(table).orderBy(desc((table as any).updatedAt ?? (table as any).id)).limit(500)
@@ -599,8 +607,8 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
         const publishedAt = status === "published" ? (date(b.publishedAt) ?? new Date()) : null;
         const common = { slug, title, status, publishedAt, updatedAt: new Date(), metaTitle: str(b.metaTitle, 180), metaDescription: str(b.metaDescription, 320), noIndex: Boolean(b.noIndex), category: str(b.category, 80) || (collection === "posts" ? "عمومی" : "راهنمای شروع"), coverImage: publicUrl(b.coverImage) };
         const values = collection === "posts"
-          ? { ...common, excerpt: str(b.excerpt, 600), content: str(b.content, 60000), author: str(b.author, 100) || "تیم منوی دیجیتال", canonicalUrl: publicUrl(b.canonicalUrl), tags: Array.isArray(b.tags) ? [...new Set(b.tags.map((x: unknown) => str(x, 40)).filter(Boolean))].slice(0, 20) : [] }
-          : { ...common, summary: str(b.summary, 600), content: str(b.content, 60000), videoUrl: publicUrl(b.videoUrl), sortOrder: Math.max(0, num(b.sortOrder)) };
+          ? { ...common, excerpt: str(b.excerpt, 600), content: normalizeRichContent(b.content), author: str(b.author, 100) || "تیم منوی دیجیتال", canonicalUrl: publicUrl(b.canonicalUrl), tags: Array.isArray(b.tags) ? [...new Set(b.tags.map((x: unknown) => str(x, 40)).filter(Boolean))].slice(0, 20) : [] }
+          : { ...common, summary: str(b.summary, 600), content: normalizeRichContent(b.content), videoUrl: publicUrl(b.videoUrl), sortOrder: Math.max(0, num(b.sortOrder)) };
         if (collection === "posts" && b.canonicalUrl && !(values as any).canonicalUrl) throw new HttpError(400, "نشانی canonical باید URL امن http یا https باشد");
         if (collection === "tutorials" && b.videoUrl && !(values as any).videoUrl) throw new HttpError(400, "نشانی ویدیو معتبر نیست");
         const [row] = m === "POST"

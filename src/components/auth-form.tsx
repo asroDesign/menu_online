@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Button, Field, Input, Icon, Select } from "@/components/ui";
+import { OtpCodeInput } from "@/components/otp-code-input";
 import { BrandLogo, usePlatformBranding } from "@/components/brand";
 import { trackPlatformEvent } from "@/lib/platform-analytics";
 
@@ -177,7 +178,7 @@ export function AuthForm({ mode, nextPath = "/dashboard", freeTrialSignup = fals
             </form>
           ) : phase === "code" ? (
             <form onSubmit={verifyCode} className="mt-7 space-y-4">
-              <Field label={`کد پیامک‌شده به ${form.phone}`}><Input dir="ltr" className="text-center text-xl tracking-[0.35em]" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/\D/g, "").slice(0, 6))} required /></Field>
+              <Field label={`کد پیامک‌شده به ${form.phone}`}><OtpCodeInput value={code} onChange={setCode} ariaLabel="کد تأیید شش‌رقمی" required disabled={busy === "verify"} /></Field>
               <div className="space-y-2 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3 text-sm leading-6 text-base-content/75" aria-live="off">
                 <p className="flex items-center justify-between gap-3" role="timer"><span className="inline-flex items-center gap-2"><Icon name="clock" className="size-4 text-primary" />اعتبار کد</span><span className="font-extrabold tabular-nums text-primary">{formatTime(secondsUntilExpiry ?? 300)}</span></p>
                 {secondsUntilExpiry === 0 && <p className="text-xs font-semibold text-error">کد منقضی شده است؛ کد تازه درخواست کنید.</p>}

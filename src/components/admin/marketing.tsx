@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatDate, formatNumber, formatPrice, formatTime } from "@/lib/format";
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input, AmountInput, Modal, Select, Skeleton, Textarea, useToast } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input, AmountInput, Modal, ProductThumb, Select, Skeleton, Textarea, useToast } from "@/components/ui";
 
 type Collection = "posts" | "tutorials" | "faqs" | "testimonials";
 const COLLECTIONS: [Collection, string][] = [["posts", "وبلاگ"], ["tutorials", "آموزش‌ها"], ["faqs", "سوالات متداول"], ["testimonials", "نظرات کاربران"]];
@@ -15,14 +17,17 @@ const emptyForm = (c: Collection): Record<string, any> => c === "posts"
       : { name: "", title: "", businessName: "", body: "", rating: 5, imageUrl: "", isPublished: false, sortOrder: 0 };
 
 export function ContentTab() {
+  const router = useRouter();
   const [collection, setCollection] = useState<Collection>("posts");
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const toast = useToast();
+  const longForm = collection === "posts" || collection === "tutorials";
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -49,34 +54,39 @@ export function ContentTab() {
     try { await api(`/api/admin/content/${collection}/${item.id}`, { method: "DELETE" }); toast("حذف شد"); await load(); }
     catch (e) { toast((e as Error).message, "error"); }
   }
-  async function upload(file: File, field: string) {
-    setUploading(field);
-    try {
-      const response = await fetch("/api/admin/media", { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) }, body: await file.arrayBuffer() });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "بارگذاری ناموفق بود");
-      setForm((f) => f ? { ...f, [field]: data.url } : f); toast("فایل بارگذاری شد");
-    } catch (e) { toast((e as Error).message, "error"); }
-    finally { setUploading(""); }
-  }
   const input = (label: string, key: string, opts: { area?: boolean; hint?: string; type?: string } = {}) => <Field key={key} label={label} hint={opts.hint}><>{opts.area ? <Textarea rows={key === "content" || key === "answer" || key === "body" ? 8 : 3} value={form?.[key] ?? ""} onChange={(e) => setForm((f) => f && ({ ...f, [key]: e.target.value }))} /> : <Input type={opts.type ?? "text"} value={form?.[key] ?? ""} onChange={(e) => setForm((f) => f && ({ ...f, [key]: e.target.value }))} />}</></Field>;
-  const media = (label: string, key: string, accept: string) => <Field key={key} label={label} hint={form?.[key] || "تصویر تا ۲٫۵ مگابایت؛ ویدیو تا ۵۰ مگابایت"}><div className="flex flex-wrap items-center gap-2"><Input value={form?.[key] ?? ""} onChange={(e) => setForm((f) => f && ({ ...f, [key]: e.target.value }))} placeholder="نشانی فایل یا بارگذاری" /><label className="btn btn-secondary h-10 cursor-pointer rounded-xl px-3 text-xs">{uploading === key ? "در حال بارگذاری…" : "انتخاب فایل"}<input type="file" accept={accept} className="sr-only" disabled={!!uploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) void upload(file, key); e.currentTarget.value = ""; }} /></label></div></Field>;
+
+  const filteredItems = items.filter((item) => {
+    const title = String(item.title || item.question || item.name || "");
+    const description = String(item.excerpt || item.summary || item.answer || item.body || "");
+    const matchesSearch = `${title} ${description} ${item.slug ?? ""} ${item.category ?? ""}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim());
+    const published = item.status === "published" || item.isPublished;
+    return matchesSearch && (statusFilter === "all" || (statusFilter === "published" ? published : !published));
+  });
+  function openLongForm(item?: any) {
+    router.push(`/admin/content?type=${collection}${item ? `&id=${item.id}` : ""}`);
+  }
 
   return <div className="space-y-5">
-    <div><h1 className="text-xl font-extrabold sm:text-2xl">مدیریت محتوای وب‌سایت</h1><p className="mt-1 text-sm text-base-content/60">وبلاگ و سئو، آموزش‌ها، سوالات متداول و نظرات کاربران</p></div>
-    <div className="flex flex-wrap gap-2">{COLLECTIONS.map(([key, label]) => <Button key={key} variant={collection === key ? "primary" : "secondary"} size="sm" onClick={() => setCollection(key)}>{label}</Button>)}<Button className="ms-auto" onClick={() => setForm(emptyForm(collection))}><Icon name="plus" className="size-4" />افزودن</Button></div>
-    {error ? <ErrorState message={error} onRetry={load} /> : loading ? <Skeleton className="h-60 rounded-2xl" /> : !items.length ? <EmptyState title="محتوایی وجود ندارد" description="اولین مورد را با دکمه افزودن بسازید." /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <Card key={item.id} className="flex min-w-0 flex-col gap-3 p-4"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate font-bold">{item.title || item.question || item.name}</h3><p className="mt-1 line-clamp-2 text-xs leading-6 text-base-content/60">{item.excerpt || item.summary || item.answer || item.body}</p></div><Badge color={item.status === "published" || item.isPublished ? "emerald" : "amber"}>{item.status === "published" || item.isPublished ? "منتشرشده" : "پیش‌نویس"}</Badge></div><div className="flex items-center justify-between gap-2 border-t border-base-200 pt-2"><span className="truncate text-xs text-base-content/50">{item.slug ? `/${collection === "posts" ? "blog" : "tutorials"}/${item.slug}` : item.category || item.businessName || ""}</span><div className="flex shrink-0 gap-1"><Button size="sm" variant="secondary" onClick={() => setForm({ ...item, tags: Array.isArray(item.tags) ? item.tags.join(", ") : item.tags })}>ویرایش</Button><Button size="sm" variant="ghost" onClick={() => void remove(item)}>حذف</Button></div></div></Card>)}</div>}
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold text-primary">رسانه و انتشار</p><h1 className="mt-1 text-2xl font-black">مدیریت محتوای سایت</h1><p className="mt-1 text-sm text-base-content/60">وبلاگ، آموزش‌های چندرسانه‌ای، سوالات متداول و بازخورد کاربران</p></div>{longForm && <Button onClick={() => openLongForm()}><Icon name="plus" className="me-1 size-4"/>محتوای تازه</Button>}</div>
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-base-300 bg-base-100 p-2">{COLLECTIONS.map(([key, label]) => <Button key={key} variant={collection === key ? "primary" : "ghost"} size="sm" onClick={() => { setCollection(key); setSearch(""); setStatusFilter("all"); }}>{label}</Button>)}{!longForm && <Button className="ms-auto" size="sm" onClick={() => setForm(emptyForm(collection))}><Icon name="plus" className="me-1 size-4"/>افزودن</Button>}</div>
+    {longForm && !loading && !error && <div className="grid gap-3 sm:grid-cols-3"><Card className="p-4"><p className="text-xs text-base-content/55">همهٔ موارد</p><p className="mt-1 text-2xl font-black">{formatNumber(items.length)}</p></Card><Card className="p-4"><p className="text-xs text-base-content/55">منتشرشده</p><p className="mt-1 text-2xl font-black text-emerald-700">{formatNumber(items.filter((item) => item.status === "published").length)}</p></Card><Card className="p-4"><p className="text-xs text-base-content/55">پیش‌نویس</p><p className="mt-1 text-2xl font-black text-amber-700">{formatNumber(items.filter((item) => item.status !== "published").length)}</p></Card></div>}
+    {longForm && <div className="flex flex-col gap-2 sm:flex-row"><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جستجوی عنوان، خلاصه، نشانی یا دسته‌بندی"/><Select className="sm:max-w-52" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">همهٔ وضعیت‌ها</option><option value="published">منتشرشده</option><option value="draft">پیش‌نویس</option></Select></div>}
+    {error ? <ErrorState message={error} onRetry={load} /> : loading ? <Skeleton className="h-60 rounded-2xl" /> : !filteredItems.length ? <EmptyState title={search || statusFilter !== "all" ? "موردی با این فیلتر پیدا نشد" : longForm ? "هنوز محتوایی منتشر نکرده‌اید" : "محتوایی وجود ندارد"} description={longForm ? "مقاله یا آموزش اول را از دکمهٔ «محتوای تازه» بسازید؛ ذخیره به‌صورت پیش‌نویس هم ممکن است." : "اولین مورد را با دکمه افزودن بسازید."} /> : longForm ? <div className="space-y-3">{filteredItems.map((item) => {
+      const published = item.status === "published";
+      const href = `/${collection === "posts" ? "blog" : "tutorials"}/${item.slug}`;
+      const summary = item.excerpt || item.summary || "خلاصه‌ای برای این محتوا ثبت نشده است.";
+      return <Card key={item.id} className="grid min-w-0 gap-3 p-3 sm:grid-cols-[128px_minmax(0,1fr)_auto] sm:items-center sm:p-4"><ProductThumb imageUrl={item.coverImage} emoji={collection === "posts" ? "" : ""} className="h-32 w-full rounded-xl sm:h-24 sm:w-32"/><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Badge color={published ? "emerald" : "amber"}>{published ? "منتشرشده" : "پیش‌نویس"}</Badge><span className="text-xs text-base-content/50">{item.category}</span>{collection === "tutorials" && item.videoUrl && <Badge color="brand">ویدیو</Badge>}</div><h2 className="mt-2 truncate text-base font-extrabold">{item.title}</h2><p className="mt-1 line-clamp-2 text-xs leading-5 text-base-content/60">{summary}</p><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-base-content/45"><span dir="ltr">{href}</span><span>ویرایش {formatDate(item.updatedAt || item.createdAt)}</span>{collection === "posts" && <span>{formatNumber(Array.isArray(item.tags) ? item.tags.length : 0)} برچسب</span>}</div></div><div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-stretch"><Button size="sm" onClick={() => openLongForm(item)}>ویرایش در صفحهٔ کامل</Button>{published && <Link href={href} target="_blank" className="btn btn-ghost btn-sm"><Icon name="external" className="me-1 size-3.5"/>مشاهدهٔ عمومی</Link>}<Button size="sm" variant="ghost" className="text-error" onClick={() => void remove(item)}>حذف</Button></div></Card>;
+    })}</div> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{filteredItems.map((item) => <Card key={item.id} className="flex min-w-0 flex-col gap-3 p-4"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate font-bold">{item.title || item.question || item.name}</h3><p className="mt-1 line-clamp-2 text-xs leading-6 text-base-content/60">{item.excerpt || item.summary || item.answer || item.body}</p></div><Badge color={item.status === "published" || item.isPublished ? "emerald" : "amber"}>{item.status === "published" || item.isPublished ? "منتشرشده" : "پیش‌نویس"}</Badge></div><div className="flex items-center justify-between gap-2 border-t border-base-200 pt-2"><span className="truncate text-xs text-base-content/50">{item.category || item.businessName || ""}</span><div className="flex shrink-0 gap-1"><Button size="sm" variant="secondary" onClick={() => setForm({ ...item, tags: Array.isArray(item.tags) ? item.tags.join(", ") : item.tags })}>ویرایش</Button><Button size="sm" variant="ghost" onClick={() => void remove(item)}>حذف</Button></div></div></Card>)}</div>}
     <Modal
       open={!!form}
-      onClose={() => { if (!saving && !uploading) setForm(null); }}
+      onClose={() => { if (!saving) setForm(null); }}
       title={`${form?.id ? "ویرایش" : "ایجاد"} ${COLLECTIONS.find(([k]) => k === collection)?.[1] ?? "محتوا"}`}
       description="محتوای سایت را ویرایش کنید و پیش از انتشار بررسی کنید."
       size="lg"
-      footer={<><Button variant="ghost" disabled={saving || !!uploading} onClick={() => setForm(null)}>انصراف</Button><Button loading={saving} disabled={!!uploading} onClick={() => void save()}>ذخیره</Button></>}
+      footer={<><Button variant="ghost" disabled={saving} onClick={() => setForm(null)}>انصراف</Button><Button loading={saving} onClick={() => void save()}>ذخیره</Button></>}
     >
       {form && <div className="grid gap-3 sm:grid-cols-2">
-      {collection === "posts" && <>{input("عنوان", "title")}{input("نشانی انگلیسی (slug)", "slug")}{input("دسته‌بندی", "category")}{input("نویسنده", "author")}{input("خلاصه", "excerpt", { area: true })}{media("تصویر شاخص", "coverImage", "image/*")}{input("برچسب‌ها (با ویرگول)", "tags")}{input("عنوان سئو", "metaTitle")}{input("توضیح سئو", "metaDescription", { area: true })}{input("Canonical URL (اختیاری)", "canonicalUrl")}{input("متن مقاله (متن ساده یا Markdown)", "content", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.noIndex} onChange={(e) => setForm({ ...form, noIndex: e.target.checked })} />نمایه نشود</label><Field label="وضعیت"><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">پیش‌نویس</option><option value="published">منتشرشده</option></Select></Field></>}
-      {collection === "tutorials" && <>{input("عنوان", "title")}{input("نشانی انگلیسی (slug)", "slug")}{input("دسته‌بندی", "category")}{input("خلاصه", "summary", { area: true })}{media("تصویر شاخص", "coverImage", "image/*")}{media("ویدیوی آموزش", "videoUrl", "video/mp4,video/webm")}{input("عنوان سئو", "metaTitle")}{input("توضیح سئو", "metaDescription", { area: true })}{input("متن آموزش", "content", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.noIndex} onChange={(e) => setForm({ ...form, noIndex: e.target.checked })} />نمایه نشود</label><Field label="وضعیت"><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">پیش‌نویس</option><option value="published">منتشرشده</option></Select></Field></>}
       {collection === "faqs" && <>{input("پرسش", "question")}{input("دسته‌بندی", "category")}{input("پاسخ", "answer", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.isPublished} onChange={(e) => setForm({ ...form, isPublished: e.target.checked })} />نمایش عمومی</label></>}
       {collection === "testimonials" && <>{input("نام", "name")}{input("سمت", "title")}{input("نام کسب‌وکار", "businessName")}{input("امتیاز (۱ تا ۵)", "rating", { type: "number" })}{input("نشانی تصویر", "imageUrl")}{input("متن نظر", "body", { area: true })}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.isPublished} onChange={(e) => setForm({ ...form, isPublished: e.target.checked })} />تأیید و انتشار</label></>}
     </div>}
