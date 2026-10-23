@@ -6,6 +6,8 @@
 
 در GitHub به بخش [**Actions → Windows hardware bridge**](https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml) بروید و آخرین اجرای موفق شاخهٔ `main` را باز کنید. از بخش **Artifacts** فایل `digital-menu-bridge-windows-x64` را دانلود، از ZIP خارج و فایل Setup با پسوند `.exe` را اجرا کنید. اجرای ناموفق نصب‌گر قابل دانلود ندارد؛ پس از خطای ساخت باید اجرای موفق جدید را باز کنید. هر تغییر در `windows-bridge/` نیز ساخت نصب‌گر را خودکار اجرا می‌کند.
 
+نصب‌گر ساخته‌شده پس از رفع خطای ساخت در [اجرای موفق شمارهٔ ۴](https://github.com/asroDesign/menu_online/actions/runs/39982211888) نیز در بخش Artifacts همین صفحه در دسترس است.
+
 ## راه‌اندازی
 
 ۱. در پنل رستوران، از بخش پرینتر/ترازو فایل `bridge.config.json` را دانلود کنید. تنظیمات کارتخوان از پل قدیمی Node.js استفاده می‌کند و در این نسخه‌ی ویندوزی قابل اجرا نیست.

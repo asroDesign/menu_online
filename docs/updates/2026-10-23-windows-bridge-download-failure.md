@@ -18,3 +18,9 @@
 ## اعتبارسنجی و محدودیت
 
 Microsoft نام کتابخانه و DLL را در [مستندات SetPrinter](https://learn.microsoft.com/en-us/windows/win32/printdocs/setprinter) مشخص کرده است. اعتبارسنجی قطعی پچ، build خود Windows runner در Actions و وجود artifact است؛ محیط توسعهٔ macOS جایگزین ساخت NSIS روی Windows نیست. نصب و چاپ روی دستگاه واقعی ویندوز در دامنهٔ این رفع خطا نیست.
+
+## نتیجهٔ اجرای ویندوز
+
+پس از push اصلاح دوم با commit `b9b1dc1`، اجرای [شمارهٔ ۴ GitHub Actions](https://github.com/asroDesign/menu_online/actions/runs/39982211888) با وضعیت **Success** تمام شد. مرحلهٔ آماده‌سازی `WinSpool`، ساخت NSIS و بارگذاری artifact همگی موفق بودند. فایل `digital-menu-bridge-windows-x64` با حجم ۳٫۲۲ MB در بخش Artifacts همان اجرا موجود است. SHA-256 اعلام‌شده توسط GitHub: `cc2755329036948535f1b095baf1db793ac248b690903b0615201b77580b536a`.
+
+فایل نصب‌گر را از لینک اجرای موفق دریافت کنید؛ برای اجرا آن را از ZIP خارج کرده و Setup را اجرا کنید. دانلود از محیط Chrome به‌عنوان کاربر انجام نشد و نصب/چاپ روی سخت‌افزار واقعی ویندوز نیز بررسی نشده است.

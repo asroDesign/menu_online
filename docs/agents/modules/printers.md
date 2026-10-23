@@ -66,7 +66,11 @@
 
 `POST /api/orders/:id/print` با kind مشتری/آشپزخانه/کافه، ۲۰ درخواست در دقیقه، مجوز cloud_printer + مدیر/صندوق و lookup tenant، یک نسخه دستی به صف می‌دهد. تعداد jobs را برمی‌گرداند و در صفر بودن 409 می‌دهد؛ فراخوانی مجدد چاپ مجدد است. queuePrintJobs آرگومان اختیاری manualKind دارد؛ دسته‌بندی اقلام آشپزخانه حفظ می‌شود و مبالغ آشپزخانه حذف شده‌اند. رسید مرورگر گزینه‌های snapshot و متن سربرگ/پابرگ کسب‌وکار را نمایش می‌دهد.
 
-اپ Tauri فرمان `installed_printers` دارد: Win32_Printer با PowerShell ثابت، خروجی JSON صف‌های نصب‌شده. UI دکمه کشف و select برای هر printer config دارد؛ انتخاب transport=usb و printerName را در تنظیمات ویرایش‌نشده قرار می‌دهد. ابتدا توقف/ذخیره/شروع لازم است. هیچ چاپگر کشف‌شده‌ای خودکار نقش نمی‌گیرد. واردکردن JSON اولیه هنوز لازم است؛ pairing مرورگر و QZ وجود ندارد. GitHub Actions در هر تغییر مسیر `windows-bridge/` فایل NSIS را می‌سازد و به‌صورت artifact سی‌روزه منتشر می‌کند؛ دریافت از Actions فقط پس از اجرای موفق build ممکن است. ساخت قبلی به‌خاطر نبود import مربوط به `tauri::Manager` fail می‌شد؛ جزئیات رفع در گزارش تغییر ۲۰۲۶-۱۰-۲۳ است. چاپ واقعی روی سخت‌افزار ویندوز در این محیط انجام نشده است.
+## دریافت پل سخت‌افزار Windows — ۲۰۲۶-۱۰-۲۳
+
+عامل دسکتاپ Windows به‌صورت NSIS installer از workflow [Windows hardware bridge](https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml) ساخته می‌شود. artifact با نام `digital-menu-bridge-windows-x64` در هر اجرای موفق قرار می‌گیرد. در اجرای موفق شمارهٔ ۴، artifact ۳٫۲۲ MB بود. build به `tauri::Manager` برای `App::state` نیاز دارد؛ روی Windows SDK نیز workflow نام رسمی import library چاپگر (`WinSpool.lib`) را با alias مورد انتظار MSVC/Rust (`winspool.drv.lib`) در پوشهٔ موقت در دسترس می‌گذارد.
+
+اپ Tauri فرمان `installed_printers` دارد: Win32_Printer با PowerShell ثابت، خروجی JSON صف‌های نصب‌شده. UI دکمه کشف و select برای هر printer config دارد؛ انتخاب transport=usb و printerName را در تنظیمات ویرایش‌نشده قرار می‌دهد. ابتدا توقف/ذخیره/شروع لازم است. هیچ چاپگر کشف‌شده‌ای خودکار نقش نمی‌گیرد. واردکردن JSON اولیه هنوز لازم است؛ pairing مرورگر و QZ وجود ندارد. GitHub Actions در هر تغییر مسیر `windows-bridge/` فایل NSIS را می‌سازد و به‌صورت artifact سی‌روزه منتشر می‌کند؛ دریافت از Actions فقط پس از اجرای موفق build ممکن است. اجرای موفق شمارهٔ ۴ و لینک دریافت artifact در گزارش تغییر ۲۰۲۶-۱۰-۲۳ آمده است. چاپ واقعی روی سخت‌افزار ویندوز در این محیط انجام نشده است.
 
 فهرست صریح باقی‌مانده‌ها: [گزارش تطبیق](../../../POS_REFERENCE_PARITY.md).
 
