@@ -42,6 +42,7 @@ import { calculateWeightedSale, orderLineTotal } from "@/lib/weighted-sales";
 import { currentMembership } from "@/lib/membership";
 import { membershipDiscountAmount, type MembershipOrderSnapshot } from "@/lib/membership-core";
 import { normalizePrinterSettings, printOutputs, type PrintMoment } from "@/lib/printer-policy";
+import { formatReceiptBox, formatReceiptText } from "@/lib/receipt-layout";
 import { addCustomerPoints } from "@/lib/customer-points";
 import { normalizeCustomerRewards, referralRewardPoints } from "@/lib/customer-rewards-core";
 import { rewardDiscountAmount, rewardIsExpired } from "@/lib/loyalty-rewards-core";
@@ -968,28 +969,34 @@ export async function verifyOnlinePayment(biz: Biz, p: typeof payments.$inferSel
 export function receiptText(
   biz: { name: string; settings?: unknown },
   o: { number: number; type: string; tableName?: string | null; customerName: string; note: string; total: number; address?: string; items: { name: string; quantity: number; price: number; productId?: number | null; optionSnapshot?: { optionName: string }[]; weightGrams?: number | null; lineTotal?: number }[] },
-  options: { includeTotal?: boolean; printerName?: string } = {},
+  options: { includeTotal?: boolean; printerName?: string; isAppend?: boolean; banner?: string } = {},
 ) {
-  const line = "-".repeat(32);
   const kind = o.type === "delivery" ? "ارسال" : o.type === "takeaway" ? "بیرون‌بر" : (o.tableName ?? "سالن");
   const printSettings = normalizePrinterSettings((biz.settings as { printerSettings?: unknown } | null)?.printerSettings);
-  return [
-    printSettings.receiptHeader,
-    biz.name,
-    line,
-    `سفارش #${o.number}  |  ${kind}`,
-    options.printerName ? `بخش: ${options.printerName}` : "",
-    o.customerName ? `مشتری: ${o.customerName}` : "",
-    o.address ? `آدرس: ${o.address}` : "",
-    line,
-    ...o.items.map((i) => `${i.quantity} × ${i.name}${i.weightGrams != null ? ` (${i.weightGrams.toLocaleString("fa-IR")} گرم خالص)` : ""}${i.optionSnapshot?.length ? `\n   ${i.optionSnapshot.map((x) => x.optionName).join("، ")}` : ""}   ${options.includeTotal === false ? "" : orderLineTotal(i).toLocaleString("fa-IR")}`),
-    line,
-    o.note ? `توضیحات: ${o.note}` : "",
-    options.includeTotal === false ? "" : `مبلغ نهایی: ${o.total.toLocaleString("fa-IR")} تومان`,
-    printSettings.receiptFooter,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return formatReceiptText({
+    businessName: biz.name,
+    header: printSettings.receiptHeader,
+    footer: printSettings.receiptFooter,
+    orderNumber: o.number.toLocaleString("fa-IR"),
+    typeLabel: kind,
+    customerName: o.customerName,
+    address: o.address,
+    note: o.note,
+    printerName: options.printerName,
+    includeTotal: options.includeTotal,
+    total: o.total.toLocaleString("fa-IR"),
+    items: o.items.map((item) => ({
+      name: item.name,
+      quantity: item.quantity.toLocaleString("fa-IR"),
+      amount: orderLineTotal(item).toLocaleString("fa-IR"),
+      weight: item.weightGrams == null ? undefined : item.weightGrams.toLocaleString("fa-IR"),
+      options: item.optionSnapshot?.map((option) => option.optionName),
+    })),
+    banners: [
+      ...(options.isAppend ? ["افزودن به سفارش"] : []),
+      ...(options.banner ? [options.banner] : []),
+    ],
+  });
 }
 
 export async function queuePrintJobs(biz: Biz, orderId: number, features: FeatureMap, isAppend: boolean, onlyItemIds?: number[], executor: QueryDb = db, moment: PrintMoment = "created_with_table", manualKind?: "customer" | "kitchen" | "cafe") {
@@ -1022,7 +1029,7 @@ export async function queuePrintJobs(biz: Biz, orderId: number, features: Featur
       if (!items.length) continue;
       const includeTotal = output.kind !== "kitchen";
       const printerName = output.kind === "kitchen" && assigned.length ? printer.name : output.kind === "cafe" ? "نسخه‌ی کافه" : undefined;
-      const content = `${isAppend ? "** افزودن به سفارش **\n" : ""}${output.kind === "kitchen" ? "** بلیت آماده‌سازی **\n" : ""}${receiptText(biz, { ...o, items }, { includeTotal, printerName })}`;
+      const content = receiptText(biz, { ...o, items }, { includeTotal, printerName, isAppend, banner: output.kind === "kitchen" ? "بلیت آماده‌سازی" : undefined });
       for (let copy = 0; copy < output.copies; copy++) jobs.push({ businessId: biz.id, orderId, deviceId: printer.id, content });
     }
   }

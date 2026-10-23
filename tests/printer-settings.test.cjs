@@ -105,6 +105,7 @@ test('order receipt and kitchen actions queue directly to their configured print
   assert.match(orderService, /settings\.rules\.settled\.customerPrinterId/);
   assert.match(orderService, /settings\.rules\.created_with_table\.kitchenPrinterIds/);
   assert.match(orderService, /manualKind === "kitchen" \? \[\] : firstPrinter/);
+  assert.match(orderService, /formatReceiptText\(/);
 });
 
 test('Windows bridge distinguishes an empty cloud queue from a stopped worker and exposes a direct local printer test', () => {
