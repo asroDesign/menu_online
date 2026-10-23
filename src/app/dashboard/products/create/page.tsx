@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useCollection, api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
 import { ImageUpload } from "@/components/image-upload";
+import { VideoUpload } from "@/components/video-upload";
 import { notifySetupSaved } from "@/lib/onboarding-tour";
 import { AmountInput, Button, Card, Field, Icon, Input, Modal, PageHeader, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { formatPrice, toFa } from "@/lib/format";
@@ -51,6 +52,7 @@ export default function CreateProductPage() {
   const [oldPrice, setOldPrice] = useState("");
   const [prepMinutes, setPrepMinutes] = useState("10");
   const [imageUrl, setImageUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const [emoji, setEmoji] = useState("");
   const [available, setAvailable] = useState(true);
   const [featured, setFeatured] = useState(false);
@@ -90,7 +92,7 @@ export default function CreateProductPage() {
       setEditingProduct(product);
       setName(product.name); setCategoryId(product.categoryId ? String(product.categoryId) : "");
       setDescription(product.description ?? ""); setBasePrice(String(product.price)); setOldPrice(product.oldPrice ? String(product.oldPrice) : "");
-      setPrepMinutes(String(product.prepMinutes ?? 10)); setImageUrl(product.imageUrl ?? ""); setEmoji(product.emoji || "");
+      setPrepMinutes(String(product.prepMinutes ?? 10)); setImageUrl(product.imageUrl ?? ""); setVideoUrl(product.videoUrl ?? ""); setEmoji(product.emoji || "");
       setAvailable(product.isAvailable); setFeatured(product.isFeatured);
       setSellingMode(product.sellingMode === "weight" ? "weight" : "count"); setYieldRatio(String(product.yieldRatio ?? 1));
       setArModelUrl(product.arModelUrl ?? ""); setDietaryTags(product.dietaryTags ?? []); setAllergenTags(product.allergenTags ?? []);
@@ -217,7 +219,7 @@ export default function CreateProductPage() {
     const recipePerUnit = hasRecipes ? ingredients.map((line) => ({ recipeId: line.recipeId, itemId: Number(line.itemId), quantity: numberText(line.quantity) / (editingId ? 1 : output), wastePercent: numberText(line.wastePercent) })) : [];
     const payload = {
       name: name.trim(), description: description.trim(), price: rawPrice, oldPrice: oldPrice ? numberText(oldPrice) : null,
-      categoryId: categoryId ? Number(categoryId) : null, emoji, imageUrl: imageUrl.trim(), prepMinutes: Math.max(0, Math.min(300, numberText(prepMinutes, 10))),
+      categoryId: categoryId ? Number(categoryId) : null, emoji, imageUrl: imageUrl.trim(), videoUrl: videoUrl.trim(), prepMinutes: Math.max(0, Math.min(300, numberText(prepMinutes, 10))),
       sellingMode, yieldRatio: sellingMode === "weight" ? numberText(yieldRatio, 1) : 1,
       isAvailable: available, isFeatured: featured, modifierGroups: [...modifierGroups, ...(priceGroup ? [priceGroup] : [])],
       dietaryTags, allergenTags, arModelUrl: arModelUrl.trim(),
@@ -359,7 +361,7 @@ export default function CreateProductPage() {
         <Card className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5"><div><p className="font-bold">وضعیت محصول</p><p className="mt-1 text-xs text-stone-500">محصول ناموجود در منوی مشتری قابل سفارش نیست.</p></div><div className="flex flex-wrap gap-5"><label className="flex items-center gap-2 text-sm"><Switch checked={available} onChange={setAvailable} label="موجود در منو"/> موجود در منو</label><label className="flex items-center gap-2 text-sm"><Switch checked={featured} onChange={setFeatured} label="پیشنهاد ویژه"/> پیشنهاد ویژه</label></div></Card>
       </div>
 
-      <aside className="space-y-4 lg:sticky lg:top-4"><Card className="p-4 sm:p-5"><SectionTitle title="تصویر محصول" description="تصویر مربعی با حداقل اندازهٔ ۳۰۰ × ۳۰۰ پیکسل مناسب است."/><div data-tour="product-image" className="mt-4"><ImageUpload value={imageUrl} emoji={emoji} onChange={setImageUrl}/></div><p className="mt-3 text-xs leading-5 text-stone-500">فرمت‌های مجاز: JPG، PNG، WEBP یا HEIC. تصویر را اینجا رها کنید یا برای انتخاب کلیک کنید.</p></Card><Card className="space-y-3 p-4"><div className="flex items-center gap-2"><span className="flex size-8 items-center justify-center rounded-full bg-blue-50 text-brand-700"><Icon name="list" className="size-4"/></span><b className="text-sm">پیش از ثبت بررسی کنید</b></div><ChecklistItem done={!!name.trim()} label="نام محصول"/><ChecklistItem done={!!categoryId} label="دسته‌بندی"/><ChecklistItem done={variants.some((v) => v.active && v.name.trim() && Number.isFinite(numberText(v.price, NaN)))} label="تنوع قیمت (اختیاری)"/><ChecklistItem done={ingredients.length > 0} label="دستور تهیه (اختیاری)"/><ChecklistItem done={!!activePreview} label="آنالیز رسمی مواد (اختیاری)"/></Card></aside>
+      <aside className="space-y-4 lg:sticky lg:top-4"><Card className="p-4 sm:p-5"><SectionTitle title="تصویر محصول" description="تصویر مربعی با حداقل اندازهٔ ۳۰۰ × ۳۰۰ پیکسل مناسب است."/><div data-tour="product-image" className="mt-4"><ImageUpload value={imageUrl} emoji={emoji} onChange={setImageUrl}/></div><p className="mt-3 text-xs leading-5 text-stone-500">فرمت‌های مجاز: JPG، PNG، WEBP یا HEIC. تصویر را اینجا رها کنید یا برای انتخاب کلیک کنید.</p></Card><Card className="space-y-3 p-4"><SectionTitle title="ویدیوی معرفی محصول" description="ویدیو در جزئیات محصول منوی مشتری نمایش داده می‌شود."/><VideoUpload value={videoUrl} onChange={setVideoUrl} disabled={busy}/></Card><Card className="space-y-3 p-4"><div className="flex items-center gap-2"><span className="flex size-8 items-center justify-center rounded-full bg-blue-50 text-brand-700"><Icon name="list" className="size-4"/></span><b className="text-sm">پیش از ثبت بررسی کنید</b></div><ChecklistItem done={!!name.trim()} label="نام محصول"/><ChecklistItem done={!!categoryId} label="دسته‌بندی"/><ChecklistItem done={variants.some((v) => v.active && v.name.trim() && Number.isFinite(numberText(v.price, NaN)))} label="تنوع قیمت (اختیاری)"/><ChecklistItem done={ingredients.length > 0} label="دستور تهیه (اختیاری)"/><ChecklistItem done={!!activePreview} label="آنالیز رسمی مواد (اختیاری)"/></Card></aside>
     </div>}
 
     <Modal

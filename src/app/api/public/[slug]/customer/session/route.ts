@@ -5,16 +5,18 @@ import { errorResponse, HttpError } from "@/lib/auth";
 import { publicCustomerData } from "@/lib/public-customer-data";
 import { destroyPublicCustomerSession, publicCustomerId } from "@/lib/public-customer-session";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { normalizeCustomerRewards } from "@/lib/customer-rewards-core";
 
 type Context = { params: Promise<{ slug: string }> };
 
 async function currentCustomer(slug: string, req: Request) {
-  const [business] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.slug, slug)).limit(1);
+  const [business] = await db.select({ id: businesses.id, settings: businesses.settings }).from(businesses).where(eq(businesses.slug, slug)).limit(1);
   if (!business) throw new HttpError(404, "منو پیدا نشد");
   const customerId = await publicCustomerId(slug, business.id);
   if (!customerId) throw new HttpError(401, "برای مشاهده حساب مشتری وارد شوید");
   await enforceRateLimit(req, "customer-session-read", `${business.id}:${customerId}`, 120, 60_000, false);
-  const profile = await publicCustomerData(business.id, customerId);
+  const rewardSettings = normalizeCustomerRewards((business.settings as Record<string, unknown> | null)?.customerRewards);
+  const profile = await publicCustomerData(business.id, customerId, rewardSettings.pointValueToman);
   if (!profile) throw new HttpError(401, "نشست مشتری معتبر نیست؛ دوباره وارد شوید");
   return profile;
 }

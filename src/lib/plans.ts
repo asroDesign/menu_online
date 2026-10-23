@@ -1,5 +1,6 @@
 // Pure (client-safe) plan & feature definitions.
 import type { MenuTemplateId } from "@/lib/menu-templates";
+import type { CustomerRewardSettings } from "@/lib/customer-rewards-core";
 
 export type PlanKey = "basic" | "premium" | "premium_plus";
 export type Level = "yes" | "no" | "custom";
@@ -150,6 +151,7 @@ export type Settings = {
   miniSite?: MiniSite;
   languages?: string[];
   pointsPerToman?: number;
+  customerRewards?: CustomerRewardSettings;
   cashbackPercent?: number;
   ipg?: { provider: string; merchantId: string; sandbox: boolean };
   installment?: { snappay: boolean; digipay: boolean };

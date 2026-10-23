@@ -8,13 +8,14 @@ import { getPublicMenu } from "@/lib/public-menu";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { verifyOtp } from "@/lib/platform-sms";
 import { canAttachReferral, normalizeReferralCode } from "@/lib/customer-analytics-core";
+import { normalizeCustomerRewards } from "@/lib/customer-rewards-core";
 
 type Context = { params: Promise<{ slug: string }> };
 
 export async function POST(req: Request, { params }: Context) {
   try {
     const { slug } = await params;
-    const [business] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.slug, slug)).limit(1);
+    const [business] = await db.select({ id: businesses.id, settings: businesses.settings }).from(businesses).where(eq(businesses.slug, slug)).limit(1);
     if (!business) throw new HttpError(404, "منو پیدا نشد");
     const body = await readJson(req);
     const challengeId = String(body.challengeId ?? "").slice(0, 64);
@@ -61,7 +62,8 @@ export async function POST(req: Request, { params }: Context) {
       return customer.id;
     });
     await createPublicCustomerSession({ slug, businessId: business.id, customerId });
-    const profile = await publicCustomerData(business.id, customerId);
+    const rewardSettings = normalizeCustomerRewards((business.settings as Record<string, unknown> | null)?.customerRewards);
+    const profile = await publicCustomerData(business.id, customerId, rewardSettings.pointValueToman);
     return Response.json({ profile }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }

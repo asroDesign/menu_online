@@ -46,7 +46,7 @@
 | `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق و اعلان مشترک درخواست میز؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
 | `/dashboard/tables` | [modules/tables.md](modules/tables.md) — مدیریت میزها |
 | `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارکنان |
-| `/dashboard/customers` | [modules/customers.md](modules/customers.md) — CRM و باشگاه مشتریان، تحلیل خرید اول/مجدد، ثبت معرفی مشتری و کمپین رضایت‌محور |
+| `/dashboard/customers` | [modules/customers.md](modules/customers.md) — CRM، تحلیل خرید/معرفی، دفتر امتیاز، تبدیل امتیاز به اعتبار، تنظیم پاداش referral، و صف تأیید نظر محصول و پاداش اختیاری |
 | `/dashboard/cashback` | [modules/cashback.md](modules/cashback.md) — اعتبار وفاداری |
 | `/dashboard/discounts` | [modules/discounts.md](modules/discounts.md) — کدهای تخفیف |
 | `/dashboard/reservations` | [modules/reservations.md](modules/reservations.md) — رزرو میز |
@@ -89,7 +89,7 @@
 | `/dashboard/food-court-pager` | [modules/food-court-pager.md](modules/food-court-pager.md) — پیجر فودکورت |
 | `/dashboard` | [modules/dashboard-overview.md](modules/dashboard-overview.md) — داشبورد اصلی |
 | `/dashboard/products` | [modules/products.md](modules/products.md) — فهرست محصولات؛ دکمهٔ ویرایش به فرم کامل مشترک create/edit می‌رود |
-| `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، recipe و آنالیز مواد؛ راهنمای ثبت دستور و لینک افزودن ماده به انبار |
+| `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، تصویر/ویدیوی محصول، recipe و آنالیز مواد؛ منوی مشتری جزئیات و نظرهای تأییدشده را نشان می‌دهد |
 | `/dashboard/categories` | [modules/categories.md](modules/categories.md) — جدول دسته‌ها، جستجو، ایجاد گروهی، تصویر/والد/توضیحات و ترتیب نمایش |
 | `/dashboard/settings` | [modules/settings.md](modules/settings.md) — مرکز پنج‌گروهی تنظیمات کافه، هویت، ساعت/منو، بنر، سفارش/تسویه و امنیت |
 | راهنمای راه‌اندازی | [modules/onboarding-tour.md](modules/onboarding-tour.md) — تور نخستین ورود مالک و گام‌های متناسب با پلن |

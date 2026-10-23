@@ -14,6 +14,7 @@ export type Product = {
   categoryId: number | null;
   name: string;
   description: string;
+  videoUrl: string;
   price: number;
   sellingMode: string;
   yieldRatio: number;

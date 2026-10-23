@@ -13,7 +13,8 @@ import { BrandLogo } from "@/components/brand";
 import { haversineKm } from "@/lib/geo";
 import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select, Textarea, ToastProvider, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { ProductOptionPicker } from "@/components/product-option-picker";
-import { PublicMenuNavigation } from "@/components/public-menu-navigation";
+import { PublicMenuNavigation, type PublicCustomerProfile } from "@/components/public-menu-navigation";
+import { PublicProductDetails } from "@/components/public-product-details";
 import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
 import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
 import { trackMenuEvent } from "@/lib/menu-analytics";
@@ -88,6 +89,10 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const [done, setDone] = useState<{ number: number; total: number; paymentMethod: string; trackingUrl: string | null; cardTransfer?: NonNullable<PublicMenu["business"]["cardTransfer"]> } | null>(null);
   const [recommendations, setRecommendations] = useState<{ key: string; items: { id: number; name: string; emoji: string; price: number }[] } | null>(null);
   const [ar, setAr] = useState<Prod | null>(null);
+  const [detailProduct, setDetailProduct] = useState<Prod | null>(null);
+  const [customerProfile, setCustomerProfile] = useState<PublicCustomerProfile | null>(null);
+  const [profileRequest, setProfileRequest] = useState(0);
+  const [useWalletCredit, setUseWalletCredit] = useState(false);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const lockRef = useRef(false);
 
@@ -159,6 +164,9 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const tax = Math.round(((subtotal - disc) * biz.taxPercent) / 100);
   const svc = type === "delivery" ? 0 : Math.round(((subtotal - disc) * biz.servicePercent) / 100);
   const total = subtotal - disc + tax + svc + fee;
+  const walletCreditCap = Math.floor(Math.max(0, total) * Math.min(100, Math.max(0, caps.walletMaxRedeemPercent ?? 100)) / 100);
+  const walletCreditApplied = useWalletCredit && customerProfile ? Math.min(customerProfile.walletBalance, walletCreditCap) : 0;
+  const checkoutTotal = Math.max(0, total - walletCreditApplied);
 
   // cross-sell recommendations
   const idsKey = [...new Set(Object.values(cart).map((line) => line.productId))].sort((a, b) => a - b).join(",");
@@ -211,7 +219,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
 
   async function submit() {
     if (!lines.length) return;
-    if (type === "delivery" && (!address.trim() || !phone.trim())) return toast("آدرس و شماره تماس را وارد کنید", "error");
+    if (type === "delivery" && (!address.trim() || !(customerProfile?.phone || phone.trim()))) return toast("آدرس و شماره تماس را وارد کنید", "error");
     if (type === "delivery" && radiusMode && !pin) return toast("محل تحویل را روی نقشه مشخص کنید", "error");
     if (outOfRange) return toast("آدرس انتخاب‌شده خارج از محدوده ارسال است", "error");
     if (pre && !when) return toast("زمان پیش‌سفارش را مشخص کنید", "error");
@@ -222,9 +230,9 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         body: {
           items: lines.map((l) => ({ productId: l.p.id, quantity: l.qty, optionIds: l.optionIds, weightGrams: l.weightGrams, tareGrams: l.tareGrams })),
           type, tableId: type === "dine_in" && tableId ? Number(tableId) : null,
-          customerName: name, customerPhone: phone, address, zoneId: zone?.id ?? null, lat: pin?.lat ?? null, lng: pin?.lng ?? null,
+          customerName: customerProfile?.name ?? name, customerPhone: customerProfile?.phone ?? phone, address, zoneId: zone?.id ?? null, lat: pin?.lat ?? null, lng: pin?.lng ?? null,
           scheduledFor: pre && when ? new Date(when).toISOString() : null,
-          discountCode: applied?.code ?? "", payment, note,
+          discountCode: applied?.code ?? "", payment, note, useCashback: useWalletCredit,
         },
       });
       rememberTrackedMenuOrder(biz.slug, item.number, item.trackingUrl);
@@ -266,6 +274,8 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
               {p.oldPrice && p.oldPrice > p.price && <p className="text-[11px] text-stone-400 line-through">{formatPrice(p.oldPrice)}</p>}
               <p className={cn("text-sm font-extrabold", captainm && captainmStyles.productPrice)}>{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>از</span>}</p>
             </div>
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => setDetailProduct(p)} aria-label={`جزئیات ${nameOf("product", p.id, p.name)}`} className={cn("inline-flex min-h-8 items-center gap-1 rounded-lg border border-stone-200 bg-white/80 px-2 text-[10px] font-bold text-stone-600 transition hover:bg-stone-50", captainm && "border-cyan-100/15 bg-white/5 text-cyan-100 hover:bg-white/10")}><Icon name="file" className="size-3.5" /> جزئیات</button>
             {!p.isAvailable ? (
               <span className="rounded-lg bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-500">{t("sold")}</span>
             ) : canOrder ? (
@@ -279,6 +289,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
                 </div>
               )
             ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -413,7 +424,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         </div>
       </Modal>
 
-      <Modal open={sheet} onClose={() => setSheet(false)} title="" footer={<Button size="lg" className="w-full !bg-[var(--accent)]" loading={busy} onClick={submit} disabled={!lines.length}>{t("submit")} · {formatPrice(total)}</Button>}>
+      <Modal open={sheet} onClose={() => setSheet(false)} title="" footer={<Button size="lg" className="w-full !bg-[var(--accent)]" loading={busy} onClick={submit} disabled={!lines.length}>{t("submit")} · {formatPrice(checkoutTotal)}</Button>}>
         <div className="space-y-4" dir={dir}>
           <ul className="space-y-3">
             {lines.map(({ key, p, qty, lineTotal, weightGrams, netWeightGrams, tareGrams, optionIds, optionSnapshot }) => (
@@ -464,7 +475,10 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
           {caps.discount && (
             <div className="flex gap-2"><Input dir="ltr" className="text-left uppercase" placeholder="کد تخفیف" value={code} onChange={(e) => { setCode(e.target.value); setApplied(null); }} /><Button variant="secondary" onClick={applyCode} disabled={!code.trim()}>اعمال</Button></div>
           )}
-          <IconText>{caps.cashback && <p className="rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-6 text-stone-600">با ثبت سفارش، خریدهای پرداخت‌شده برای باشگاه مشتریان و کش‌بک محاسبه می‌شوند. مصرف اعتبار پس از راه‌اندازی تأیید پیامکی شماره مشتری فعال خواهد شد.</p>}</IconText>
+          {caps.walletPayment && <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm">
+            {customerProfile ? customerProfile.walletBalance > 0 ? <label className="flex cursor-pointer items-start gap-2"><input type="checkbox" className="mt-1 accent-emerald-700" checked={useWalletCredit} onChange={(event) => setUseWalletCredit(event.target.checked)} /><span className="min-w-0 flex-1"><span className="block font-bold text-emerald-950">استفاده از اعتبار کیف پول</span><span className="mt-1 block text-xs leading-5 text-emerald-900/75">موجودی {formatPrice(customerProfile.walletBalance)} · قابل استفاده برای این فاکتور تا {formatPrice(Math.min(customerProfile.walletBalance, walletCreditCap))}</span></span></label> : <p className="text-xs leading-5 text-emerald-900">اعتبار کیف پول این پروفایل فعلاً صفر است.</p> : <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs leading-5 text-emerald-900">برای استفاده از امتیازها و اعتبار کیف پول، با شماره موبایل تأییدشده وارد شوید.</p><Button type="button" size="sm" variant="secondary" onClick={() => { setSheet(false); setProfileRequest((value) => value + 1); }}>ورود به پروفایل</Button></div>}
+          </section>}
+          <IconText>{caps.cashback && <p className="rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-6 text-stone-600">با پرداخت سفارش، امتیاز و اعتبار باشگاه مشتریان طبق تنظیمات رستوران محاسبه می‌شود.</p>}</IconText>
           <Textarea rows={2} placeholder="توضیحات سفارش…" value={note} onChange={(e) => setNote(e.target.value)} />
           {payOptions.length > 0 && (
             <fieldset className="space-y-1.5">
@@ -478,7 +492,8 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             {fee > 0 && <div className="flex justify-between"><span>هزینه ارسال</span><span>{formatPrice(fee)}</span></div>}
             {tax > 0 && <div className="flex justify-between"><span>مالیات ({toFa(biz.taxPercent)}٪)</span><span>{formatPrice(tax)}</span></div>}
             {svc > 0 && <div className="flex justify-between"><span>خدمات ({toFa(biz.servicePercent)}٪)</span><span>{formatPrice(svc)}</span></div>}
-            <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-extrabold text-stone-900"><span>{t("total")}</span><span>{formatPrice(total)}</span></div>
+            {walletCreditApplied > 0 && <div className="flex justify-between text-emerald-700"><span>اعتبار کیف پول</span><span>-{formatPrice(walletCreditApplied)}</span></div>}
+            <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-extrabold text-stone-900"><span>{t("total")}</span><span>{formatPrice(checkoutTotal)}</span></div>
           </div>
         </div>
       </Modal>
@@ -512,6 +527,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
       </Modal>
 
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
+      <PublicProductDetails key={detailProduct?.id ?? "closed"} product={detailProduct} slug={biz.slug} accent={biz.accentColor} profile={customerProfile} readOnly={readOnlyDemo || readOnlyPreview} onClose={() => setDetailProduct(null)} onProfileRequired={() => setProfileRequest((value) => value + 1)} />
       {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) { trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); } }} />}
       {caps.waiterCall && !readOnlyPreview && tables.some((table) => table.operationalStatus === "available") && <div dir="ltr" className={cn("pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl justify-end px-4", (editorial || bistro) && "max-w-5xl", captainm && "max-w-7xl")} style={{ bottom: "calc(5.75rem + env(safe-area-inset-bottom))" }}>
         <button type="button" dir="rtl" aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام" onClick={openServiceRequest} style={{ background: captainm ? "linear-gradient(135deg, #0e7490, #3730a3)" : `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}dd)` }} className="group pointer-events-auto inline-flex min-h-[3.75rem] items-center gap-3 rounded-2xl border border-white/30 px-4 py-2.5 text-start text-white shadow-[0_12px_32px_-10px_rgba(15,23,42,.55)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,.5)] active:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/70">
@@ -530,6 +546,9 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         subtotal={subtotal}
         canOrder={canOrder}
         readOnly={readOnlyDemo || readOnlyPreview}
+        profileRequest={profileRequest}
+        onProfileChange={setCustomerProfile}
+        onProfileRequestHandled={() => setProfileRequest(0)}
         onMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         onCart={() => {
           if (!canOrder) return toast("ثبت سفارش در این پیش‌نمایش فعال نیست", "error");

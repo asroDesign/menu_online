@@ -133,6 +133,7 @@ export const products = pgTable(
     }),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
+    videoUrl: text("video_url").notNull().default(""),
     price: integer("price").notNull().default(0),
     sellingMode: text("selling_mode").notNull().default("count"), // count | weight; weight price is per kg
     yieldRatio: doublePrecision("yield_ratio").notNull().default(1), // raw grams needed per cooked gram
@@ -551,6 +552,40 @@ export const walletEntries = pgTable("wallet_entries", {
   note: text("note").notNull().default(""),
   createdAt: created(),
 }, (t) => [uniqueIndex("wallet_entries_biz_idempotency_idx").on(t.businessId, t.idempotencyKey).where(sql`${t.idempotencyKey} <> ''`)]);
+
+export const productReviews = pgTable("product_reviews", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  moderatedBy: integer("moderated_by").references(() => users.id, { onDelete: "set null" }),
+  moderatedAt: timestamp("moderated_at", { withTimezone: true }),
+  awardedPoints: integer("awarded_points").notNull().default(0),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("product_reviews_business_product_customer_uq").on(t.businessId, t.productId, t.customerId),
+  index("product_reviews_business_status_created_idx").on(t.businessId, t.status, t.createdAt),
+  index("product_reviews_product_status_created_idx").on(t.businessId, t.productId, t.status, t.createdAt),
+]);
+
+export const customerPointEntries = pgTable("customer_point_entries", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  orderId: integer("order_id").references(() => orders.id, { onDelete: "set null" }),
+  reviewId: integer("review_id").references(() => productReviews.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(), // opening | purchase | referral | review | redeem | adjustment
+  amount: integer("amount").notNull(), // signed points
+  idempotencyKey: text("idempotency_key").notNull(),
+  note: text("note").notNull().default(""),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("customer_point_entries_business_idempotency_uq").on(t.businessId, t.idempotencyKey),
+  index("customer_point_entries_customer_created_idx").on(t.businessId, t.customerId, t.createdAt),
+]);
 
 export const discountCodes = pgTable(
   "discount_codes",

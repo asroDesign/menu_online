@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { categories, diningTables, orders, products, reservations } from "@/db/schema";
+import { categories, diningTables, orders, products, reservations, uploads } from "@/db/schema";
 import { effectiveTableState } from "@/lib/table-lifecycle-core";
 import { can, HttpError } from "@/lib/auth";
 import { makeCrud } from "@/lib/crud";
@@ -41,6 +41,7 @@ export const productsCrud = makeCrud({
     categoryId: { type: "nullableInt", min: 1 },
     emoji: { type: "string", max: 8 },
     imageUrl: { type: "string", max: 500 },
+    videoUrl: { type: "string", max: 500 },
     prepMinutes: { type: "int", min: 0, max: 300 },
     isAvailable: { type: "bool" },
     isFeatured: { type: "bool" },
@@ -51,6 +52,12 @@ export const productsCrud = makeCrud({
     allergenTags: { type: "json" },
   },
   validate: async (biz, data, auth, creating, id) => {
+    if (typeof data.videoUrl === "string" && data.videoUrl) {
+      const match = /^\/api\/files\/([a-f0-9]{24})$/.exec(data.videoUrl);
+      if (!match) throw new HttpError(400, "ویدیوی محصول باید از بخش بارگذاری همین سامانه انتخاب شود");
+      const [file] = await db.select({ id: uploads.id }).from(uploads).where(and(eq(uploads.id, match[1]), eq(uploads.businessId, biz.id), sql`${uploads.mime} IN ('video/mp4', 'video/webm')`)).limit(1);
+      if (!file) throw new HttpError(400, "ویدیو پیدا نشد یا متعلق به این کسب‌وکار نیست");
+    }
     try {
       if ("modifierGroups" in data) data.modifierGroups = normalizeProductOptionGroups(data.modifierGroups);
       if ("dietaryTags" in data) data.dietaryTags = normalizeTags(data.dietaryTags, DIETARY_TAGS, 8, "برچسب تغذیه‌ای");

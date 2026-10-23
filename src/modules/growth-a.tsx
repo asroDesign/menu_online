@@ -13,10 +13,124 @@ import { SettingCard } from "@/components/setting-card";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
 import { MembershipTierManager } from "@/components/membership-tier-manager";
 import { CustomerAnalytics } from "@/components/customer-analytics";
+import { normalizeCustomerRewards, type CustomerRewardSettings } from "@/lib/customer-rewards-core";
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, AmountInput, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 type Customer = { id: number; name: string; phone: string; note: string; points: number; walletBalance: number; totalSpent: number; ordersCount: number; birthMonth: number | null; birthDay: number | null; smsOptIn: boolean; lastOrderAt: string | null; segment: string; referredByCustomerId: number | null; isReferred: boolean; referralsCount: number };
+
+function CustomerRewardsSettingsCard() {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState<CustomerRewardSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || settings) return;
+    api<{ item: { settings: { customerRewards?: unknown } } }>("/api/business")
+      .then((result) => setSettings(normalizeCustomerRewards(result.item.settings.customerRewards)))
+      .catch((error) => toast((error as Error).message, "error"));
+  }, [open, settings, toast]);
+
+  function change<K extends keyof CustomerRewardSettings>(key: K, value: CustomerRewardSettings[K]) {
+    setSettings((current) => current ? { ...current, [key]: value } : current);
+  }
+
+  async function save() {
+    if (!settings) return;
+    setBusy(true);
+    try {
+      const next = normalizeCustomerRewards(settings);
+      await api("/api/business", { method: "PATCH", body: { settings: { customerRewards: next } } });
+      setSettings(next);
+      setOpen(false);
+      toast("قواعد امتیاز و معرفی ذخیره شد");
+    } catch (error) { toast((error as Error).message, "error"); }
+    finally { setBusy(false); }
+  }
+
+  return <>
+    <Button size="sm" variant="secondary" onClick={() => setOpen(true)}><Icon name="settings" className="size-4"/> تنظیم امتیاز و معرفی</Button>
+    <Modal open={open} onClose={() => { if (!busy) setOpen(false); }} title="تنظیم امتیازهای باشگاه" description="نرخ تبدیل، امتیاز نظر و پاداش خریدهای ارجاعی را تعیین کنید." size="lg" footer={<><Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>انصراف</Button><Button loading={busy || !settings} disabled={!settings} onClick={() => void save()}>ذخیره تنظیمات</Button></>}>
+      {!settings ? <Skeleton className="h-56 rounded-xl"/> : <div className="space-y-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="ارزش هر امتیاز (تومان)" hint="مشتری می‌تواند امتیاز را در پروفایل به اعتبار کیف پول تبدیل کند. صفر یعنی تبدیل غیرفعال."><AmountInput value={settings.pointValueToman} onValueChange={(value) => change("pointValueToman", Number(value) || 0)} min={0}/></Field>
+          <Field label="پیشنهاد امتیاز برای نظر تأییدشده" hint="مدیر پیش از تأیید می‌تواند مقدار این نظر را تغییر دهد."><Input type="number" inputMode="numeric" min={0} max={100000} value={settings.reviewPoints} onChange={(event) => change("reviewPoints", Number(event.target.value) || 0)}/></Field>
+        </div>
+        <div className="rounded-2xl border border-stone-200 p-4">
+          <div className="mb-3"><h3 className="text-sm font-bold">پاداش معرفی دوست</h3><p className="mt-1 text-xs leading-5 text-stone-500">امتیاز فقط پس از تسویهٔ موفق سفارش مشتری معرفی‌شده ثبت می‌شود.</p></div>
+          <Field label="روش محاسبه"><Select value={settings.referralMode} onChange={(event) => change("referralMode", event.target.value as CustomerRewardSettings["referralMode"])}><option value="fixed">امتیاز ثابت برای هر خرید</option><option value="purchase_based">متناسب با مبلغ خرید</option></Select></Field>
+          {settings.referralMode === "fixed" ? <Field className="mt-3" label="امتیاز ثابت هر خرید"><Input type="number" min={0} max={100000} inputMode="numeric" value={settings.referralFixedPoints} onChange={(event) => change("referralFixedPoints", Number(event.target.value) || 0)}/></Field> : <div className="mt-3 grid gap-3 sm:grid-cols-2"><Field label="به ازای هر مبلغ (تومان)"><AmountInput value={settings.referralStepToman} onValueChange={(value) => change("referralStepToman", Number(value) || 0)} min={1000}/></Field><Field label="چند امتیاز تعلق بگیرد"><Input type="number" min={0} max={100000} inputMode="numeric" value={settings.referralPointsPerStep} onChange={(event) => change("referralPointsPerStep", Number(event.target.value) || 0)}/></Field></div>}
+        </div>
+      </div>}
+    </Modal>
+  </>;
+}
+
+type ProductReviewRow = { id: number; productId: number; productName: string; customerId: number; customerName: string; customerPhone: string; rating: number; body: string; status: "pending" | "approved" | "rejected"; awardedPoints: number; createdAt: string };
+
+function ProductReviewManager() {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState("pending");
+  const [items, setItems] = useState<ProductReviewRow[]>([]);
+  const [defaultAwardPoints, setDefaultAwardPoints] = useState(0);
+  const [awardDraft, setAwardDraft] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(0);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    api<{ items: ProductReviewRow[]; defaultAwardPoints: number }>(`/api/product-reviews?status=${status}`)
+      .then((result) => {
+        if (!live) return;
+        setItems(result.items);
+        setDefaultAwardPoints(result.defaultAwardPoints);
+        setAwardDraft((current) => Object.fromEntries(result.items.map((item) => [item.id, current[item.id] ?? String(result.defaultAwardPoints)])));
+      })
+      .catch((cause) => { if (live) setError((cause as Error).message); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [open, status]);
+
+  async function decide(item: ProductReviewRow, nextStatus: "approved" | "rejected") {
+    const awardPoints = nextStatus === "approved" ? Number(awardDraft[item.id] ?? defaultAwardPoints) : 0;
+    setBusyId(item.id);
+    setError("");
+    try {
+      const result = await api<{ item: ProductReviewRow }>(`/api/product-reviews/${item.id}`, { method: "PATCH", body: { status: nextStatus, awardPoints } });
+      setItems((current) => status === "pending" ? current.filter((row) => row.id !== item.id) : current.map((row) => row.id === item.id ? { ...row, ...result.item } : row));
+      toast(nextStatus === "approved" ? (awardPoints ? `نظر تأیید شد و ${toFa(awardPoints)} امتیاز ثبت شد` : "نظر تأیید و منتشر شد") : "نظر رد شد");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusyId(0); }
+  }
+
+  function toggleReviews() {
+    const next = !open;
+    if (next) { setLoading(true); setError(""); }
+    setOpen(next);
+  }
+
+  return <Card className="mb-4 overflow-hidden p-0">
+    <button type="button" aria-expanded={open} onClick={toggleReviews} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-start">
+      <span className="flex items-center gap-2"><Icon name="message" className="size-4 text-brand-700"/><span><b className="block text-sm">نظرات محصولات</b><small className="mt-0.5 block text-[11px] text-stone-500">تأیید انتشار و ثبت امتیاز هدیه</small></span></span>
+      {status === "pending" && items.length > 0 && <Badge color="amber">{toFa(items.length)} در انتظار</Badge>}
+    </button>
+    {open && <div className="space-y-3 border-t border-stone-100 p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs leading-5 text-stone-500">نظر فقط پس از تأیید مدیر در منوی مشتری دیده می‌شود. امتیاز هدیه به دفتر امتیاز مشتری ثبت و برای تبدیل به اعتبار قابل استفاده است.</p><Select className="w-36" value={status} onChange={(event) => { setLoading(true); setError(""); setStatus(event.target.value); }}><option value="pending">در انتظار بررسی</option><option value="approved">تأییدشده‌ها</option><option value="rejected">ردشده‌ها</option><option value="all">همه</option></Select></div>
+      {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs leading-5 text-rose-700">{error}</p>}
+      {loading ? <Skeleton className="h-36 rounded-xl"/> : !items.length ? <EmptyState title={status === "pending" ? "نظر در انتظاری نیست" : "نظری برای نمایش نیست"} description="نظرهای ثبت‌شدهٔ مشتریان در این بخش می‌آیند."/> : <div className="space-y-3">
+        {items.map((item) => <article key={item.id} className="rounded-2xl border border-stone-200 p-3 sm:p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-2"><b>{item.productName}</b><Badge color={item.status === "approved" ? "emerald" : item.status === "rejected" ? "rose" : "amber"}>{item.status === "approved" ? "تأییدشده" : item.status === "rejected" ? "ردشده" : "در انتظار"}</Badge></div><p className="mt-1 text-[11px] text-stone-500">{item.customerName} · <span dir="ltr">{item.customerPhone}</span> · {formatDate(item.createdAt)}</p></div><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800">{toFa(item.rating)} از ۵ ★</span></div>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-stone-700">{item.body}</p>
+          {item.status === "pending" ? <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-stone-100 pt-3"><Field className="w-40" label="امتیاز هدیه (اختیاری)" hint={`پیشنهاد: ${toFa(defaultAwardPoints)}`}><Input type="number" min={0} max={100000} inputMode="numeric" value={awardDraft[item.id] ?? String(defaultAwardPoints)} onChange={(event) => setAwardDraft((current) => ({ ...current, [item.id]: event.target.value }))}/></Field><Button size="sm" loading={busyId === item.id} disabled={busyId > 0} onClick={() => void decide(item, "approved")}>تأیید و انتشار</Button><Button size="sm" variant="ghost" disabled={busyId > 0} onClick={() => void decide(item, "rejected")}>رد نظر</Button></div> : item.awardedPoints > 0 ? <p className="mt-3 border-t border-stone-100 pt-2 text-xs text-emerald-700">{toFa(item.awardedPoints)} امتیاز برای این نظر ثبت شده است.</p> : null}
+        </article>)}
+      </div>}
+    </div>}
+  </Card>;
+}
 
 function SegmentSettings() {
   const toast = useToast();
@@ -43,6 +157,7 @@ export function Customers() {
   return (
     <>
       {f.isManager && <CustomerAnalytics />}
+      {f.isManager && f.has("loyalty") && <ProductReviewManager />}
       <ResourcePage<Customer>
         title="باشگاه مشتریان"
         subtitle="مشتریان به‌صورت خودکار بر اساس تعداد و مبلغ خرید و زمان آخرین خرید طبقه‌بندی می‌شوند"
@@ -59,14 +174,13 @@ export function Customers() {
           { key: "phone", label: "موبایل", required: true, ltr: true, placeholder: "09121234567" },
           { key: "birthMonth", label: "ماه تولد (شمسی)", type: "select", options: [{ value: "", label: "—" }, ...JMONTHS.map((m, i) => ({ value: String(i + 1), label: m }))] },
           { key: "birthDay", label: "روز تولد", type: "number", placeholder: "۱ تا ۳۱" },
-          { key: "points", label: "امتیاز", type: "number", initial: "0" },
           { key: "smsOptIn", label: "دریافت پیامک تبلیغاتی و مناسبتی", type: "bool" },
           { key: "note", label: "یادداشت", type: "textarea" },
         ]}
         search={(r, t) => r.name.includes(t) || r.phone.includes(t)}
         header={({ items }) => (
           <div className="mb-4 space-y-3">
-            {f.isManager && <div className="flex flex-wrap justify-end gap-2"><MembershipTierManager /><Button size="sm" variant="secondary" onClick={() => window.location.assign("/api/customers/export")}><Icon name="download" className="size-4"/> خروجی CSV همه مشتریان</Button></div>}
+            {f.isManager && <div className="flex flex-wrap justify-end gap-2"><MembershipTierManager /><CustomerRewardsSettingsCard /><Button size="sm" variant="secondary" onClick={() => window.location.assign("/api/customers/export")}><Icon name="download" className="size-4"/> خروجی CSV همه مشتریان</Button></div>}
             <SettingCard title="نرخ کسب امتیاز" desc="به ازای هر چند تومان خرید، ۱ امتیاز به مشتری تعلق می‌گیرد." k="pointsPerToman" suffix="تومان = ۱ امتیاز" />
             <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
               <IconText>{[{ key: "all", label: "همه", emoji: "" }, ...SEGMENTS].map((s) => {

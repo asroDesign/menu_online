@@ -1,12 +1,13 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, deliveryZones, diningTables, products, translations } from "@/db/schema";
+import { businesses, categories, deliveryZones, diningTables, inventoryItems, products, recipes, translations } from "@/db/schema";
 import { activeTrialOf, featuresOf } from "@/lib/entitlements";
 import { hasAny, type Settings } from "@/lib/plans";
 import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
 import { visibleMenuPromoBanners } from "@/lib/menu-banners";
 import { activeTransferCards } from "@/lib/card-transfer";
 import { isMenuTemplate } from "@/lib/menu-templates";
+import { normalizeCustomerRewards } from "@/lib/customer-rewards-core";
 
 export async function getPublicMenu(slug: string) {
   const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
@@ -35,12 +36,25 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       ? db.select().from(translations).where(eq(translations.businessId, biz.id))
       : Promise.resolve([]),
   ]);
+  const recipeLines = can("recipes") && prods.length
+    ? await db.select({ productId: recipes.productId, name: inventoryItems.name, quantity: recipes.quantity, unit: inventoryItems.recipeUnit })
+      .from(recipes).innerJoin(inventoryItems, and(eq(inventoryItems.id, recipes.itemId), eq(inventoryItems.businessId, biz.id)))
+      .where(and(eq(recipes.businessId, biz.id), inArray(recipes.productId, prods.map((product) => product.id))))
+      .orderBy(asc(recipes.id))
+    : [];
   const scheduled = activeScheduledCategoryIds(st);
   const visibleCategories = scheduled
     ? cats.filter((c) => !scheduled.assigned.has(c.id) || scheduled.active.has(c.id))
     : cats;
   const catIds = new Set(visibleCategories.map((c) => c.id));
   const arOn = can("ar");
+  const ingredientsByProduct = new Map<number, { name: string; quantity: number; unit: string }[]>();
+  for (const line of recipeLines) {
+    const current = ingredientsByProduct.get(line.productId) ?? [];
+    current.push({ name: line.name, quantity: line.quantity, unit: line.unit });
+    ingredientsByProduct.set(line.productId, current);
+  }
+  const rewards = normalizeCustomerRewards(st.customerRewards);
   return {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
@@ -51,6 +65,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       isOpen: isOpenAt(st, new Date()),
       operatingHours: st.operatingHours ?? null,
       reservationsEnabled: can("reservations") && st.reservations?.enabled !== false,
+      customerRewards: { pointValueToman: rewards.pointValueToman },
       reservationSettings: can("reservations") && st.reservations?.enabled !== false
         ? { requireDeposit: !!st.reservations?.requireDeposit, depositPerGuest: st.reservations?.depositPerGuest ?? 0, durationMinutes: st.reservations?.durationMinutes ?? 90 }
         : null,
@@ -68,6 +83,9 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       discount: can("discount"),
       cashback: can("cashback") && can("loyalty") && (st.cashbackEnabled ?? (st.cashbackPercent ?? 0) > 0),
       cashbackMax: st.cashbackMaxRedeemPercent ?? 100,
+      loyalty: can("loyalty"),
+      walletPayment: can("loyalty"),
+      walletMaxRedeemPercent: st.cashbackMaxRedeemPercent ?? 100,
       ipg: can("ipg") && !!st.ipg?.merchantId,
       cardTransfer: cardTransferEnabled,
       snappay: false, // installment gateways need a signed merchant contract + credentials; not connected
@@ -81,7 +99,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
     categories: visibleCategories,
     products: prods
       .filter((p) => p.categoryId === null || catIds.has(p.categoryId))
-      .map((p) => ({ ...p, arModelUrl: arOn ? p.arModelUrl : "" })),
+      .map((p) => ({ ...p, arModelUrl: arOn ? p.arModelUrl : "", ingredients: ingredientsByProduct.get(p.id) ?? [] })),
     tables: tbls,
     zones,
     translations: trs.map((t) => ({ type: t.entityType, id: t.entityId, lang: t.lang, name: t.name, description: t.description })),

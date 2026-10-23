@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -130,7 +129,7 @@ export const registryA: Record<string, any> = {
         referralsCount: counts.find((entry) => entry.referrerId === r.id)?.count ?? 0,
       }));
     },
-    spec: { name: str(80, true), phone: str(20, true), note: str(300), points: int(10_000_000), birthMonth: { type: "nullableInt", min: 1 }, birthDay: { type: "nullableInt", min: 1 }, smsOptIn: { type: "bool" } },
+    spec: { name: str(80, true), phone: str(20, true), note: str(300), birthMonth: { type: "nullableInt", min: 1 }, birthDay: { type: "nullableInt", min: 1 }, smsOptIn: { type: "bool" } },
     validate: async (_b, data) => {
       if (typeof data.phone === "string") {
         data.phone = normPhone(data.phone);

@@ -8,11 +8,14 @@ import { OtpCodeInput } from "@/components/otp-code-input";
 import type { Settings } from "@/lib/plans";
 
 type Template = NonNullable<Settings["menuTemplate"]>;
-type CustomerProfile = {
+export type PublicCustomerProfile = {
   id: number;
   name: string;
   phone: string;
   points: number;
+  walletBalance: number;
+  pointValueToman: number;
+  pointsValueToman: number;
   referralCode: string;
   recentOrders: { number: number; status: string; paymentStatus: string; deliveryStatus: string; total: number; type: string; createdAt: string }[];
 };
@@ -49,6 +52,9 @@ export function PublicMenuNavigation({
   onCart,
   canOrder,
   readOnly = false,
+  profileRequest = 0,
+  onProfileChange,
+  onProfileRequestHandled,
 }: {
   slug: string;
   accent: string;
@@ -60,10 +66,13 @@ export function PublicMenuNavigation({
   onCart: () => void;
   canOrder: boolean;
   readOnly?: boolean;
+  profileRequest?: number;
+  onProfileChange?: (profile: PublicCustomerProfile | null) => void;
+  onProfileRequestHandled?: () => void;
 }) {
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [profile, setProfile] = useState<PublicCustomerProfile | null>(null);
   const [recent, setRecent] = useState<TrackedMenuOrder[]>([]);
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
@@ -77,13 +86,17 @@ export function PublicMenuNavigation({
   const [retrySeconds, setRetrySeconds] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [redeemPoints, setRedeemPoints] = useState("");
+  const [redeemBusy, setRedeemBusy] = useState(false);
+  const [redeemRequestKey, setRedeemRequestKey] = useState("");
+  const [redeemError, setRedeemError] = useState("");
 
   useEffect(() => {
     if (readOnly) return;
     let live = true;
-    customerRequest<{ profile: CustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/session`)
-      .then(({ profile: next }) => { if (live) { setProfile(next); setName(next.name); setPhone(next.phone); } })
-      .catch(() => {});
+    customerRequest<{ profile: PublicCustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/session`)
+      .then(({ profile: next }) => { if (live) { setProfile(next); setName(next.name); setPhone(next.phone); onProfileChange?.(next); } })
+      .catch(() => { if (live) onProfileChange?.(null); });
     const refreshRecent = (event?: Event) => {
       const detail = (event as CustomEvent<{ slug?: string }> | undefined)?.detail;
       if (!detail?.slug || detail.slug === slug) setRecent(readTrackedMenuOrders(slug));
@@ -91,7 +104,7 @@ export function PublicMenuNavigation({
     refreshRecent();
     window.addEventListener(trackedMenuOrdersUpdateEvent(), refreshRecent);
     return () => { live = false; window.removeEventListener(trackedMenuOrdersUpdateEvent(), refreshRecent); };
-  }, [slug, readOnly]);
+  }, [slug, readOnly, onProfileChange]);
 
   useEffect(() => {
     if (!challengeId) return;
@@ -105,8 +118,9 @@ export function PublicMenuNavigation({
   }, [challengeId, expiresAt, resendAt]);
 
   async function refreshProfile() {
-    const result = await customerRequest<{ profile: CustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/session`);
+    const result = await customerRequest<{ profile: PublicCustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/session`);
     setProfile(result.profile);
+    onProfileChange?.(result.profile);
     setName(result.profile.name);
     setPhone(result.profile.phone);
   }
@@ -128,8 +142,9 @@ export function PublicMenuNavigation({
     setBusy(true);
     setError("");
     try {
-      const result = await customerRequest<{ profile: CustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/otp/verify`, "POST", { challengeId, code, name, referralCode });
+      const result = await customerRequest<{ profile: PublicCustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/otp/verify`, "POST", { challengeId, code, name, referralCode });
       setProfile(result.profile);
+      onProfileChange?.(result.profile);
       setPhone(result.profile.phone);
       setName(result.profile.name);
       setChallengeId("");
@@ -141,9 +156,28 @@ export function PublicMenuNavigation({
   async function signOut() {
     await customerRequest(`/api/public/${encodeURIComponent(slug)}/customer/session`, "DELETE").catch(() => {});
     setProfile(null);
+    onProfileChange?.(null);
     setChallengeId("");
     setCode("");
     setInviteCopied(false);
+  }
+
+  async function submitRedeemPoints() {
+    if (!profile) return;
+    const points = Number(redeemPoints);
+    if (!Number.isSafeInteger(points) || points < 1) { setRedeemError("تعداد امتیاز را وارد کنید"); return; }
+    setRedeemBusy(true);
+    setRedeemError("");
+    const requestKey = redeemRequestKey || crypto.randomUUID().replaceAll("-", "");
+    setRedeemRequestKey(requestKey);
+    try {
+      const result = await customerRequest<{ profile: PublicCustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/points/redeem`, "POST", { points, requestKey });
+      setProfile(result.profile);
+      onProfileChange?.(result.profile);
+      setRedeemPoints("");
+      setRedeemRequestKey("");
+    } catch (cause) { setRedeemError((cause as Error).message); }
+    finally { setRedeemBusy(false); }
   }
 
   async function openOrders() {
@@ -199,10 +233,15 @@ export function PublicMenuNavigation({
       </div>
     </Modal>
 
-    <Modal open={profileOpen} onClose={() => setProfileOpen(false)} title="پروفایل مشتری" description="ورود امن با شماره موبایل، مخصوص همین رستوران" size="sm">
+    <Modal open={profileOpen || profileRequest > 0} onClose={() => { setProfileOpen(false); if (profileRequest > 0) onProfileRequestHandled?.(); }} title="پروفایل مشتری" description="ورود امن با شماره موبایل، مخصوص همین رستوران" size="sm">
       {readOnly ? <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">پروفایل در پیش‌نمایش منو فعال نیست.</div> : profile ? <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-2xl bg-stone-50 p-4"><span className="flex size-12 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: accent }}><Icon name="users" /></span><div className="min-w-0"><p className="truncate font-extrabold">{profile.name}</p><p className="mt-1 text-sm text-stone-500" dir="ltr">{profile.phone}</p></div></div>
         <div className="grid grid-cols-2 gap-2"><div className="rounded-xl border border-stone-200 p-3"><p className="text-[11px] text-stone-500">سفارش‌های قبلی</p><p className="mt-1 font-extrabold">{toFa(profile.recentOrders.length)}{profile.recentOrders.length === 20 ? "+" : ""}</p></div><div className="rounded-xl border border-stone-200 p-3"><p className="text-[11px] text-stone-500">امتیاز باشگاه</p><p className="mt-1 font-extrabold">{toFa(profile.points)}</p></div></div>
+        <div className="grid grid-cols-2 gap-2"><div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3"><p className="text-[11px] text-emerald-800">اعتبار کیف پول</p><p className="mt-1 font-extrabold text-emerald-950">{formatPrice(profile.walletBalance)}</p></div><div className="rounded-xl border border-stone-200 p-3"><p className="text-[11px] text-stone-500">ارزش امتیازها</p><p className="mt-1 font-extrabold">{profile.pointValueToman > 0 ? formatPrice(profile.pointsValueToman) : "تنظیم نشده"}</p></div></div>
+        <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4">
+          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-emerald-950">تبدیل امتیاز به اعتبار</p><p className="mt-1 text-[11px] leading-5 text-emerald-900/70">{profile.pointValueToman > 0 ? `هر امتیاز ${formatPrice(profile.pointValueToman)} به کیف پول اضافه می‌کند.` : "رستوران هنوز ارزش تبدیل امتیاز را تنظیم نکرده است."}</p></div><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-emerald-700 shadow-sm"><Icon name="wallet" className="size-5" /></span></div>
+          {profile.pointValueToman > 0 && <form className="mt-3 space-y-2" onSubmit={(event) => { event.preventDefault(); void submitRedeemPoints(); }}><label className="block space-y-1 text-xs font-semibold text-stone-600">امتیاز برای تبدیل<Input inputMode="numeric" type="number" min="1" max={profile.points} value={redeemPoints} onChange={(event) => { setRedeemPoints(event.target.value); setRedeemRequestKey(""); setRedeemError(""); }} placeholder={`حداکثر ${toFa(profile.points)}`} disabled={!profile.points || redeemBusy} /></label><p className="text-[11px] text-stone-500">اعتبار قابل دریافت: {formatPrice((Number(redeemPoints) || 0) * profile.pointValueToman)}</p><Button type="submit" size="sm" className="w-full" loading={redeemBusy} disabled={!profile.points || !redeemPoints}>تبدیل به کیف پول</Button>{redeemError && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{redeemError}</p>}</form>}
+        </div>
         <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4">
           <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-blue-900">دعوت از دوستان</p><p className="mt-1 text-[11px] leading-5 text-blue-800/70">با لینک خودتان، معرفی مشتری در باشگاه ثبت می‌شود.</p></div><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-blue-700 shadow-sm"><Icon name="users" className="size-5" /></span></div>
           <div className="mt-3 flex items-center gap-2"><code dir="ltr" className="min-w-0 flex-1 truncate rounded-xl bg-white px-3 py-2.5 text-center text-sm font-extrabold tracking-widest text-blue-950 ring-1 ring-blue-100">{profile.referralCode}</code><Button type="button" size="sm" variant="secondary" onClick={async () => { const inviteUrl = `${window.location.origin}/m/${encodeURIComponent(slug)}?ref=${encodeURIComponent(profile.referralCode)}`; try { await navigator.clipboard.writeText(inviteUrl); setInviteCopied(true); window.setTimeout(() => setInviteCopied(false), 2200); } catch { setInviteCopied(false); } }}>{inviteCopied ? "کپی شد" : "کپی لینک"}</Button></div>

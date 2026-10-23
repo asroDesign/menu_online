@@ -11,6 +11,7 @@ import { activeTransferCards } from "@/lib/card-transfer";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { logInfo } from "@/lib/logger";
 import { isReadOnlyDemoSlug } from "@/lib/demo-mode";
+import { publicCustomerId } from "@/lib/public-customer-session";
 
 const originOf = (req: Request) => {
   const h = req.headers;
@@ -62,7 +63,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       if (!(await posOnline(biz.id, st.kiosk.posDeviceId))) throw new HttpError(503, "کارتخوان در دسترس نیست؛ لطفاً در صندوق پرداخت کنید");
     }
 
-    const order = await createOrder(biz, input, kiosk ? "kiosk" : "customer", features, { hold: pay !== "cash" });
+    const verifiedCustomerId = kiosk ? null : await publicCustomerId(slug, biz.id);
+    if (input.useCashback && !verifiedCustomerId) throw new HttpError(401, "برای مصرف اعتبار کیف پول، با شمارهٔ تأییدشده وارد پروفایل شوید");
+    const order = await createOrder(biz, input, kiosk ? "kiosk" : "customer", features, { hold: pay !== "cash", verifiedCustomerId: verifiedCustomerId ?? undefined });
     logInfo("order.created", { businessId: biz.id, orderId: order.id, source: kiosk ? "kiosk" : "customer" });
     let payUrl: string | null = null;
     let pos: { id: number; token: string } | null = null;

@@ -39,6 +39,8 @@ import { calculateWeightedSale, orderLineTotal } from "@/lib/weighted-sales";
 import { currentMembership } from "@/lib/membership";
 import { membershipDiscountAmount, type MembershipOrderSnapshot } from "@/lib/membership-core";
 import { normalizePrinterSettings, printOutputs, type PrintMoment } from "@/lib/printer-policy";
+import { addCustomerPoints } from "@/lib/customer-points";
+import { normalizeCustomerRewards, referralRewardPoints } from "@/lib/customer-rewards-core";
 
 type Biz = typeof businesses.$inferSelect;
 type QueryDb = typeof db;
@@ -191,9 +193,9 @@ export async function addWalletEntry(
   return true;
 }
 
-export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; actorId?: number; executor?: OrderTransaction } = {}) {
-  if (input.useCashback)
-    throw new HttpError(403, "مصرف اعتبار تا راه‌اندازی تأیید پیامکی شماره مشتری غیرفعال است");
+export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number } = {}) {
+  if (input.useCashback && (source !== "customer" || !opts.verifiedCustomerId))
+    throw new HttpError(403, "برای مصرف اعتبار کیف پول، از پروفایل مشتری با شمارهٔ تأییدشده وارد شوید");
   if (input.payNow === "credit") {
     if (source !== "cashier") throw new HttpError(403, "ثبت فروش نسیه فقط از صندوق مجاز است");
     if (!/^09\d{9}$/.test(normPhone(input.customerPhone ?? ""))) throw new HttpError(400, "برای ثبت سفارش در بدهکاران، شماره موبایل معتبر مشتری لازم است");
@@ -337,15 +339,14 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     discountId = d.id;
   }
 
-  // Customer identity is used for earning loyalty only. Public cashback redemption is
-  // rejected above until the customer has a verified phone session.
-  const phone = input.customerPhone ? normPhone(input.customerPhone) : "";
+  // Public customer identity is only trusted when it comes from the OTP-verified
+  // same-business session; raw phone numbers remain useful only in staff flows.
+  let phone = input.customerPhone ? normPhone(input.customerPhone) : "";
   if (source === "cashier" && input.customerName?.trim() && !phone)
     throw new HttpError(400, "برای ثبت اطلاعات مشتری در فهرست، شماره موبایل لازم است");
   const cbSet = settingsOf(biz);
-  const cbOn = can("cashback") && (cbSet.cashbackEnabled ?? (cbSet.cashbackPercent ?? 0) > 0);
   if (input.useCashback) {
-    if (!cbOn) throw new HttpError(400, "کش‌بک در این رستوران فعال نیست");
+    if (!can("loyalty")) throw new HttpError(403, "استفاده از اعتبار مشتری در پلن این رستوران فعال نیست");
     if (!phone) throw new HttpError(400, "برای استفاده از اعتبار کش‌بک، شماره موبایل مشتری را وارد کنید");
   }
   const t = computeTotals(biz, { subtotal: addSubtotal, discount: discountAmount, deliveryFee, type });
@@ -376,7 +377,16 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     let customerId: number | null = null;
     let customerName = input.customerName ?? "";
     let walletBalance = 0;
-    if (phone && (can("loyalty") || source === "cashier")) {
+    if (opts.verifiedCustomerId) {
+      const [sessionCustomer] = await tx.select({ id: customers.id, name: customers.name, phone: customers.phone, walletBalance: customers.walletBalance })
+        .from(customers).where(and(eq(customers.businessId, biz.id), eq(customers.id, opts.verifiedCustomerId))).for("update").limit(1);
+      if (!sessionCustomer) throw new HttpError(401, "نشست مشتری معتبر نیست؛ دوباره وارد پروفایل شوید");
+      if (phone && phone !== sessionCustomer.phone) throw new HttpError(403, "شماره سفارش با پروفایل تأییدشده یکسان نیست");
+      phone = sessionCustomer.phone;
+      customerId = sessionCustomer.id;
+      walletBalance = sessionCustomer.walletBalance;
+      if (!customerName) customerName = sessionCustomer.name;
+    } else if (phone && source !== "customer" && (can("loyalty") || source === "cashier")) {
       if (source === "cashier" && !/^09\d{9}$/.test(phone)) throw new HttpError(400, "شماره موبایل مشتری باید معتبر باشد");
       let [customer] = await tx.select().from(customers)
         .where(and(eq(customers.businessId, biz.id), eq(customers.phone, phone))).for("update");
@@ -560,10 +570,24 @@ export async function settleOrder(
         earned = cashbackOn && o.total >= (settings.cashbackMinOrder ?? 0)
           ? Math.floor((o.total * Math.min(100, settings.cashbackPercent ?? 0)) / 100) : 0;
         const points = hasAny(features, "loyalty") ? Math.floor(o.total / per) : 0;
+        const [loyaltyCustomer] = await tx.select({ referredByCustomerId: customers.referredByCustomerId }).from(customers)
+          .where(and(eq(customers.id, o.customerId), eq(customers.businessId, biz.id))).for("update").limit(1);
         await tx.update(customers).set({
           ordersCount: sql`${customers.ordersCount} + 1`, totalSpent: sql`${customers.totalSpent} + ${o.total}`,
-          points: sql`${customers.points} + ${points}`, lastOrderAt: new Date(),
+          lastOrderAt: new Date(),
         }).where(and(eq(customers.id, o.customerId), eq(customers.businessId, biz.id)));
+        if (points > 0) await addCustomerPoints(tx, {
+          businessId: biz.id, customerId: o.customerId, amount: points, kind: "purchase",
+          idempotencyKey: `order:${o.id}:purchase-points`, orderId: o.id, note: `امتیاز خرید سفارش #${o.number}`,
+        });
+        if (loyaltyCustomer?.referredByCustomerId && hasAny(features, "loyalty")) {
+          const referralPoints = referralRewardPoints(o.total, normalizeCustomerRewards(settings.customerRewards));
+          if (referralPoints > 0) await addCustomerPoints(tx, {
+            businessId: biz.id, customerId: loyaltyCustomer.referredByCustomerId, amount: referralPoints, kind: "referral",
+            idempotencyKey: `order:${o.id}:referral:${loyaltyCustomer.referredByCustomerId}`, orderId: o.id,
+            note: `معرفی مشتری در سفارش #${o.number}`,
+          });
+        }
         if (earned > 0) {
           await addWalletEntry(biz.id, o.customerId, earned, "earn", o.id,
             `کش‌بک سفارش #${o.number}`, `order:${o.id}:earn`, tx);

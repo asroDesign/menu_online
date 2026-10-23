@@ -268,9 +268,14 @@ test('public customer lookup reveals no membership or wallet facts', () => {
   assert.match(route, /exists: false, balance: 0, verificationRequired: true/);
 });
 
-test('order creation rejects every cashback spend until a verified customer flow exists', () => {
+test('public wallet spend requires the customer OTP session and never trusts a supplied phone', () => {
   const orders = source('src/lib/orders.ts');
-  assert.match(orders, /if \(input\.useCashback\)\s*throw new HttpError\(403/);
+  const route = source('src/app/api/public/[slug]/orders/route.ts');
+  assert.match(orders, /if \(input\.useCashback && \(source !== "customer" \|\| !opts\.verifiedCustomerId\)\)/);
+  assert.match(orders, /if \(input\.useCashback && \(source !== "customer" \|\| !opts\.verifiedCustomerId\)\)[\s\S]{0,140}throw new HttpError\(403/);
+  assert.match(route, /const verifiedCustomerId = kiosk \? null : await publicCustomerId\(slug, biz\.id\)/);
+  assert.match(route, /verifiedCustomerId: verifiedCustomerId \?\? undefined/);
+  assert.match(route, /if \(input\.useCashback && !verifiedCustomerId\)/);
   assert.doesNotMatch(orders, /greatest\(0/);
 });
 

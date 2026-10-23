@@ -14,6 +14,10 @@ function secret() {
 }
 
 function cookiePath(slug: string) {
+  return `/api/public/${encodeURIComponent(slug)}`;
+}
+
+function legacyCookiePath(slug: string) {
   return `/api/public/${encodeURIComponent(slug)}/customer`;
 }
 
@@ -41,6 +45,7 @@ export async function createPublicCustomerSession(input: { slug: string; busines
   const expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
   const payload = Buffer.from(JSON.stringify({ businessId: input.businessId, customerId: input.customerId, expiresAt } satisfies Claims)).toString("base64url");
   const jar = await cookies();
+  jar.set(COOKIE, "", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: legacyCookiePath(input.slug), maxAge: 0 });
   jar.set(COOKIE, `${payload}.${signature(payload)}`, {
     httpOnly: true,
     sameSite: "lax",
@@ -58,6 +63,13 @@ export async function publicCustomerId(slug: string, businessId: number) {
 
 export async function destroyPublicCustomerSession(slug: string) {
   const jar = await cookies();
+  jar.set(COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: legacyCookiePath(slug),
+    maxAge: 0,
+  });
   jar.set(COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
