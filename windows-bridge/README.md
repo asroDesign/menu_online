@@ -6,7 +6,7 @@
 
 از لینک مستقیم [دانلود نصب‌گر Windows](https://github.com/asroDesign/menu_online/releases/download/windows-bridge-latest/MenuPeak-Bridge-Setup-x64.exe) فایل Setup را دریافت و اجرا کنید. این فایل پس از هر build موفق روی شاخهٔ `main` به‌روزرسانی می‌شود. اگر هنوز نخستین build موفق پس از فعال‌شدن انتشار مستقیم انجام نشده، آخرین اجرای موفق [GitHub Actions](https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml) را باز کنید و فایل artifact را موقتاً از بخش **Artifacts** دریافت کنید. هر تغییر در `windows-bridge/` یا workflow نیز build را اجرا می‌کند.
 
-فایل artifact در Actions برای عیب‌یابی و نگهداری سی‌روزه باقی می‌ماند؛ job انتشار فایل Setup را حتی اگر داخل پوشه‌های تو در توی artifact باشد پیدا می‌کند و لینک مستقیم Release را به‌روز می‌سازد. دانلود روزمره از لینک مستقیم Release انجام می‌شود و نیازی به بازکردن صفحهٔ GitHub Actions ندارد.
+فایل artifact در Actions برای عیب‌یابی و نگهداری سی‌روزه باقی می‌ماند؛ job انتشار فایل Setup را حتی اگر داخل پوشه‌های تو در توی artifact باشد پیدا می‌کند و لینک مستقیم Release را به‌روز می‌سازد. Release پایدار منتشر شده و دکمهٔ پنل به همان فایل مستقیم متصل است؛ دانلود روزمره نیازی به بازکردن صفحهٔ GitHub Actions ندارد.
 
 ## راه‌اندازی
 

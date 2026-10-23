@@ -12,7 +12,8 @@
 - راهنمای نصب و راهنمای پرینترها به‌روزرسانی شد؛ تست قرارداد لینک/نام asset در `tests/windows-bridge-download.test.cjs` است.
 - تست `tests/windows-bridge-download.test.cjs`، `npm run typecheck`، parse YAML و `git diff --check` موفق شدند. ESLint خطایی نداشت و دو هشدار قبلی دربارهٔ directiveهای غیرضروری pagerها در همان فایل نشان داد.
 - اجرای commit `c24ca55` در GitHub Actions شمارهٔ ۷، build و artifact را با موفقیت ساخت؛ job انتشار به دلیل `find dist -maxdepth 1` شکست خورد، چون فایل Setup داخل زیرپوشهٔ artifact بود. workflow اصلاح شد تا `.exe` را بازگشتی پیدا کند و در صورت تعداد نامعتبر، مسیرهای artifact را در log چاپ کند.
-- تست قرارداد، تعداد یکتای فایل Setup و جست‌وجوی بازگشتی را بررسی می‌کند. پس از push اصلاح جدید باید workflow دوباره موفق شود؛ Release و deploy نسخهٔ وب تا آن زمان نهایی نیست. npm 11.3.0 نیز دربارهٔ اجرای فعلی روی Node 18.17.1 هشدار سازگاری داده بود.
+- commit `d7d9d79` اصلاح را به `main` رساند. اجرای [شمارهٔ ۸ GitHub Actions](https://github.com/asroDesign/menu_online/actions/runs/39994292851) با موفقیت build و Release را منتشر کرد. فایل `MenuPeak-Bridge-Setup-x64.exe` با اندازهٔ ۳٬۳۹۷٬۹۷۹ بایت در Release است؛ HEAD URL دانلود پاسخ 302 و مقصد فایل پاسخ 200 داد.
+- بعد از reload صفحهٔ زندهٔ پرینترها در Chrome، دکمه به URL ثابت Release اشاره کرد. رویداد دانلود در Chrome در مهلت ابزار ثبت نشد، پس دانلود واقعی مرورگر را تأییدشده حساب نکردیم. تست قرارداد، parse فایل YAML و `git diff --check` برای اصلاح آخر موفق شدند؛ نصب و اجرای installer روی Windows بررسی نشده است.
 
 ## مودال تیرهٔ captainm و فیلتر تیکت مدیر — ۲۰۲۶-۱۰-۲۳
 
