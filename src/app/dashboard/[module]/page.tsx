@@ -22,6 +22,7 @@ import Reservations from "@/modules/reservations";
 import StaffSchedule from "@/modules/staff-schedule";
 import Cheques from "@/modules/cheques";
 import Receivables from "@/modules/receivables";
+import LoyaltyWheel from "@/modules/loyalty-wheel";
 
 const Cashier = () => <Waiter mode="cashier" />;
 
@@ -34,6 +35,7 @@ const MODULES: Record<string, { feature?: string | string[]; C: ComponentType }>
   tables: { feature: ["self_order", "cashier_pos"], C: Tables },
   staff: { feature: "cashier_pos", C: Staff },
   customers: { feature: "loyalty", C: Customers },
+  "loyalty-wheel": { feature: "loyalty", C: LoyaltyWheel },
   cashback: { feature: "cashback", C: Cashback },
   discounts: { feature: "discount", C: Discounts },
   reservations: { feature: "reservations", C: Reservations },

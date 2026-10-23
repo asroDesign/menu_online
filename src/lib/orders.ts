@@ -14,6 +14,7 @@ import {
   diningTables,
   discountCodes,
   inventoryItems,
+  loyaltyWheelSpins,
   orderItems,
   orderStatusEvents,
   orders,
@@ -78,6 +79,7 @@ export type OrderInput = {
   useCashback?: boolean;
   useMembership?: boolean;
   rewardClaimId?: number | null;
+  wheelSpinId?: number | null;
   payNow?: string | null; // staff: settle immediately with this method
   payment?: string | null; // customer: cash | ipg | snappay | digipay
   items: { productId: number; quantity: number; note?: string; optionIds: string[]; weightGrams?: number | null; tareGrams?: number }[];
@@ -155,6 +157,7 @@ export function parseOrderInput(body: Record<string, unknown>): OrderInput {
     useCashback: Boolean(body.useCashback),
     useMembership: body.useMembership === true,
     rewardClaimId: num(body.rewardClaimId),
+    wheelSpinId: num(body.wheelSpinId),
     payNow: typeof body.payNow === "string" ? body.payNow : null,
     payment: typeof body.payment === "string" ? body.payment : null,
   };
@@ -216,7 +219,15 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     if (!can("loyalty")) throw new HttpError(403, "باشگاه مشتریان در پلن این رستوران فعال نیست");
     if (input.discountCode || input.manualDiscountAmount || input.useMembership) throw new HttpError(409, "برای استفاده از جایزه، کد تخفیف یا مزیت عضویت را از این سفارش بردارید");
   }
+  if (input.wheelSpinId !== undefined && input.wheelSpinId !== null) {
+    if (!Number.isSafeInteger(input.wheelSpinId) || input.wheelSpinId < 1) throw new HttpError(400, "شناسهٔ جایزهٔ گردونه معتبر نیست");
+    if (source !== "customer" || !opts.verifiedCustomerId) throw new HttpError(403, "جایزهٔ گردونه فقط برای مشتری واردشده و تأییدشده قابل استفاده است");
+    if (!can("loyalty")) throw new HttpError(403, "باشگاه مشتریان در پلن این رستوران فعال نیست");
+    if (input.rewardClaimId || input.discountCode || input.manualDiscountAmount || input.useMembership)
+      throw new HttpError(409, "جایزهٔ گردونه را نمی‌توان با جایزه، کد تخفیف یا تخفیف دیگری ترکیب کرد");
+  }
   if (input.rewardClaimId && input.appendTo) throw new HttpError(400, "جایزه فقط هنگام ثبت سفارش جدید قابل استفاده است");
+  if (input.wheelSpinId && input.appendTo) throw new HttpError(400, "جایزهٔ گردونه فقط هنگام ثبت سفارش جدید قابل استفاده است");
   if (input.useMembership && (input.discountCode || input.manualDiscountAmount)) throw new HttpError(400, "مزیت عضویت با کد تخفیف یا تخفیف دستی هم‌زمان نمی‌شود");
   const ids = [...new Set(input.items.map((i) => i.productId))];
   const prods = await db
@@ -428,6 +439,9 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     let appliedDiscountCode = discountCode;
     let selectedRewardClaim: typeof customerRewardClaims.$inferSelect | null = null;
     let expiredRewardClaimId: number | null = null;
+    let selectedWheelSpin: typeof loyaltyWheelSpins.$inferSelect | null = null;
+    let expiredWheelSpinId: number | null = null;
+    let wheelDiscountId: number | null = null;
     if (source === "customer" && customerId && can("loyalty")) {
       const [activeReward] = await tx.select().from(customerRewardClaims).where(and(
         eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.customerId, customerId),
@@ -444,11 +458,78 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       throw new HttpError(403, "برای استفاده از جایزه، پروفایل تأییدشدهٔ مشتری لازم است");
     }
 
+    if (input.wheelSpinId && (source !== "customer" || !customerId || !can("loyalty")))
+      throw new HttpError(403, "جایزهٔ گردونه برای این سفارش قابل استفاده نیست");
+    if (source === "customer" && customerId && can("loyalty")) {
+      const [activeWheelSpin] = await tx.select().from(loyaltyWheelSpins).where(and(
+        eq(loyaltyWheelSpins.businessId, biz.id), eq(loyaltyWheelSpins.customerId, customerId), eq(loyaltyWheelSpins.status, "active"),
+      )).for("update").limit(1);
+      if (input.wheelSpinId) {
+        if (!activeWheelSpin || activeWheelSpin.id !== input.wheelSpinId) throw new HttpError(409, "جایزهٔ گردونه دیگر برای سفارش بعدی فعال نیست");
+        if (!activeWheelSpin.expiresAt || activeWheelSpin.expiresAt <= new Date()) throw new HttpError(409, "مهلت جایزهٔ گردونه تمام شده است");
+        selectedWheelSpin = activeWheelSpin;
+      } else if (activeWheelSpin) {
+        expiredWheelSpinId = activeWheelSpin.id;
+      }
+    } else if (input.wheelSpinId) {
+      throw new HttpError(403, "جایزهٔ گردونه فقط برای مشتری واردشده و تأییدشده قابل استفاده است");
+    }
+
+    if (selectedWheelSpin) {
+      if (!["fixed_amount", "discount_code", "free_items"].includes(selectedWheelSpin.prizeType)) throw new HttpError(409, "این نتیجهٔ گردونه در سفارش قابل اعمال نیست");
+    }
+
     let cashbackUsed = 0;
     let appliedDiscountAmount = discountAmount;
     let membershipDiscount = 0;
     let membershipSnapshot: MembershipOrderSnapshot | null = null;
-    if (selectedRewardClaim) {
+    if (selectedWheelSpin) {
+      const snapshot = selectedWheelSpin.rewardSnapshot;
+      if (selectedWheelSpin.prizeType === "fixed_amount") {
+        const amount = Number(snapshot.amount);
+        if (!Number.isSafeInteger(amount) || amount < 1) throw new HttpError(409, "مبلغ جایزهٔ گردونه معتبر نیست");
+        appliedDiscountAmount = Math.min(orderSubtotal, amount);
+        if (appliedDiscountAmount < 1) throw new HttpError(400, "مبلغ سفارش برای استفاده از جایزه کافی نیست");
+        appliedDiscountCode = `جایزه گردونه · ${selectedWheelSpin.prizeTitle}`;
+      } else if (selectedWheelSpin.prizeType === "discount_code") {
+        const couponId = Number(snapshot.discountCodeId);
+        const [coupon] = Number.isSafeInteger(couponId) ? await tx.select().from(discountCodes).where(and(
+          eq(discountCodes.id, couponId), eq(discountCodes.businessId, biz.id), eq(discountCodes.isActive, true),
+          sql`(${discountCodes.maxUses} = 0 OR ${discountCodes.usedCount} < ${discountCodes.maxUses})`,
+          sql`(${discountCodes.expiresAt} IS NULL OR ${discountCodes.expiresAt} >= now())`,
+        )).for("update").limit(1) : [];
+        if (!coupon || orderSubtotal < coupon.minOrder) throw new HttpError(409, "کد تخفیف جایزه دیگر قابل استفاده نیست یا حداقل مبلغ سفارش رعایت نشده است");
+        wheelDiscountId = coupon.id;
+        appliedDiscountAmount = Math.min(orderSubtotal, coupon.type === "percent" ? Math.round(orderSubtotal * coupon.value / 100) : coupon.value);
+        if (appliedDiscountAmount < 1) throw new HttpError(400, "مبلغ سفارش برای استفاده از کد تخفیف کافی نیست");
+        appliedDiscountCode = `جایزه گردونه · ${coupon.code}`;
+      } else {
+        const productIds = Array.isArray(snapshot.products) ? snapshot.products.map((item) => Number(item.id)) : [];
+        if (!productIds.length || productIds.length > 10 || productIds.some((id) => !Number.isSafeInteger(id) || id < 1))
+          throw new HttpError(409, "فهرست آیتم‌های جایزه معتبر نیست");
+        const freeProducts = await tx.select().from(products).where(and(
+          eq(products.businessId, biz.id), inArray(products.id, productIds), eq(products.isAvailable, true),
+          eq(products.sellingMode, "count"), sql`${products.price} > 0`,
+        ));
+        if (freeProducts.length !== productIds.length) throw new HttpError(409, "یکی از آیتم‌های جایزه در حال حاضر قابل ارائه نیست");
+        const rows = productIds.map((id) => {
+          const product = freeProducts.find((candidate) => candidate.id === id)!;
+          try { resolveProductOptionSelection(product.modifierGroups ?? [], []); }
+          catch { throw new HttpError(409, `آیتم «${product.name}» برای جایزه گزینهٔ اجباری دارد`); }
+          return {
+            productId: product.id, name: product.name, emoji: product.emoji, price: product.price,
+            quantity: 1, weightGrams: null, tareGrams: 0, yieldRatioSnapshot: 1,
+            lineTotal: product.price, note: "جایزهٔ گردونه", optionSnapshot: [],
+          };
+        });
+        const freeTotal = rows.reduce((sum, item) => sum + item.lineTotal, 0);
+        if (!Number.isSafeInteger(freeTotal) || freeTotal < 1) throw new HttpError(409, "مبلغ آیتم‌های جایزه معتبر نیست");
+        orderItemsToSave = [...newItems, ...rows];
+        orderSubtotal += freeTotal;
+        appliedDiscountAmount = freeTotal;
+        appliedDiscountCode = `آیتم رایگان گردونه · ${rows.map((item) => item.name).join("، ")}`;
+      }
+    } else if (selectedRewardClaim) {
       if (selectedRewardClaim.rewardType === "discount_percent") {
         appliedDiscountAmount = rewardDiscountAmount(orderSubtotal, selectedRewardClaim.discountPercent);
         if (appliedDiscountAmount < 1) throw new HttpError(400, "مبلغ سفارش برای استفاده از این جایزه کافی نیست");
@@ -515,13 +596,24 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       await tx.update(customerRewardClaims).set({ status: "expired", consumedOrderId: created.id })
         .where(and(eq(customerRewardClaims.id, expiredRewardClaimId), eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.status, "active")));
     }
+    if (selectedWheelSpin) {
+      const [redeemed] = await tx.update(loyaltyWheelSpins).set({ status: "redeemed", consumedOrderId: created.id })
+        .where(and(eq(loyaltyWheelSpins.id, selectedWheelSpin.id), eq(loyaltyWheelSpins.businessId, biz.id), eq(loyaltyWheelSpins.customerId, customerId!), eq(loyaltyWheelSpins.status, "active")))
+        .returning({ id: loyaltyWheelSpins.id });
+      if (!redeemed) throw new HttpError(409, "جایزه هم‌زمان در سفارش دیگری استفاده شد؛ سفارش را دوباره بررسی کنید");
+    } else if (expiredWheelSpinId) {
+      await tx.update(loyaltyWheelSpins).set({ status: "expired" }).where(and(
+        eq(loyaltyWheelSpins.id, expiredWheelSpinId), eq(loyaltyWheelSpins.businessId, biz.id), eq(loyaltyWheelSpins.status, "active"),
+      ));
+    }
     if (source === "customer" || source === "kiosk") {
       await tx.insert(menuEvents).values({ businessId: biz.id, eventId: `order:${created.id}`, eventName: "order_created" }).onConflictDoNothing();
     }
-    if (discountId) {
+    const couponToConsume = discountId ?? wheelDiscountId;
+    if (couponToConsume) {
       const [used] = await tx.update(discountCodes).set({ usedCount: sql`${discountCodes.usedCount} + 1` })
         .where(and(
-          eq(discountCodes.id, discountId), eq(discountCodes.businessId, biz.id), eq(discountCodes.isActive, true),
+          eq(discountCodes.id, couponToConsume), eq(discountCodes.businessId, biz.id), eq(discountCodes.isActive, true),
           sql`(${discountCodes.maxUses} = 0 OR ${discountCodes.usedCount} < ${discountCodes.maxUses})`,
           sql`(${discountCodes.expiresAt} IS NULL OR ${discountCodes.expiresAt} >= now())`,
         )).returning({ id: discountCodes.id });

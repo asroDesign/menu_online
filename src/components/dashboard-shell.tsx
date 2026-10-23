@@ -41,6 +41,7 @@ const NAV: { title?: string; items: Item[] }[] = [
   ] },
   { title: "مشتریان و بازاریابی", items: [
     { href: "/dashboard/customers", label: "باشگاه مشتریان", icon: "users", feature: "loyalty" },
+    { href: "/dashboard/loyalty-wheel", label: "گردونه شانس", icon: "sparkles", feature: "loyalty" },
     { href: "/dashboard/cashback", label: "کش‌بک", icon: "coins", feature: "cashback" },
     { href: "/dashboard/surveys", label: "نظرسنجی", icon: "clipboard", feature: "surveys" },
     { href: "/dashboard/sms", label: "پنل پیامک", icon: "envelope", feature: "sms" },

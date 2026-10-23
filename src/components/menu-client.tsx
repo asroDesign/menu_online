@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/lib/api";
@@ -13,7 +13,7 @@ import { BrandLogo } from "@/components/brand";
 import { haversineKm } from "@/lib/geo";
 import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select, Textarea, ToastProvider, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { ProductOptionPicker } from "@/components/product-option-picker";
-import { PublicMenuNavigation, type PublicCustomerProfile } from "@/components/public-menu-navigation";
+import { PublicMenuNavigation, type ActiveWheelReward, type PublicCustomerProfile } from "@/components/public-menu-navigation";
 import { PublicProductDetails } from "@/components/public-product-details";
 import { rewardDiscountAmount } from "@/lib/loyalty-rewards-core";
 import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
@@ -93,6 +93,8 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   const [ar, setAr] = useState<Prod | null>(null);
   const [detailProduct, setDetailProduct] = useState<Prod | null>(null);
   const [customerProfile, setCustomerProfile] = useState<PublicCustomerProfile | null>(null);
+  const [activeWheelReward, setActiveWheelReward] = useState<ActiveWheelReward | null>(null);
+  const [selectedWheelSpinId, setSelectedWheelSpinId] = useState<number | null>(null);
   const [profileRequest, setProfileRequest] = useState(initialRewardToken ? 1 : 0);
   const [rewardToken, setRewardToken] = useState(initialRewardToken);
   const [rewardClaimBusy, setRewardClaimBusy] = useState(false);
@@ -165,13 +167,25 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   const disc = applied ? Math.min(applied.amount, subtotal) : 0;
   const activeReward = customerProfile?.activeReward ?? null;
   const selectedReward = activeReward?.id === selectedRewardClaimId ? activeReward : null;
+  const selectedWheelReward = activeWheelReward?.id === selectedWheelSpinId ? activeWheelReward : null;
   const freeRewardProduct = selectedReward?.rewardType === "free_item" ? products.find((product) => product.id === selectedReward.productId) : undefined;
   const freeRewardPrice = selectedReward?.rewardType === "free_item" ? freeRewardProduct?.price ?? 0 : 0;
-  const orderSubtotal = subtotal + freeRewardPrice;
+  const wheelFreeProducts = selectedWheelReward?.prizeType === "free_items" ? selectedWheelReward.snapshot.products ?? [] : [];
+  const wheelFreeTotal = wheelFreeProducts.reduce((sum, product) => sum + product.price, 0);
+  const orderSubtotal = subtotal + freeRewardPrice + wheelFreeTotal;
   const rewardDiscount = selectedReward?.rewardType === "discount_percent"
     ? rewardDiscountAmount(subtotal, selectedReward.discountPercent)
     : freeRewardPrice;
-  const appliedCheckoutDiscount = selectedReward ? rewardDiscount : disc;
+  const wheelDiscount = selectedWheelReward?.prizeType === "fixed_amount"
+    ? Math.min(orderSubtotal, selectedWheelReward.snapshot.amount ?? 0)
+    : selectedWheelReward?.prizeType === "discount_code"
+      ? subtotal >= (selectedWheelReward.snapshot.minOrder ?? 0)
+        ? Math.min(orderSubtotal, selectedWheelReward.snapshot.discountType === "percent"
+          ? Math.round(orderSubtotal * (selectedWheelReward.snapshot.discountValue ?? 0) / 100)
+          : selectedWheelReward.snapshot.discountValue ?? 0)
+        : 0
+      : wheelFreeTotal;
+  const appliedCheckoutDiscount = selectedReward ? rewardDiscount : selectedWheelReward ? wheelDiscount : disc;
   const radiusMode = zones.some((z) => z.radiusKm > 0);
   const dist = biz.lat != null && biz.lng != null && pin ? haversineKm({ lat: biz.lat, lng: biz.lng }, pin) : null;
   const autoZone = radiusMode && dist !== null ? zones.filter((z) => z.radiusKm > 0 && z.radiusKm >= dist).sort((a, b) => a.radiusKm - b.radiusKm)[0] : undefined;
@@ -197,11 +211,22 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
     return () => { live = false; clearTimeout(h); };
   }, [idsKey, caps.crossSell, biz.slug]);
 
-  function handleCustomerProfileChange(profile: PublicCustomerProfile | null) {
+  const handleCustomerProfileChange = useCallback((profile: PublicCustomerProfile | null) => {
     setCustomerProfile(profile);
     setSelectedRewardClaimId(profile?.activeReward?.id ?? null);
+    if (profile?.activeReward) { setActiveWheelReward(null); setSelectedWheelSpinId(null); }
     if (profile?.activeReward) { setApplied(null); setCode(""); }
-  }
+  }, []);
+
+  const handleWheelRewardChange = useCallback((reward: ActiveWheelReward | null) => {
+    setActiveWheelReward(reward);
+    setSelectedWheelSpinId(reward?.id ?? null);
+    if (reward) {
+      setSelectedRewardClaimId(null);
+      setApplied(null);
+      setCode("");
+    }
+  }, []);
 
   async function activateScannedReward(token: string) {
     setRewardClaimBusy(true);
@@ -232,6 +257,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
 
   async function applyCode() {
     if (selectedRewardClaimId) return toast("برای واردکردن کد تخفیف، ابتدا جایزهٔ وفاداری را از این سفارش بردارید", "error");
+    if (selectedWheelSpinId) return toast("برای واردکردن کد تخفیف، ابتدا جایزهٔ گردونه را از این سفارش بردارید", "error");
     try {
       const r = await api<{ code: string; amount: number }>(`/api/public/${biz.slug}/discount?code=${encodeURIComponent(code)}&subtotal=${subtotal}`);
       setApplied(r);
@@ -284,9 +310,12 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
           scheduledFor: pre && when ? new Date(when).toISOString() : null,
           discountCode: applied?.code ?? "", payment, note, useCashback: useWalletCredit,
           rewardClaimId: selectedReward?.id ?? null,
+          wheelSpinId: selectedWheelReward?.id ?? null,
         },
       });
       if (customerProfile?.activeReward) handleCustomerProfileChange({ ...customerProfile, activeReward: null });
+      setActiveWheelReward(null);
+      setSelectedWheelSpinId(null);
       rememberTrackedMenuOrder(biz.slug, item.number, item.trackingUrl);
       setCart({});
       setSheet(false);
@@ -527,9 +556,10 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
           )}</IconText>
           {customerProfile?.activeReward && <section className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-3.5 text-sm">
             <label className={cn("flex cursor-pointer items-start gap-2.5", applied && "cursor-not-allowed opacity-60")}>
-              <input type="checkbox" className="mt-1 accent-amber-700" checked={selectedRewardClaimId === customerProfile.activeReward.id} disabled={!!applied} onChange={(event) => {
+              <input type="checkbox" className="mt-1 accent-amber-700" checked={selectedRewardClaimId === customerProfile.activeReward.id} disabled={!!applied || !!selectedWheelReward} onChange={(event) => {
                 const useReward = event.target.checked;
                 setSelectedRewardClaimId(useReward ? customerProfile.activeReward!.id : null);
+                if (useReward) { setSelectedWheelSpinId(null); setActiveWheelReward(null); }
                 if (useReward) { setApplied(null); setCode(""); }
               }} />
               <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 font-extrabold text-amber-950"><Icon name="award" className="size-4"/> جایزهٔ شما در سفارش بعدی</span><span className="mt-1 block text-xs font-semibold text-amber-900">{customerProfile.activeReward.rewardType === "discount_percent" ? `${toFa(customerProfile.activeReward.discountPercent)}٪ تخفیف روی سفارش` : `${customerProfile.activeReward.productName} به‌صورت رایگان`}</span><span className="mt-1 block text-[11px] leading-5 text-amber-900/75">{customerProfile.activeReward.campaignName} · اعتبار تا {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(customerProfile.activeReward.expiresAt))}</span></span>
@@ -537,8 +567,22 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
             {selectedReward && <p className="mt-2 border-t border-amber-200 pt-2 text-[11px] leading-5 text-amber-900">این جایزه فقط برای همین سفارش بعدی است. اگر سفارش را بدون جایزه ثبت کنید، امکان استفادهٔ دوباره از آن وجود ندارد.{applied ? " ابتدا کد تخفیف را پاک کنید." : ""}</p>}
             {selectedReward?.rewardType === "free_item" && !freeRewardProduct && <p role="alert" className="mt-2 text-xs text-rose-700">آیتم جایزه در منوی فعلی موجود نیست؛ پیش از ثبت سفارش با رستوران تماس بگیرید.</p>}
           </section>}
+          {activeWheelReward && <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-3.5 text-sm">
+            <label className={cn("flex cursor-pointer items-start gap-2.5", (applied || selectedReward) && "cursor-not-allowed opacity-60")}>
+              <input type="checkbox" className="mt-1 accent-violet-700" checked={selectedWheelSpinId === activeWheelReward.id} disabled={!!applied || !!selectedReward} onChange={(event) => {
+                const useReward = event.target.checked;
+                setSelectedWheelSpinId(useReward ? activeWheelReward.id : null);
+                if (useReward) { setSelectedRewardClaimId(null); setApplied(null); setCode(""); }
+              }} />
+              <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 font-extrabold text-violet-950"><Icon name="sparkles" className="size-4" /> جایزهٔ گردونهٔ شما</span>
+                <span className="mt-1 block text-xs font-semibold text-violet-900">{activeWheelReward.prizeType === "fixed_amount" ? `${formatPrice(activeWheelReward.snapshot.amount ?? 0)} تخفیف` : activeWheelReward.prizeType === "discount_code" ? `کد ${activeWheelReward.snapshot.discountCode ?? "تخفیف"}` : (activeWheelReward.snapshot.products ?? []).map((product) => product.name).join("، ") + " رایگان"}</span>
+                <span className="mt-1 block text-[11px] leading-5 text-violet-900/75">{activeWheelReward.title} · فقط برای سفارش بعدی · انقضا {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(activeWheelReward.expiresAt))}</span>
+              </span>
+            </label>
+            {selectedWheelReward && wheelDiscount < 1 && <p role="alert" className="mt-2 text-xs text-rose-700">برای اعمال این جایزه مبلغ سفارش باید به حداقل تعیین‌شده برای کد تخفیف برسد.</p>}
+          </section>}
           {caps.discount && (
-            <div className="space-y-1.5"><div className="flex gap-2"><Input dir="ltr" className="text-left uppercase" placeholder={selectedRewardClaimId ? "برای کد، جایزه را بردارید" : "کد تخفیف"} value={code} disabled={!!selectedRewardClaimId} onChange={(e) => { setCode(e.target.value); setApplied(null); }} /><Button variant="secondary" onClick={applyCode} disabled={!code.trim() || !!selectedRewardClaimId}>اعمال</Button></div>{applied && <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><span>{applied.code} · {formatPrice(disc)} تخفیف</span><button type="button" className="font-bold underline" onClick={() => { setApplied(null); setCode(""); }}>حذف کد</button></div>}</div>
+            <div className="space-y-1.5"><div className="flex gap-2"><Input dir="ltr" className="text-left uppercase" placeholder={selectedRewardClaimId || selectedWheelSpinId ? "برای کد، جایزه را بردارید" : "کد تخفیف"} value={code} disabled={!!selectedRewardClaimId || !!selectedWheelSpinId} onChange={(e) => { setCode(e.target.value); setApplied(null); }} /><Button variant="secondary" onClick={applyCode} disabled={!code.trim() || !!selectedRewardClaimId || !!selectedWheelSpinId}>اعمال</Button></div>{applied && <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><span>{applied.code} · {formatPrice(disc)} تخفیف</span><button type="button" className="font-bold underline" onClick={() => { setApplied(null); setCode(""); }}>حذف کد</button></div>}</div>
           )}
           {caps.walletPayment && <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm">
             {customerProfile ? customerProfile.walletBalance > 0 ? <label className="flex cursor-pointer items-start gap-2"><input type="checkbox" className="mt-1 accent-emerald-700" checked={useWalletCredit} onChange={(event) => setUseWalletCredit(event.target.checked)} /><span className="min-w-0 flex-1"><span className="block font-bold text-emerald-950">استفاده از اعتبار کیف پول</span><span className="mt-1 block text-xs leading-5 text-emerald-900/75">موجودی {formatPrice(customerProfile.walletBalance)} · قابل استفاده برای این فاکتور تا {formatPrice(Math.min(customerProfile.walletBalance, walletCreditCap))}</span></span></label> : <p className="text-xs leading-5 text-emerald-900">اعتبار کیف پول این پروفایل فعلاً صفر است.</p> : <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs leading-5 text-emerald-900">برای استفاده از امتیازها و اعتبار کیف پول، با شماره موبایل تأییدشده وارد شوید.</p><Button type="button" size="sm" variant="secondary" onClick={() => { setSheet(false); setProfileRequest((value) => value + 1); }}>ورود به پروفایل</Button></div>}
@@ -628,8 +672,10 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
         subtotal={subtotal}
         canOrder={canOrder}
         readOnly={readOnlyDemo || readOnlyPreview}
+        wheelEnabled={biz.loyaltyWheelEnabled && !readOnlyDemo && !readOnlyPreview}
         profileRequest={profileRequest}
         onProfileChange={handleCustomerProfileChange}
+        onWheelRewardChange={handleWheelRewardChange}
         onProfileRequestHandled={() => setProfileRequest(0)}
         onMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         onCart={() => {

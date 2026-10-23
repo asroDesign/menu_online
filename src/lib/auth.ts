@@ -177,6 +177,7 @@ export function errorResponse(e: unknown) {
   let isStaffScheduleSchemaError = false;
   let isWaiterServiceRequestSchemaError = false;
   let isCustomerReferralSchemaError = false;
+  let isLoyaltyWheelSchemaError = false;
   for (let depth = 0; depth < 4 && cause; depth++) {
     const current = cause as { code?: unknown; message?: unknown; cause?: unknown };
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /staff_(?:schedules|leave_requests|shift_templates|shift_swap_requests|attendance)/i.test(String(current.message ?? ""))) {
@@ -189,6 +190,10 @@ export function errorResponse(e: unknown) {
     }
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /referral_code|referred_by_customer_id|orders_customer_paid_analytics_idx/i.test(String(current.message ?? ""))) {
       isCustomerReferralSchemaError = true;
+      break;
+    }
+    if (["42P01", "42703"].includes(String(current.code ?? "")) && /loyalty_wheel_(?:settings|prizes|spins)/i.test(String(current.message ?? ""))) {
+      isLoyaltyWheelSchemaError = true;
       break;
     }
     cause = current.cause;
@@ -204,6 +209,10 @@ export function errorResponse(e: unknown) {
   if (isCustomerReferralSchemaError) {
     logError("api.customer_referrals_migration_required", e);
     return Response.json({ error: "ساختار باشگاه مشتریان به‌روز نیست؛ migration 0043 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
+  }
+  if (isLoyaltyWheelSchemaError) {
+    logError("api.loyalty_wheel_migration_required", e);
+    return Response.json({ error: "ساختار گردونهٔ شانس به‌روز نیست؛ migration 0048 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
   }
   logError("api.unhandled_error", e);
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });

@@ -646,6 +646,60 @@ export const discountCodes = pgTable(
   (t) => [uniqueIndex("discount_biz_code_idx").on(t.businessId, t.code)],
 );
 
+export const loyaltyWheelSettings = pgTable("loyalty_wheel_settings", {
+  businessId: integer("business_id").primaryKey().references(() => businesses.id, { onDelete: "cascade" }),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  cooldownHours: integer("cooldown_hours").notNull().default(24),
+  rewardExpiresAfterDays: integer("reward_expires_after_days").notNull().default(30),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const loyaltyWheelPrizes = pgTable("loyalty_wheel_prizes", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  prizeType: text("prize_type").notNull(), // fixed_amount | discount_code | free_items | no_prize | message
+  amount: integer("amount").notNull().default(0),
+  discountCodeId: integer("discount_code_id").references(() => discountCodes.id, { onDelete: "restrict" }),
+  productIds: jsonb("product_ids").$type<number[]>().notNull().default([]),
+  message: text("message").notNull().default(""),
+  weight: integer("weight").notNull().default(1),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("loyalty_wheel_prizes_business_idx").on(t.businessId, t.isActive, t.id),
+]);
+
+export type LoyaltyWheelRewardSnapshot = {
+  amount?: number;
+  discountCodeId?: number;
+  discountCode?: string;
+  discountType?: "percent" | "fixed";
+  discountValue?: number;
+  minOrder?: number;
+  products?: { id: number; name: string; price: number }[];
+  message?: string;
+};
+
+export const loyaltyWheelSpins = pgTable("loyalty_wheel_spins", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  prizeId: integer("prize_id").references(() => loyaltyWheelPrizes.id, { onDelete: "set null" }),
+  requestKey: text("request_key").notNull(),
+  prizeType: text("prize_type").notNull(),
+  prizeTitle: text("prize_title").notNull(),
+  rewardSnapshot: jsonb("reward_snapshot").$type<LoyaltyWheelRewardSnapshot>().notNull().default({}),
+  status: text("status").notNull().default("active"), // active | redeemed | expired | no_prize | message
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  consumedOrderId: integer("consumed_order_id").references(() => orders.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("loyalty_wheel_spins_request_uq").on(t.businessId, t.customerId, t.requestKey),
+  uniqueIndex("loyalty_wheel_spins_one_active_customer_uq").on(t.businessId, t.customerId).where(sql`${t.status} = 'active'`),
+  index("loyalty_wheel_spins_customer_time_idx").on(t.businessId, t.customerId, t.createdAt),
+]);
+
 export const surveys = pgTable("surveys", {
   id: serial("id").primaryKey(),
   businessId: bizId(),

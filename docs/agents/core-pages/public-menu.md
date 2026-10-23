@@ -8,11 +8,11 @@
 
 ## رابط و جریان
 
-SSR business/public menu؛ دسته‌بندی و جستجو؛ product cards و جزئیات/تصویر/مدل سه‌بعدی؛ cart qty/note؛ ثبت اطلاعات سفارش؛ کد تخفیف؛ پیش‌سفارش/date/time در صورت تنظیم؛ پرداخت آنلاین یا کارت‌به‌کارت بر مبنای settings؛ انتخاب نوع سفارش/table؛ خلاصه و ثبت. ناوبری ثابت پایین صفحه چهار مقصد منو، سبد خرید، سفارش‌ها و پروفایل را دارد. ورود به پروفایل با OTP انجام می‌شود؛ سفارش‌های گذشته فقط پس از OTP و در محدوده همان رستوران برمی‌گردند. در میزهای فعال، مشتری می‌تواند گارسون را صدا کند یا پیام کوتاه بفرستد.
+SSR business/public menu؛ دسته‌بندی و جستجو؛ product cards و جزئیات/تصویر/مدل سه‌بعدی؛ cart qty/note؛ ثبت اطلاعات سفارش؛ کد تخفیف؛ پیش‌سفارش/date/time در صورت تنظیم؛ پرداخت آنلاین یا کارت‌به‌کارت بر مبنای settings؛ انتخاب نوع سفارش/table؛ خلاصه و ثبت. ناوبری ثابت پایین صفحه چهار مقصد منو، سبد خرید، سفارش‌ها و پروفایل را دارد؛ اگر مدیر گردونهٔ شانس را فعال کرده و entitlement `loyalty` موجود باشد، پنجمین مقصد گردونه در همان نوار اضافه می‌شود. چرخش فقط پس از ورود OTP است و جایزهٔ فعال در checkout منحصراً برای سفارش بعدی انتخاب و در سرور مصرف می‌شود. ورود به پروفایل با OTP انجام می‌شود؛ سفارش‌های گذشته فقط پس از OTP و در محدوده همان رستوران برمی‌گردند. در میزهای فعال، مشتری می‌تواند گارسون را صدا کند یا پیام کوتاه بفرستد.
 
 ## API و داده
 
-`buildPublicMenu`; `GET /api/public/:slug/discount?code&subtotal`; `GET /api/public/:slug/recommendations?ids`; `POST /api/public/:slug/orders`; درخواست کارکنان با `POST /api/public/:slug/service-requests`; ورود مشتری با `POST /api/public/:slug/customer/otp/request` و `/otp/verify`; نشست پروفایل با `GET`/`DELETE /api/public/:slug/customer/session`. مسیر عمومی legacy مشتری با شماره خام، عضویت/اعتبار را افشا نمی‌کند. `GET /api/public/:slug/track` همچنان به bearer token رهگیری همان سفارش نیاز دارد.
+`buildPublicMenu`; `GET /api/public/:slug/discount?code&subtotal`; `GET /api/public/:slug/recommendations?ids`; `POST /api/public/:slug/orders`; درخواست کارکنان با `POST /api/public/:slug/service-requests`; ورود مشتری با `POST /api/public/:slug/customer/otp/request` و `/otp/verify`; نشست پروفایل با `GET`/`DELETE /api/public/:slug/customer/session`; `GET/POST /api/public/:slug/loyalty-wheel` برای بخش‌های عمومی، جایزهٔ همان مشتری و چرخش OTP-bound. قواعد سرور در [ماژول گردونهٔ شانس](../modules/loyalty-wheel.md) است. مسیر عمومی legacy مشتری با شماره خام، عضویت/اعتبار را افشا نمی‌کند. `GET /api/public/:slug/track` همچنان به bearer token رهگیری همان سفارش نیاز دارد.
 
 ### درخواست گارسون از منوی مشتری
 

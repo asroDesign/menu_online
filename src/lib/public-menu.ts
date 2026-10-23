@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, deliveryZones, diningTables, inventoryItems, products, recipes, translations } from "@/db/schema";
+import { businesses, categories, deliveryZones, diningTables, inventoryItems, loyaltyWheelSettings, products, recipes, translations } from "@/db/schema";
 import { activeTrialOf, featuresOf } from "@/lib/entitlements";
 import { hasAny, type Settings } from "@/lib/plans";
 import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
@@ -36,6 +36,8 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       ? db.select().from(translations).where(eq(translations.businessId, biz.id))
       : Promise.resolve([]),
   ]);
+  const [wheelSettings] = can("loyalty") ? await db.select({ isEnabled: loyaltyWheelSettings.isEnabled }).from(loyaltyWheelSettings)
+    .where(eq(loyaltyWheelSettings.businessId, biz.id)).limit(1) : [];
   const recipeLines = can("recipes") && prods.length
     ? await db.select({ productId: recipes.productId, name: inventoryItems.name, quantity: recipes.quantity, unit: inventoryItems.recipeUnit })
       .from(recipes).innerJoin(inventoryItems, and(eq(inventoryItems.id, recipes.itemId), eq(inventoryItems.businessId, biz.id)))
@@ -66,6 +68,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       operatingHours: st.operatingHours ?? null,
       reservationsEnabled: can("reservations") && st.reservations?.enabled !== false,
       customerRewards: { pointValueToman: rewards.pointValueToman },
+      loyaltyWheelEnabled: can("loyalty") && wheelSettings?.isEnabled === true,
       reservationSettings: can("reservations") && st.reservations?.enabled !== false
         ? { requireDeposit: !!st.reservations?.requireDeposit, depositPerGuest: st.reservations?.depositPerGuest ?? 0, durationMinutes: st.reservations?.durationMinutes ?? 90 }
         : null,

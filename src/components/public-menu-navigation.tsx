@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { formatPrice, toFa } from "@/lib/format";
 import { readTrackedMenuOrders, trackedMenuOrdersUpdateEvent, type TrackedMenuOrder } from "@/lib/public-menu-orders";
 import { Button, cn, Icon, Input, Modal } from "@/components/ui";
@@ -9,6 +9,10 @@ import type { Settings } from "@/lib/plans";
 import type { CustomerRewardSnapshot } from "@/lib/loyalty-rewards-core";
 
 type Template = NonNullable<Settings["menuTemplate"]>;
+type WheelSegment = { id: number; title: string; prizeType: "fixed_amount" | "discount_code" | "free_items" | "no_prize" | "message"; weight: number };
+type WheelSnapshot = { amount?: number; discountCode?: string; discountType?: "percent" | "fixed"; discountValue?: number; minOrder?: number; products?: { id: number; name: string; price: number }[]; message?: string };
+export type ActiveWheelReward = { id: number; title: string; prizeType: string; snapshot: WheelSnapshot; expiresAt: string };
+type WheelSpin = { id: number; title: string; prizeType: string; snapshot: WheelSnapshot; status: string; expiresAt: string | null; createdAt: string };
 export type PublicCustomerProfile = {
   id: number;
   name: string;
@@ -24,11 +28,11 @@ export type PublicCustomerProfile = {
 
 const statusNames: Record<string, string> = { awaiting_payment: "در انتظار پرداخت", pending: "ثبت‌شده", preparing: "در حال آماده‌سازی", ready: "آماده تحویل", served: "تحویل‌شده", paid: "تکمیل‌شده", canceled: "لغوشده" };
 const paymentNames: Record<string, string> = { unpaid: "پرداخت‌نشده", pending: "در انتظار تأیید", paid: "پرداخت‌شده", failed: "پرداخت ناموفق", refunded: "بازپرداخت‌شده" };
-const navLabels: Record<string, { menu: string; cart: string; orders: string; profile: string }> = {
-  fa: { menu: "منو", cart: "سبد خرید", orders: "سفارش‌ها", profile: "پروفایل" },
-  en: { menu: "Menu", cart: "Cart", orders: "Orders", profile: "Profile" },
-  ar: { menu: "القائمة", cart: "السلة", orders: "الطلبات", profile: "حسابي" },
-  tr: { menu: "Menü", cart: "Sepet", orders: "Siparişler", profile: "Profil" },
+const navLabels: Record<string, { menu: string; cart: string; orders: string; profile: string; wheel: string }> = {
+  fa: { menu: "منو", cart: "سبد خرید", orders: "سفارش‌ها", profile: "پروفایل", wheel: "گردونه شانس" },
+  en: { menu: "Menu", cart: "Cart", orders: "Orders", profile: "Profile", wheel: "Lucky wheel" },
+  ar: { menu: "القائمة", cart: "السلة", orders: "الطلبات", profile: "حسابي", wheel: "عجلة الحظ" },
+  tr: { menu: "Menü", cart: "Sepet", orders: "Siparişler", profile: "Profil", wheel: "Şans çarkı" },
 };
 async function customerRequest<T>(url: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -57,6 +61,8 @@ export function PublicMenuNavigation({
   profileRequest = 0,
   onProfileChange,
   onProfileRequestHandled,
+  wheelEnabled = false,
+  onWheelRewardChange,
 }: {
   slug: string;
   accent: string;
@@ -71,6 +77,8 @@ export function PublicMenuNavigation({
   profileRequest?: number;
   onProfileChange?: (profile: PublicCustomerProfile | null) => void;
   onProfileRequestHandled?: () => void;
+  wheelEnabled?: boolean;
+  onWheelRewardChange?: (reward: ActiveWheelReward | null) => void;
 }) {
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -92,12 +100,91 @@ export function PublicMenuNavigation({
   const [redeemBusy, setRedeemBusy] = useState(false);
   const [redeemRequestKey, setRedeemRequestKey] = useState("");
   const [redeemError, setRedeemError] = useState("");
+  const [wheelOpen, setWheelOpen] = useState(false);
+  const [wheelLoading, setWheelLoading] = useState(false);
+  const [wheelBusy, setWheelBusy] = useState(false);
+  const [wheelError, setWheelError] = useState("");
+  const [wheelSegments, setWheelSegments] = useState<WheelSegment[]>([]);
+  const [wheelReward, setWheelReward] = useState<ActiveWheelReward | null>(null);
+  const [wheelResult, setWheelResult] = useState<WheelSpin | null>(null);
+  const [wheelRotation, setWheelRotation] = useState(0);
+  const [wheelAnimationMs, setWheelAnimationMs] = useState(5_200);
+  const [wheelNextSpinAt, setWheelNextSpinAt] = useState<string | null>(null);
+  const [clock, setClock] = useState(0);
+
+  useEffect(() => {
+    if (!wheelOpen || !wheelNextSpinAt) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [wheelOpen, wheelNextSpinAt]);
+
+  const refreshWheel = useCallback(async () => {
+    if (readOnly) return;
+    try {
+      const result = await customerRequest<{ enabled: boolean; segments: WheelSegment[]; activeReward: (WheelSpin & { status: "active" }) | null; nextSpinAt: string | null }>(`/api/public/${encodeURIComponent(slug)}/loyalty-wheel`);
+      setWheelSegments(result.segments ?? []);
+      setWheelNextSpinAt(result.nextSpinAt);
+      const active = result.activeReward?.expiresAt ? { id: result.activeReward.id, title: result.activeReward.title, prizeType: result.activeReward.prizeType, snapshot: result.activeReward.snapshot, expiresAt: result.activeReward.expiresAt } : null;
+      setWheelReward(active);
+      onWheelRewardChange?.(active);
+    } catch { /* the menu stays usable if the optional wheel is temporarily unavailable */ }
+  }, [readOnly, slug, onWheelRewardChange]);
+
+  async function openWheel() {
+    setWheelOpen(true);
+    setWheelResult(null);
+    setWheelError("");
+    if (!profile) return;
+    setWheelLoading(true);
+    try { await refreshWheel(); }
+    catch (cause) { setWheelError((cause as Error).message); }
+    finally { setWheelLoading(false); }
+  }
+
+  async function spinWheel() {
+    if (!profile || wheelBusy || wheelReward || wheelNextSpinAt && new Date(wheelNextSpinAt).getTime() > Date.now()) return;
+    setWheelBusy(true);
+    setWheelError("");
+    setWheelResult(null);
+    let animating = false;
+    try {
+      const requestKey = crypto.randomUUID().replaceAll("-", "");
+      const result = await customerRequest<{ spin: WheelSpin; segments: WheelSegment[]; targetIndex: number }>(`/api/public/${encodeURIComponent(slug)}/loyalty-wheel`, "POST", { requestKey });
+      setWheelSegments(result.segments);
+      const totalWeight = result.segments.reduce((sum, segment) => sum + segment.weight, 0);
+      const preceding = result.segments.slice(0, result.targetIndex).reduce((sum, segment) => sum + segment.weight, 0);
+      const selected = result.segments[result.targetIndex];
+      const sectorCenter = ((preceding + selected.weight / 2) / totalWeight) * 360;
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const animationMs = reducedMotion ? 350 : 5_200;
+      setWheelAnimationMs(animationMs);
+      setWheelRotation((current) => current + 360 * (reducedMotion ? 1 : 7) + ((360 - sectorCenter) % 360));
+      animating = true;
+      window.setTimeout(() => {
+        setWheelResult(result.spin);
+        setWheelNextSpinAt(null);
+        void refreshWheel();
+        if (result.spin.status === "active" && result.spin.expiresAt) {
+          const reward = { id: result.spin.id, title: result.spin.title, prizeType: result.spin.prizeType, snapshot: result.spin.snapshot, expiresAt: result.spin.expiresAt };
+          setWheelReward(reward);
+          onWheelRewardChange?.(reward);
+        } else {
+          setWheelReward(null);
+          onWheelRewardChange?.(null);
+        }
+        setWheelBusy(false);
+      }, animationMs + 100);
+    } catch (cause) {
+      setWheelError((cause as Error).message);
+      await refreshWheel();
+    } finally { if (!animating) setWheelBusy(false); }
+  }
 
   useEffect(() => {
     if (readOnly) return;
     let live = true;
     customerRequest<{ profile: PublicCustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/session`)
-      .then(({ profile: next }) => { if (live) { setProfile(next); setName(next.name); setPhone(next.phone); onProfileChange?.(next); } })
+      .then(({ profile: next }) => { if (live) { setProfile(next); setName(next.name); setPhone(next.phone); onProfileChange?.(next); void refreshWheel(); } })
       .catch(() => { if (live) onProfileChange?.(null); });
     const refreshRecent = (event?: Event) => {
       const detail = (event as CustomEvent<{ slug?: string }> | undefined)?.detail;
@@ -106,7 +193,7 @@ export function PublicMenuNavigation({
     refreshRecent();
     window.addEventListener(trackedMenuOrdersUpdateEvent(), refreshRecent);
     return () => { live = false; window.removeEventListener(trackedMenuOrdersUpdateEvent(), refreshRecent); };
-  }, [slug, readOnly, onProfileChange]);
+  }, [slug, readOnly, onProfileChange, onWheelRewardChange, refreshWheel]);
 
   useEffect(() => {
     if (!challengeId) return;
@@ -151,6 +238,7 @@ export function PublicMenuNavigation({
       setName(result.profile.name);
       setChallengeId("");
       setCode("");
+      void refreshWheel();
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -159,6 +247,8 @@ export function PublicMenuNavigation({
     await customerRequest(`/api/public/${encodeURIComponent(slug)}/customer/session`, "DELETE").catch(() => {});
     setProfile(null);
     onProfileChange?.(null);
+    setWheelReward(null);
+    onWheelRewardChange?.(null);
     setChallengeId("");
     setCode("");
     setInviteCopied(false);
@@ -204,11 +294,12 @@ export function PublicMenuNavigation({
     { key: "cart", label: labels.cart, icon: "cart", action: onCart, badge: cartCount > 0 ? toFa(cartCount) : "" },
     { key: "orders", label: labels.orders, icon: "orders", action: () => { void openOrders(); }, badge: "" },
     { key: "profile", label: labels.profile, icon: "waiter", action: () => setProfileOpen(true), badge: "" },
+    ...(wheelEnabled && !readOnly ? [{ key: "wheel", label: labels.wheel, icon: "sparkles", action: () => { void openWheel(); }, badge: "" }] : []),
   ];
 
   return <>
     <nav aria-label="ناوبری منوی مشتری" className={cn("fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl px-3 pb-[max(.5rem,env(safe-area-inset-bottom))]", template === "compact" && "max-w-none px-0 pb-0")}>
-      <div className={cn("grid grid-cols-4 p-1.5", navShell[template], template === "editorial" && "mx-2 rounded-full p-1", template === "compact" && "p-1")}>
+      <div className={cn("grid p-1.5", tabs.length === 5 ? "grid-cols-5" : "grid-cols-4", navShell[template], template === "editorial" && "mx-2 rounded-full p-1", template === "compact" && "p-1")}>
         {tabs.map((tab) => <button key={tab.key} type="button" onClick={tab.action} aria-label={tab.key === "cart" && cartCount ? `${tab.label}، ${toFa(cartCount)} قلم، ${formatPrice(subtotal)}` : tab.label} className={cn("relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-semibold transition active:scale-95 sm:min-h-14 sm:text-[11px]", template === "editorial" && "rounded-full", (template === "bistro" || template === "softmenu-test" || template === "captainm") && "text-white/75", template === "haftkhan" && "text-[#641c27]", template === "minimal" && "rounded-lg", template === "compact" && "min-h-11")}>
           <span className={cn("relative flex size-7 items-center justify-center rounded-full transition sm:size-8", template === "classic" && "bg-stone-100", template === "editorial" && "size-8", template === "compact" && "size-6", (template === "bistro" || template === "captainm") && "size-8", template === "minimal" && "size-7", template === "haftkhan" && "bg-rose-50")} style={{ color: tab.key === "menu" ? accent : undefined, backgroundColor: tab.key === "menu" && template !== "bistro" && template !== "softmenu-test" && template !== "captainm" ? `${accent}18` : undefined }}>
             <Icon name={tab.icon} className="size-[17px] sm:size-[18px]" />
@@ -220,6 +311,34 @@ export function PublicMenuNavigation({
       {cartCount > 0 && <span className="sr-only">جمع سبد خرید: {formatPrice(subtotal)}</span>}
       {!canOrder && <span className="sr-only">ثبت سفارش در این پیش‌نمایش غیرفعال است</span>}
     </nav>
+
+    <Modal open={wheelOpen} onClose={() => setWheelOpen(false)} title="گردونهٔ شانس" description="یک چرخش؛ شاید سفارش بعدی‌تان با یک جایزهٔ ویژه همراه شود." size="md">
+      {!profile ? <div className="space-y-4 text-center"><div className="mx-auto grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-violet-100 to-amber-100 text-violet-700"><Icon name="sparkles" className="size-8" /></div><p className="text-sm leading-7 text-stone-600">برای جلوگیری از چرخش‌های تکراری و نگهداری امن جایزه، ابتدا شماره موبایل خود را تأیید کنید.</p><Button className="w-full" onClick={() => setProfileOpen(true)}><Icon name="phone" className="size-4" /> ورود یا ثبت‌نام با شماره موبایل</Button></div>
+        : wheelLoading ? <div className="grid min-h-72 place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
+        : <div className="space-y-4">
+          <div className="relative mx-auto grid size-[min(78vw,20rem)] place-items-center rounded-full bg-gradient-to-br from-violet-100 via-fuchsia-50 to-amber-100 p-2 shadow-[0_24px_60px_-22px_rgba(91,33,182,.45)] ring-1 ring-violet-200/80">
+            <div className="absolute -top-1 z-20 text-rose-600 drop-shadow-md"><svg viewBox="0 0 28 36" className="h-9 w-7" aria-hidden="true"><path d="M14 35 1 2l13 7L27 2 14 35Z" fill="currentColor" stroke="white" strokeWidth="2" /></svg></div>
+            {wheelSegments.length ? <div className="relative size-full overflow-hidden rounded-full border-[5px] border-white shadow-inner" style={{ background: `conic-gradient(${wheelSegments.map((segment, index) => { const total = wheelSegments.reduce((sum, entry) => sum + entry.weight, 0); const start = wheelSegments.slice(0, index).reduce((sum, entry) => sum + entry.weight, 0) / total * 360; const end = start + segment.weight / total * 360; const colors = ["#6d28d9", "#db2777", "#ea580c", "#ca8a04", "#059669", "#0284c7", "#4f46e5", "#c026d3"]; return `${colors[index % colors.length]} ${start}deg ${end}deg`; }).join(",")})`, transform: `rotate(${wheelRotation}deg)`, transition: wheelBusy ? `transform ${wheelAnimationMs}ms cubic-bezier(.12,.78,.12,1)` : "none" }}>
+              {(() => { const total = wheelSegments.reduce((sum, item) => sum + item.weight, 0); let cursor = 0; return wheelSegments.map((segment, index) => { const center = ((cursor + segment.weight / 2) / total) * 360; cursor += segment.weight; return <span key={segment.id} className="absolute left-1/2 top-1/2 w-[34%] -translate-x-1/2 -translate-y-1/2 text-center text-[9px] font-extrabold leading-3 text-white drop-shadow [text-shadow:0_1px_2px_rgba(0,0,0,.65)] sm:text-[10px]" style={{ transform: `translate(-50%,-50%) rotate(${center}deg) translateY(-7rem) rotate(${-center}deg)` }}>{segment.title}</span>; }); })()}
+              <span className="absolute inset-[39%] grid place-items-center rounded-full border-4 border-white bg-white text-violet-800 shadow-lg"><Icon name="sparkles" className="size-7" /></span>
+            </div> : <div className="grid size-full place-items-center rounded-full border-[5px] border-white bg-white/70 text-center"><p className="max-w-48 text-sm font-bold leading-6 text-stone-600">گردونه فعلاً جایزهٔ فعالی ندارد</p></div>}
+            {wheelBusy && <span className="pointer-events-none absolute inset-0 rounded-full ring-4 ring-amber-300/70 motion-safe:animate-pulse" />}
+          </div>
+          {wheelResult ? <div role="status" className="motion-safe:animate-pop relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-fuchsia-50 p-4 text-center shadow-sm">
+            {wheelResult.status !== "no_prize" && <div aria-hidden="true" className="pointer-events-none absolute inset-0">{Array.from({ length: 14 }, (_, index) => <i key={index} className="motion-safe:animate-bounce absolute top-0 h-2 w-1.5 rounded-sm" style={{ left: `${5 + index * 6.8}%`, top: `${(index % 4) * 13}%`, backgroundColor: ["#7c3aed", "#db2777", "#f59e0b", "#0ea5e9"][index % 4], animationDelay: `${(index % 5) * 110}ms` }} />)}</div>}
+            <div className="pointer-events-none absolute inset-x-8 top-0 flex justify-between text-amber-400"><Icon name="sparkles" className="size-5"/><Icon name="sparkles" className="mt-3 size-4 text-fuchsia-400"/><Icon name="sparkles" className="size-5 text-violet-400"/></div>
+            <Icon name={wheelResult.status === "no_prize" ? "circleX" : "award"} className={cn("mx-auto size-8", wheelResult.status === "no_prize" ? "text-stone-400" : "text-amber-500")} />
+            <p className="mt-2 text-xs font-bold text-stone-500">{wheelResult.status === "no_prize" ? "این بار شانست نگرفت" : wheelResult.status === "message" ? "پیام ویژهٔ رستوران" : "تبریک! برنده شدی"}</p>
+            <h3 className="mt-1 text-lg font-black text-stone-900">{wheelResult.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-stone-600">{wheelResult.prizeType === "fixed_amount" ? `${formatPrice(wheelResult.snapshot.amount ?? 0)} تخفیف از فاکتور بعدی شما` : wheelResult.prizeType === "discount_code" ? `کد ${wheelResult.snapshot.discountCode ?? "تخفیف"} برای سفارش بعدی` : wheelResult.prizeType === "free_items" ? `${(wheelResult.snapshot.products ?? []).map((item) => item.name).join("، ")} رایگان در سفارش بعدی` : wheelResult.prizeType === "message" ? wheelResult.snapshot.message ?? "از همراهی شما سپاسگزاریم" : "دفعهٔ بعد دوباره امتحان کنید؛ یک جایزه در انتظار شماست."}</p>
+            {wheelResult.expiresAt && <p className="mt-2 text-[11px] font-semibold text-amber-800">قابل استفاده تا {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(wheelResult.expiresAt))} · فقط در سفارش بعدی</p>}
+          </div> : <p className="text-center text-xs leading-5 text-stone-500">هر مشتری پس از تأیید شماره موبایل می‌تواند در بازهٔ تعیین‌شده یک‌بار بچرخاند.</p>}
+          {wheelNextSpinAt && !wheelReward && !wheelResult && <p className="rounded-xl bg-violet-50 px-3 py-2 text-center text-xs font-semibold text-violet-800">چرخش بعدی: {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(wheelNextSpinAt))}</p>}
+          {wheelReward && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold leading-6 text-emerald-900">جایزهٔ «{wheelReward.title}» برای سفارش بعدی فعال است. در مرحلهٔ پرداخت می‌توانید آن را انتخاب کنید.</p>}
+          {wheelError && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">{wheelError}</p>}
+          <Button className="w-full" loading={wheelBusy} disabled={wheelBusy || wheelLoading || !wheelSegments.length || !!wheelReward || !!wheelResult || !!wheelNextSpinAt && new Date(wheelNextSpinAt).getTime() > clock} onClick={() => void spinWheel()}><Icon name="sparkles" className="size-4" />{wheelReward ? "جایزه برای سفارش بعدی فعال است" : wheelResult ? "نتیجه ثبت شد" : "گردونه را بچرخان"}</Button>
+        </div>}
+    </Modal>
 
     <Modal open={ordersOpen} onClose={() => setOrdersOpen(false)} title="سفارش‌های من" description="پیگیری سفارش‌هایی که برای این رستوران ثبت کرده‌اید" size="md">
       <div className="space-y-3">
