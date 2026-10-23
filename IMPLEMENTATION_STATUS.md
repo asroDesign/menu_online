@@ -12,6 +12,7 @@
 - راهنمای نصب و راهنمای پرینترها به‌روزرسانی شد؛ تست قرارداد لینک/نام asset در `tests/windows-bridge-download.test.cjs` است.
 - تست `tests/windows-bridge-download.test.cjs`، `npm run typecheck`، parse YAML و `git diff --check` موفق شدند. ESLint خطایی نداشت و دو هشدار قبلی دربارهٔ directiveهای غیرضروری pagerها در همان فایل نشان داد.
 - در این checkout هنوز workflow جدید روی GitHub اجرا نشده؛ تا push و build موفق روی `main`، فایل Release با این نام ساخته یا به‌روز نمی‌شود. دانلود مرورگر پس از انتشار باید بررسی شود. npm 11.3.0 نیز دربارهٔ اجرای فعلی روی Node 18.17.1 هشدار سازگاری داد.
+- بازبینی Chrome در ۲۰۲۶-۱۰-۲۳ تأیید کرد که صفحهٔ زنده هنوز URL قدیمی Actions دارد و `releases/tag/windows-bridge-latest` فعلاً 404 است. اجرای Actions شمارهٔ ۶ موفق و دارای artifact بود، ولی workflow آن job انتشار Release نداشت. نتیجه در گزارش تغییر Windows bridge ثبت شد.
 
 ## مودال تیرهٔ captainm و فیلتر تیکت مدیر — ۲۰۲۶-۱۰-۲۳
 

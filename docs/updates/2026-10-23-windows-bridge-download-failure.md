@@ -34,3 +34,10 @@ Workflow پس از build ویندوز، job جداگانه‌ای با `contents
 لینک مستقیم مطابق قالب مستند GitHub برای دانلود asset از tag مشخص است: [MenuPeak-Bridge-Setup-x64.exe](https://github.com/asroDesign/menu_online/releases/download/windows-bridge-latest/MenuPeak-Bridge-Setup-x64.exe). این تغییر در checkout آماده است؛ تا زمانی که تغییرات به `main` برسند و workflow با موفقیت اجرا شود، Release جدید ساخته/به‌روزرسانی نمی‌شود. پس از آن دانلود واقعی از مرورگر باید روی لینک Release بررسی شود.
 
 تست قرارداد `tests/windows-bridge-download.test.cjs` ثابت بودن URL دکمه، نام asset منتشرشده، محدودبودن انتشار به main و حفظ artifact عیب‌یابی را کنترل می‌کند. اعتبارسنجی محلی: تست قرارداد، `npm run typecheck`، parse فایل YAML و `git diff --check` موفق شدند. ESLint خطایی نداشت و دو هشدار قبلی دربارهٔ `eslint-disable` غیرلازم در pagerهای همان `hardware.tsx` گزارش کرد. Workflow ویندوز و دانلود مرورگری تا اجرای آن روی GitHub هنوز به‌صورت زنده تأیید نشده‌اند.
+
+## بازبینی Chrome — ۲۰۲۶-۱۰-۲۳
+
+- در صفحهٔ زندهٔ `https://menupeak.ir/dashboard/printers`، دکمه هنوز به صفحهٔ workflow در GitHub Actions می‌رود؛ این نشان می‌دهد نسخهٔ محلیِ لینک مستقیم هنوز روی سایت زنده نیست.
+- اجرای موفق Windows hardware bridge شمارهٔ ۶ در Chrome یک artifact دارد و فقط job ساخت قدیمی را اجرا کرده است؛ release پایدار `windows-bridge-latest` ساخته نشده.
+- بازکردن `https://github.com/asroDesign/menu_online/releases/tag/windows-bridge-latest` در Chrome واقعاً صفحهٔ 404 GitHub را نشان داد. بنابراین علت 404 لینک Release، منتشرنشدن Release است؛ علت صفحهٔ زنده نیز نسخهٔ قدیمی دکمه است.
+- workflow انتشار و لینک مستقیم در commit محلی `c24ca55` آماده‌اند، اما تا push آن به `main` و موفقیت workflow، Release و نسخهٔ تازهٔ دکمه فعال نمی‌شوند.
