@@ -303,6 +303,38 @@ test('order creation and settlement use transaction-scoped locks and durable pri
   assert.match(orders, /postOrderSaleInTransaction\(tx, biz/);
 });
 
+test('printer and pager connectivity only reflects a fresh hardware probe and test prints await the bridge result', () => {
+  const deviceRoute = source('src/app/api/device/[code]/[action]/route.ts');
+  const registry = source('src/lib/registry-a.ts');
+  const hardwareUi = source('src/modules/hardware.tsx');
+  const printerSettings = source('src/modules/printer-settings.tsx');
+  const bridge = source('windows-bridge/src-tauri/src/bridge.rs');
+  const moduleDocs = source('docs/agents/modules/devices.md');
+  const seed = source('src/lib/seed-extra.ts');
+  assert.match(deviceRoute, /dev\.kind !== "printer" && dev\.kind !== "pager"/);
+  assert.match(deviceRoute, /typeof body\.connected !== "boolean"/);
+  assert.match(deviceRoute, /const checkedAt = body\.connected \? new Date\(\) : null/);
+  assert.match(deviceRoute, /const probeAgeMs = dev\.lastSeenAt \? Math\.max\(0, Date\.now\(\) - dev\.lastSeenAt\.getTime\(\)\) : null/);
+  assert.match(registry, /printer\.lastSeenAt > freshSince/);
+  assert.match(registry, /eq\(devices\.businessId, business\.id\), eq\(devices\.kind, "printer"\)/);
+  assert.match(registry, /هیچ پرینتر فعالی را در ۱۵ ثانیه‌ی اخیر تأیید نکرده است/);
+  assert.match(hardwareUi, /waitForPrintJob\(item\.id\)/);
+  assert.match(hardwareUi, /عامل محلی هنوز نتیجه‌ی چاپ آزمایشی را نفرستاده است/);
+  assert.match(deviceRoute, /probeAgeMs.*dev\.lastSeenAt\.getTime\(\)/);
+  assert.match(hardwareUi, /result\.probeAgeMs !== null && result\.probeAgeMs <= 5000/);
+  assert.match(hardwareUi, /"چاپ آزمایشی واقعی"/);
+  assert.match(hardwareUi, /useCollection<Device>\("\/api\/r\/dev_pager"/);
+  assert.match(hardwareUi, /format: c\.format/);
+  assert.match(printerSettings, /۱۵ ثانیهٔ اخیر/);
+  assert.match(bridge, /probe_printer\(device\)/);
+  assert.match(bridge, /probe_transmitter\(device\)/);
+  assert.match(bridge, /report_connection\(client, server, device, false\)/);
+  assert.match(bridge, /fn probe_windows_queue\(name: &str\)/);
+  assert.match(bridge, /PRINTER_STATUS_ERROR \| PAPER_OUT \| OFFLINE/);
+  assert.ok(moduleDocs.includes("و timestamp را تغییر نمی‌دهد"));
+  assert.match(seed, /kind: "printer", name: "پرینتر ابری آشپزخانه", code: "printer01", lastSeenAt: null/);
+});
+
 test('callback verifies outside the transaction and persists payment with settlement', () => {
   const callback = source('src/app/api/public/pay/callback/route.ts');
   assert.ok(callback.indexOf('await verifyOnlinePayment') < callback.indexOf('await settleOrder'));

@@ -14,8 +14,8 @@ import { Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
 type Device = { id: number; kind: string; name: string; code: string; terminalNumber?: string; settlementBankAccountId?: number | null; cashierEnabled?: boolean; kioskEnabled?: boolean; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
 type SettlementBank = { id: number; name: string; bank: string };
 const KIND: Record<string, string> = { tablet: "تبلت", pos: "دستگاه پوز", printer: "پرینتر ابری", scale: "ترازو", caller_id: "کالر آیدی", pager: "فرستنده‌ی پیجر" };
-const online = (d: Device) => !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() < 5 * 60_000;
-export const printerIsOnline = (lastSeenAt: string | null) => !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 5 * 60_000;
+const online = (d: Device) => !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() < (d.kind === "printer" || d.kind === "pager" ? 15_000 : 5 * 60_000);
+export const printerIsOnline = (lastSeenAt: string | null) => !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 15_000;
 
 function DevicePanel({ resource, kinds, extra, content, hint }: { resource: string; kinds: string[]; extra?: (d: Device) => ReactNode; content?: (d: Device) => ReactNode; hint?: (d: Device) => string }) {
   const col = useCollection<Device>(`/api/r/${resource}`, { poll: 10000 });
@@ -26,6 +26,7 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
   const [terminalNumber, setTerminalNumber] = useState("");
   const [settlementBanks, setSettlementBanks] = useState<SettlementBank[]>([]);
   const [origin, setOrigin] = useState("");
+  const [testingId, setTestingId] = useState<number | null>(null);
   useEffect(() => {
     const frame = requestAnimationFrame(() => setOrigin(location.origin));
     return () => cancelAnimationFrame(frame);
@@ -42,7 +43,35 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
     try { await col.create(payload, { ...payload, code: "…", lastSeenAt: null, lastValue: 0 }); setName(""); setTerminalNumber(""); setOpen(false); if (resource === "dev_printer") notifySetupSaved("printers"); toast("دستگاه اضافه شد"); } catch (e) { toast((e as Error).message, "error"); }
   }
   async function ping(d: Device) {
-    try { await api(`/api/device/${d.code}/ping`); col.reload(true); toast("ارتباط برقرار است "); } catch (e) { toast((e as Error).message, "error"); }
+    if (testingId === d.id) return;
+    setTestingId(d.id);
+    try {
+      if (d.kind === "printer") {
+        const { item } = await api<{ item: Job }>("/api/r/printjobs", { method: "POST", body: { deviceId: d.id } });
+        const result = await waitForPrintJob(item.id);
+        col.reload(true);
+        if (result.status === "failed") throw new Error(result.detail || "عامل محلی چاپ آزمایشی را ناموفق گزارش کرد");
+        toast("داده‌ی آزمایشی به صف سیستم چاپ تحویل شد؛ خروج کاغذ را روی پرینتر بررسی کنید.");
+        return;
+      }
+      if (d.kind === "pager") {
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const result = await api<{ online: boolean; lastSeenAt: string | null; probeAgeMs: number | null }>(`/api/device/${d.code}/ping`);
+          if (!result.online) throw new Error("فرستنده‌ی پیجر در آزمون واقعی پاسخ نداده است؛ کابل، پورت یا شبکه و اجرای عامل محلی را بررسی کنید.");
+          if (result.probeAgeMs !== null && result.probeAgeMs <= 5000) {
+            col.reload(true);
+            toast("اتصال فرستنده در آزمون واقعی عامل محلی تأیید شد؛ دریافت فرمان توسط خود پیجر را با تست شماره ۱ بررسی کنید.");
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        throw new Error("عامل محلی نتیجه‌ی تازه‌ای برای آزمون فرستنده گزارش نکرد؛ اتصال قابل تأیید نیست.");
+      }
+      await api(`/api/device/${d.code}/ping`);
+      col.reload(true);
+      toast("ارتباط برقرار است");
+    } catch (e) { col.reload(true); toast((e as Error).message, "error"); }
+    finally { setTestingId(null); }
   }
   return (
     <div className="mb-8">
@@ -57,10 +86,10 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
             {d.kind === "pos" && <PosDeviceSettings key={d.id} device={d} resource={resource} banks={settlementBanks} onSaved={() => col.reload(true)} />}
             <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs"><span className="text-stone-500">کد اتصال: </span><code className="font-bold" dir="ltr">{d.code}</code></div>
             <p className="mt-2 break-all text-[11px] text-stone-400" dir="ltr">{origin}{hint ? hint(d) : `/api/device/${d.code}/ping`}</p>
-            <p className="mt-2 text-[11px] text-stone-400">آخرین ارتباط: {d.lastSeenAt ? timeAgo(d.lastSeenAt) : "—"}</p>
+            <p className="mt-2 text-[11px] text-stone-400">{d.kind === "printer" || d.kind === "pager" ? "آخرین آزمون واقعی:" : "آخرین ارتباط:"} {d.lastSeenAt ? timeAgo(d.lastSeenAt) : "—"}</p>
             {content?.(d)}
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">
-              <Button size="sm" variant="secondary" onClick={() => ping(d)} disabled={d.id < 0}>تست اتصال</Button>
+              <Button size="sm" variant="secondary" onClick={() => ping(d)} disabled={d.id < 0 || testingId === d.id} loading={testingId === d.id}>{d.kind === "printer" ? "چاپ آزمایشی واقعی" : d.kind === "pager" ? "تست اتصال واقعی" : "تست اتصال"}</Button>
               {extra?.(d)}
               <IconButton icon="trash" label="حذف" className="ms-auto hover:bg-rose-50 hover:text-rose-600" onClick={() => col.remove(d.id).catch((e) => toast(e.message, "error"))} />
             </div>
@@ -343,15 +372,16 @@ function PrinterCategorySelector({ device }: { device: Device }) {
   </div>;
 }
 
-type LocalDeviceConfig = { transport: "tcp" | "serial" | "usb"; host: string; port: string; path: string; baud: string; vendorId: string; productId: string; printerName: string; encoding: string; request: string; responseEnd: string; weightRegex: string; weightUnit: "kg" | "g"; factor: string };
+type LocalDeviceConfig = { transport: "tcp" | "serial" | "usb"; host: string; port: string; path: string; baud: string; vendorId: string; productId: string; printerName: string; encoding: string; request: string; responseEnd: string; weightRegex: string; weightUnit: "kg" | "g"; factor: string; format: string };
 const BRIDGE_CONFIG_KEY = "digital-menu.bridge.devices.v1";
 function defaultBridgeConfig(kind: string): LocalDeviceConfig {
-  return { transport: kind === "scale" ? "serial" : "tcp", host: "192.168.1.50", port: kind === "scale" ? "4001" : "9100", path: "COM3", baud: "9600", vendorId: "", productId: "", printerName: "", encoding: "CP1256", request: "", responseEnd: "\\r\\n", weightRegex: "([+-]?\\d+(?:[.,]\\d+)?)", weightUnit: "kg", factor: "1" };
+  return { transport: kind === "scale" ? "serial" : "tcp", host: "192.168.1.50", port: kind === "scale" ? "4001" : "9100", path: "COM3", baud: "9600", vendorId: "", productId: "", printerName: "", encoding: "CP1256", request: "", responseEnd: "\\r\\n", weightRegex: "([+-]?\\d+(?:[.,]\\d+)?)", weightUnit: "kg", factor: "1", format: "R{n}\\r\\n" };
 }
 export function BridgeSetup() {
   const printers = useCollection<Device>("/api/r/dev_printer", { poll: 10000 });
   const scales = useCollection<Device>("/api/r/dev_scale", { poll: 10000 });
-  const devices = [...printers.items, ...scales.items];
+  const pagers = useCollection<Device>("/api/r/dev_pager", { poll: 10000 });
+  const devices = [...printers.items, ...scales.items, ...pagers.items];
   const [origin, setOrigin] = useState("");
   const [ready, setReady] = useState(false);
   const [configs, setConfigs] = useState<Record<string, LocalDeviceConfig>>({});
@@ -364,7 +394,10 @@ export function BridgeSetup() {
     setReady(true);
   }, []);
   useEffect(() => { if (ready) localStorage.setItem(BRIDGE_CONFIG_KEY, JSON.stringify(configs)); }, [configs, ready]);
-  const configFor = (d: Device) => configs[d.code] ?? defaultBridgeConfig(d.kind);
+  const configFor = (d: Device) => {
+    const saved = configs[d.code] ?? {};
+    return { ...defaultBridgeConfig(d.kind), ...saved, ...(d.kind === "pager" && saved.transport === "usb" ? { transport: "tcp" as const } : {}) };
+  };
   const updateConfig = (d: Device, patch: Partial<LocalDeviceConfig>) => setConfigs((prev) => ({ ...prev, [d.code]: { ...(prev[d.code] ?? defaultBridgeConfig(d.kind)), ...patch } }));
   const deviceConfig = (d: Device) => {
     const c = configFor(d);
@@ -372,6 +405,11 @@ export function BridgeSetup() {
       code: d.code, name: d.name, kind: d.kind, transport: "usb",
       ...(c.vendorId ? { vendorId: Number(c.vendorId) } : {}), ...(c.productId ? { productId: Number(c.productId) } : {}),
       ...(d.kind === "scale" ? { request: c.request, responseEnd: c.responseEnd, weightRegex: c.weightRegex, weightUnit: c.weightUnit, factor: Number(c.factor) || 1 } : { printerName: c.printerName, encoding: c.encoding }),
+    };
+    if (d.kind === "pager") return {
+      code: d.code, name: d.name, kind: d.kind, transport: c.transport,
+      ...(c.transport === "tcp" ? { host: c.host, port: Number(c.port) } : { path: c.path, baud: Number(c.baud) }),
+      format: c.format,
     };
     if (d.kind === "scale") return {
       code: d.code, name: d.name, kind: d.kind, transport: c.transport,
@@ -391,18 +429,19 @@ export function BridgeSetup() {
     URL.revokeObjectURL(url);
   }
   return <Card className="mb-6 space-y-4 p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر و ترازو</h2><p className="mt-1 text-xs leading-6 text-stone-500">اپ ویندوزی چند پرینتر و ترازو را هم‌زمان به صف ابری متصل می‌کند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/releases/download/windows-bridge-latest/MenuPeak-Bridge-Setup-x64.exe" aria-label="دانلود مستقیم نصب‌گر پل سخت‌افزار ویندوز" className="btn btn-sm inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-white px-3 text-xs font-medium text-base-content ring-1 ring-base-300 transition hover:bg-base-200 active:bg-base-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</a><Button data-tour="bridge-download" size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
-    {devices.length === 0 ? <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-500">ابتدا پرینتر یا ترازو را در همین صفحه اضافه کنید تا تنظیمات نمونه ساخته شود.</p> : <div className="grid gap-3 lg:grid-cols-2">{devices.map((d) => {
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر، ترازو و پیجر</h2><p className="mt-1 text-xs leading-6 text-stone-500">تنظیمات همه‌ی دستگاه‌های قابل دسترس در یک فایل ترکیب می‌شود تا اپ ویندوزی هم‌زمان به آن‌ها وصل بماند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/releases/download/windows-bridge-latest/MenuPeak-Bridge-Setup-x64.exe" aria-label="دانلود مستقیم نصب‌گر پل سخت‌افزار ویندوز" className="btn btn-sm inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-white px-3 text-xs font-medium text-base-content ring-1 ring-base-300 transition hover:bg-base-200 active:bg-base-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</a><Button data-tour="bridge-download" size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
+    {devices.length === 0 ? <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-500">ابتدا پرینتر، ترازو یا فرستنده‌ی پیجر را در همین صفحه اضافه کنید تا تنظیمات نمونه ساخته شود.</p> : <div className="grid gap-3 lg:grid-cols-2">{devices.map((d) => {
       const c = configFor(d);
       const set = (key: keyof LocalDeviceConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => updateConfig(d, { [key]: e.target.value } as Partial<LocalDeviceConfig>);
       return <div key={d.code} className="space-y-3 rounded-xl bg-stone-50 p-3">
         <div className="flex items-center justify-between gap-2"><p className="font-semibold">{d.name}</p><code className="text-xs" dir="ltr">{d.code}</code></div>
-        <Field label="روش اتصال"><Select data-tour="bridge-transport" value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option><option value="usb">{d.kind === "printer" ? "USB از طریق صف چاپ Windows" : "USB مستقیم HID"}</option></Select></Field>
+        <Field label="روش اتصال"><Select data-tour="bridge-transport" value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option>{d.kind !== "pager" && <option value="usb">{d.kind === "printer" ? "USB از طریق صف چاپ Windows" : "USB مستقیم HID"}</option>}</Select></Field>
         {c.transport === "tcp" && <div className="grid grid-cols-2 gap-2"><Field label="IP دستگاه"><Input data-tour="bridge-host" dir="ltr" value={c.host} onChange={set("host")} /></Field><Field label="درگاه"><Input data-tour="bridge-port" dir="ltr" inputMode="numeric" value={c.port} onChange={set("port")} /></Field></div>}
         {c.transport === "serial" && <div className="grid grid-cols-2 gap-2"><Field label="پورت USB-سریال (مثلاً COM3)"><Input data-tour="bridge-path" dir="ltr" value={c.path} onChange={set("path")} /></Field><Field label="سرعت"><Input data-tour="bridge-baud" dir="ltr" inputMode="numeric" value={c.baud} onChange={set("baud")} /></Field></div>}
         {c.transport === "usb" && d.kind === "scale" && <div className="grid grid-cols-2 gap-2"><Field label="Vendor ID"><Input dir="ltr" value={c.vendorId} onChange={set("vendorId")} placeholder="0x04b8" /></Field><Field label="Product ID"><Input dir="ltr" value={c.productId} onChange={set("productId")} placeholder="0x0e15" /></Field></div>}
         {d.kind === "printer" && c.transport === "usb" && <Field label="نام صف پرینتر نصب‌شده در Windows"><Input data-tour="bridge-printerName" dir="ltr" value={c.printerName} onChange={set("printerName")} placeholder="مثلاً POS-80" /></Field>}
         {d.kind === "printer" && c.transport !== "usb" && <Field label="کدگذاری چاپ فارسی"><Input data-tour="bridge-encoding" dir="ltr" value={c.encoding} onChange={set("encoding")} placeholder="CP1256" /></Field>}
+        {d.kind === "pager" && <Field label="قالب فرمان فرستنده"><Input dir="ltr" value={c.format} onChange={set("format")} placeholder="R{n}\r\n" /><span className="mt-1 block text-[11px] text-stone-500">{`{n}`} با شماره‌ی پیجر جایگزین می‌شود؛ escapeهای \r و \n پشتیبانی می‌شوند.</span></Field>}
         {d.kind === "scale" && <div className="space-y-2"><Field label={c.transport === "usb" ? "بایت درخواست HID (در صورت نیاز)" : "درخواست خواندن (در صورت نیاز) / متن فرستاده‌شده"}><Input dir="ltr" value={c.request} onChange={set("request")} placeholder={c.transport === "usb" ? "مثلاً \\x00\\x01" : "خالی = خواندن خروجی پیوسته"} /></Field>{c.transport === "usb" && <p className="text-[10px] text-stone-500">در درخواست HID، بایت اول شناسه‌ی گزارش است؛ قالب داده به مدل ترازو وابسته است.</p>}<Field label="پایان پاسخ"><Input dir="ltr" value={c.responseEnd} onChange={set("responseEnd")} placeholder="\\r\\n" /></Field><Field label="عبارت استخراج وزن"><Input dir="ltr" value={c.weightRegex} onChange={set("weightRegex")} /></Field><div className="grid grid-cols-2 gap-2"><Field label="واحد خروجی"><Select value={c.weightUnit} onChange={set("weightUnit")}><option value="kg">کیلوگرم</option><option value="g">گرم</option></Select></Field><Field label="ضریب کالیبراسیون"><Input dir="ltr" inputMode="decimal" value={c.factor} onChange={set("factor")} /></Field></div></div>}
       </div>;
     })}</div>}
@@ -413,12 +452,28 @@ export function BridgeSetup() {
 
 /* ---------- cloud printers ---------- */
 type Job = { id: number; orderId: number | null; deviceName: string; status: string; content: string; detail?: string; createdAt: string; printedAt: string | null };
+async function waitForPrintJob(jobId: number): Promise<Job> {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const result = await api<{ items: Job[] }>("/api/r/printjobs");
+    const job = result.items.find((item) => item.id === jobId);
+    if (job && (job.status === "printed" || job.status === "failed")) return job;
+  }
+  throw new Error("عامل محلی هنوز نتیجه‌ی چاپ آزمایشی را نفرستاده است؛ وضعیت صف را بررسی کنید.");
+}
 export function Printers() {
   const jobs = useCollection<Job>("/api/r/printjobs", { poll: 6000 });
   const toast = useToast();
   const [view, setView] = useState<Job | null>(null);
   async function test() {
-    try { await api("/api/r/printjobs", { method: "POST" }); jobs.reload(true); toast("چاپ آزمایشی در صف قرار گرفت"); } catch (e) { toast((e as Error).message, "error"); }
+    try {
+      const { items } = await api<{ items: Job[] }>("/api/r/printjobs", { method: "POST", body: {} });
+      const results = await Promise.all(items.map((item) => waitForPrintJob(item.id)));
+      jobs.reload(true);
+      const failed = results.filter((item) => item.status === "failed");
+      if (failed.length) throw new Error(failed.map((item) => `${item.deviceName}: ${item.detail || "ارسال ناموفق"}`).join("؛ "));
+      toast("داده‌ی آزمایشی به صف سیستم چاپ تحویل شد؛ خروج کاغذ را روی هر پرینتر بررسی کنید.");
+    } catch (e) { jobs.reload(true); toast((e as Error).message, "error"); }
   }
   return (
     <div className="animate-fade-in">
@@ -428,7 +483,7 @@ export function Printers() {
       <IconText>{jobs.loading ? <Skeleton className="h-40 rounded-2xl" /> : jobs.items.length === 0 ? <EmptyState emoji="" title="کار چاپی وجود ندارد" description="پس از افزودن پرینتر، هر سفارش جدید خودکار اینجا صف می‌شود." /> : (
         <Card className="divide-y divide-stone-100">{jobs.items.slice(0, 30).map((j) => (
           <div key={j.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
-            <Badge color={j.status === "printed" ? "emerald" : j.status === "failed" ? "rose" : "amber"}>{j.status === "printed" ? "چاپ شد" : j.status === "failed" ? "خطا" : j.status === "printing" ? "در حال چاپ" : "در صف"}</Badge>
+            <Badge color={j.status === "printed" ? "emerald" : j.status === "failed" ? "rose" : "amber"}>{j.status === "printed" ? "تحویل به صف چاپ" : j.status === "failed" ? "خطا" : j.status === "printing" ? "در حال ارسال" : "در صف"}</Badge>
             <span className="font-semibold">{j.orderId ? `سفارش #${toFa(j.orderId)}` : "چاپ آزمایشی"}</span><span className="text-xs text-stone-500">{j.deviceName}</span>
             <span className="text-xs text-stone-400">{timeAgo(j.createdAt)}</span>
             {j.status === "failed" && j.detail && <span className="w-full text-xs text-rose-700">{j.detail}</span>}
@@ -643,6 +698,7 @@ export function FoodCourtPager() {
       <PageHeader title="پیجر فودکورتی" subtitle="پیجر را به سفارش تخصیص دهید؛ با آماده‌شدن سفارش، پیجر به‌صورت خودکار زنگ می‌خورد" actions={<div className="flex gap-2"><Input className="w-28" placeholder="شماره پیجر" inputMode="numeric" value={num} onChange={(e) => setNum(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} /><Button onClick={add}><Icon name="plus" className="size-4" /> افزودن</Button></div>} />
       <SerialPagerBridge pagers={pg.items} reload={() => pg.reload(true)} />
       <DevicePanel resource="dev_pager" kinds={["pager"]} hint={(d) => `/api/device/${d.code}/pager`} />
+      <BridgeSetup />
       <div className="mb-4 flex gap-3 text-xs"><Badge color="emerald">آزاد</Badge><Badge color="amber">در اختیار مشتری</Badge><Badge color="rose">در حال زنگ‌خوردن</Badge></div>
       <IconText>{pg.loading ? <Skeleton className="h-48 rounded-2xl" /> : pg.items.length === 0 ? <EmptyState emoji="" title="پیجری ثبت نشده" description="شماره‌ی پیجرهای فودکورت را اضافه کنید." /> : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{pg.items.map((p) => (

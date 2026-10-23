@@ -22,12 +22,30 @@ async function handle(req: Request, ctx: Ctx) {
       if (!hasAny(features, k)) throw new HttpError(403, "این امکان در پلن فعال نیست");
       if (!kinds.includes(dev.kind)) throw new HttpError(403, "این دستگاه مجاز به این عملیات نیست");
     };
-    await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.id, dev.id));
+    // Printer and pager presence must come from a bridge probe of the real transport,
+    // never from a browser request or an empty queue poll. Other legacy devices keep
+    // their existing request-based heartbeat behavior.
+    if (dev.kind !== "printer" && dev.kind !== "pager") {
+      await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.id, dev.id));
+    }
     const body = req.method === "POST" ? await readJson(req) : {};
 
     switch (action) {
-      case "ping":
+      case "ping": {
+        if (dev.kind === "printer" || dev.kind === "pager") {
+          need(dev.kind === "printer" ? "cloud_printer" : "foodcourt_pager", [dev.kind]);
+          if (req.method === "POST") {
+            if (typeof body.connected !== "boolean") throw new HttpError(400, "نتیجه‌ی بررسی اتصال نامعتبر است");
+            const checkedAt = body.connected ? new Date() : null;
+            await db.update(devices).set({ lastSeenAt: checkedAt }).where(eq(devices.id, dev.id));
+            return Response.json({ ok: true, online: body.connected, lastSeenAt: checkedAt });
+          }
+          const probeAgeMs = dev.lastSeenAt ? Math.max(0, Date.now() - dev.lastSeenAt.getTime()) : null;
+          const online = probeAgeMs !== null && probeAgeMs < 15_000;
+          return Response.json({ ok: true, online, lastSeenAt: dev.lastSeenAt, probeAgeMs });
+        }
         return Response.json({ ok: true, device: dev.name, business: biz.name });
+      }
       case "jobs": {
         need("cloud_printer", ["printer"]);
         if (req.method === "POST") {

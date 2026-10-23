@@ -34,6 +34,8 @@ Pager record `number,status,orderId,orderNumber,ringRequestedAt,ringSentAt`; gri
 Serial bridge `SerialPagerBridge` از Web Serial API (HTTPS + Chrome/Edge) port را با baud قابل تنظیم باز می‌کند؛ default baud 9600، command template `R{n}
 `, token `{n}` یا zero-padded `{n:3}`. تنظیمات fmt/baud در localStorage. برای pager با status ringing و request جدید، writer command را می‌فرستد؛ موفقیت id در POST `/api/r/pagerack` acknowledge می‌شود و list reload. DevicePanel فرستنده شبکه‌ای `/api/r/dev_pager` جدا دارد. راهنمای local bridge در `docs/DEVICES.md`.
 
+در عامل Windows، تنظیمات همان صفحه deviceهای `dev_pager` را با TCP یا Serial به فایل ترکیبی bridge config اضافه می‌کند. عامل پیش از polling صف اتصال واقعی پورت را باز و heartbeat می‌فرستد؛ ping صفحه فقط این heartbeat حداکثر ۱۵ ثانیه‌ای را می‌خواند. probe دریافت فرمان توسط pager را تأیید نمی‌کند؛ تست شمارهٔ ۱ یا زنگ‌زدن یک پیجر واقعی برای بررسی خروجی لازم است. ACK سرور فعلی یعنی فرمان به فرستنده ارسال شده و خود pager تأیید مستقیمی نمی‌دهد.
+
 **پذیرش:** no serial support، permission denied، serial connection, template escape، failed write بدون ack، ring duplicate prevention، busy/free lifecycle، order delivered auto-free, multiple pager assignment.
 
 ## مرجع بازسازی

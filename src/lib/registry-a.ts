@@ -5,7 +5,7 @@ import {
   assets, bankAccounts, categories, couriers, customers, deliveryZones, devices, discountCodes, inventoryCategories, inventoryItems, orders, pagers,
   printJobs, products, recipes, stockMovements, surveyResponses, surveys, transactions, warehouses, calls, crossSellRules,
 } from "@/db/schema";
-import { getAuth, HttpError, withAuth } from "@/lib/auth";
+import { getAuth, HttpError, readJson, withAuth } from "@/lib/auth";
 import { ensureAccounting, loadAccounts, postManualTx, unpostManualTx } from "@/lib/accounting";
 import { makeCrud } from "@/lib/crud";
 import { normPhone, receiptText } from "@/lib/orders";
@@ -478,12 +478,22 @@ export const registryA: Record<string, any> = {
   printjobs: {
     ...printjobsBase,
     create: withAuth(
-      async (_req, { business }) => {
-        const ps = await db.select().from(devices).where(and(eq(devices.businessId, business.id), eq(devices.kind, "printer")));
+      async (req, { business }) => {
+        const body = req.headers.get("content-type")?.includes("application/json") ? await readJson(req) : {};
+        const requestedId = body.deviceId == null ? null : Number(body.deviceId);
+        if (requestedId !== null && (!Number.isSafeInteger(requestedId) || requestedId <= 0)) throw new HttpError(400, "پرینتر انتخاب‌شده معتبر نیست");
+        const freshSince = new Date(Date.now() - 15_000);
+        const ps = await db.select().from(devices).where(and(
+          eq(devices.businessId, business.id), eq(devices.kind, "printer"),
+          requestedId ? eq(devices.id, requestedId) : undefined,
+        ));
+        if (requestedId && !ps.length) throw new HttpError(404, "پرینتر متعلق به این کسب‌وکار نیست");
         if (!ps.length) throw new HttpError(400, "ابتدا یک پرینتر ابری اضافه کنید");
+        const online = ps.filter((printer) => printer.lastSeenAt && printer.lastSeenAt > freshSince);
+        if (!online.length) throw new HttpError(409, "عامل محلی هیچ پرینتر فعالی را در ۱۵ ثانیه‌ی اخیر تأیید نکرده است؛ اتصال و صف چاپگر را بررسی کنید");
         const content = receiptText(business, { number: 0, type: "dine_in", tableName: "تست", customerName: "", note: "چاپ آزمایشی", total: 0, items: [{ name: "آیتم آزمایشی", quantity: 1, price: 0 }] });
-        const rows = await db.insert(printJobs).values(ps.map((p) => ({ businessId: business.id, deviceId: p.id, content }))).returning();
-        return Response.json({ item: rows[0] }, { status: 201 });
+        const rows = await db.insert(printJobs).values(online.map((p) => ({ businessId: business.id, deviceId: p.id, content }))).returning();
+        return Response.json({ item: rows[0], items: rows }, { status: 201 });
       },
       { feature: "cloud_printer" },
     ),

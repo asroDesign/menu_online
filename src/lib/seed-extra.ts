@@ -201,8 +201,8 @@ export async function seedExtras() {
   const devs = await db.insert(S.devices).values([
     { businessId: bid, kind: "tablet", name: "تبلت آشپزخانه", code: "kitchen01", lastSeenAt: new Date(), lastValue: 0 },
     { businessId: bid, kind: "pos", name: "پوز بانک ملت", code: "posmellat", lastSeenAt: ago(0, 0.05), lastValue: 0 },
-    { businessId: bid, kind: "printer", name: "پرینتر ابری آشپزخانه", code: "printer01", lastSeenAt: new Date(), lastValue: 0 },
-    { businessId: bid, kind: "printer", name: "پرینتر ابری صندوق", code: "printer02", lastSeenAt: ago(0, 0.02), lastValue: 0 },
+    { businessId: bid, kind: "printer", name: "پرینتر ابری آشپزخانه", code: "printer01", lastSeenAt: null, lastValue: 0 },
+    { businessId: bid, kind: "printer", name: "پرینتر ابری صندوق", code: "printer02", lastSeenAt: null, lastValue: 0 },
     { businessId: bid, kind: "scale", name: "ترازوی دیجیتال بخش گوشت", code: "scale001", lastSeenAt: new Date(), lastValue: 0.45 },
     { businessId: bid, kind: "caller_id", name: "دستگاه کالر آیدی", code: "callerid1", lastSeenAt: new Date(), lastValue: 0 },
   ]).returning();

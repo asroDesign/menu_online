@@ -146,6 +146,11 @@ fn poll_device(client: &Client, server: &str, device: &DeviceConfig, log: &LogSi
 }
 
 fn poll_printer(client: &Client, server: &str, device: &DeviceConfig, log: &LogSink) -> Result<(), String> {
+    if let Err(error) = probe_printer(device) {
+        let _ = report_connection(client, server, device, false);
+        return Err(error);
+    }
+    report_connection(client, server, device, true)?;
     let result = api(client, server, device, "jobs", None)?;
     let jobs: Vec<PrintJob> = serde_json::from_value(result.get("jobs").cloned().unwrap_or_else(|| json!([])))
         .map_err(|e| format!("صف چاپ نامعتبر است: {e}"))?;
@@ -153,10 +158,11 @@ fn poll_printer(client: &Client, server: &str, device: &DeviceConfig, log: &LogS
         match print_job(device, &job.content) {
             Ok(()) => {
                 api(client, server, device, "jobs", Some(json!({"jobId": job.id, "status": "printed"})))?;
-                log(format!("[{}] سفارش {} چاپ شد (کار {})", device.code, job.order_id.map(|n| n.to_string()).unwrap_or_else(|| "آزمایشی".to_string()), job.id));
+                log(format!("[{}] داده‌ی سفارش {} به صف/درگاه چاپ تحویل شد (کار {})", device.code, job.order_id.map(|n| n.to_string()).unwrap_or_else(|| "آزمایشی".to_string()), job.id));
             }
             Err(error) => {
                 let detail: String = error.chars().take(300).collect();
+                let _ = report_connection(client, server, device, false);
                 api(client, server, device, "jobs", Some(json!({"jobId": job.id, "status": "failed", "detail": detail})))?;
                 log(format!("[{}] چاپ کار {} ناموفق بود: {error}", device.code, job.id));
             }
@@ -182,18 +188,68 @@ fn poll_scale(client: &Client, server: &str, device: &DeviceConfig, log: &LogSin
 }
 
 fn poll_pager(client: &Client, server: &str, device: &DeviceConfig, log: &LogSink) -> Result<(), String> {
+    if let Err(error) = probe_transmitter(device) {
+        let _ = report_connection(client, server, device, false);
+        return Err(error);
+    }
+    report_connection(client, server, device, true)?;
     let result = api(client, server, device, "pager", None)?;
     let rings: Vec<PagerRing> = serde_json::from_value(result.get("rings").cloned().unwrap_or_else(|| json!([])))
         .map_err(|e| format!("صف پیجر نامعتبر است: {e}"))?;
     let mut sent = Vec::new();
     for ring in rings {
         let command = pager_command(device.format.as_deref().unwrap_or("R{n}\\r\\n"), ring.number);
-        send_wire(device, command.as_bytes())?;
+        if let Err(error) = send_wire(device, command.as_bytes()) {
+            if !sent.is_empty() { api(client, server, device, "pager", Some(json!({"ids": sent})))?; }
+            let _ = report_connection(client, server, device, false);
+            return Err(error);
+        }
         sent.push(ring.id);
-        log(format!("[{}] پیجر شماره {} فعال شد", device.code, ring.number));
+        log(format!("[{}] فرمان پیجر شماره {} به فرستنده ارسال شد؛ خود پیجر تأیید دریافت نمی‌کند", device.code, ring.number));
     }
     if !sent.is_empty() { api(client, server, device, "pager", Some(json!({"ids": sent})))?; }
     Ok(())
+}
+
+fn report_connection(client: &Client, server: &str, device: &DeviceConfig, connected: bool) -> Result<(), String> {
+    api(client, server, device, "ping", Some(json!({"connected": connected}))).map(|_| ())
+}
+
+fn probe_printer(device: &DeviceConfig) -> Result<(), String> {
+    match device.transport.as_str() {
+        "tcp" => probe_tcp(device.host.as_deref().unwrap_or(""), device.port.unwrap_or(9100)),
+        "serial" => probe_serial(device.path.as_deref().unwrap_or(""), device.baud.unwrap_or(9600)),
+        "usb" => {
+            let name = device.printer_name.as_deref().filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "نام پرینتر نصب‌شده در Windows را در تنظیمات وارد کنید".to_string())?;
+            probe_windows_queue(name)
+        }
+        other => Err(format!("روش بررسی پرینتر {other} پشتیبانی نمی‌شود")),
+    }
+}
+
+fn probe_transmitter(device: &DeviceConfig) -> Result<(), String> {
+    match device.transport.as_str() {
+        "tcp" => probe_tcp(device.host.as_deref().unwrap_or(""), device.port.unwrap_or(9100)),
+        "serial" => probe_serial(device.path.as_deref().unwrap_or(""), device.baud.unwrap_or(9600)),
+        other => Err(format!("روش بررسی فرستنده‌ی پیجر {other} پشتیبانی نمی‌شود")),
+    }
+}
+
+fn probe_tcp(host: &str, port: u16) -> Result<(), String> {
+    if host.trim().is_empty() { return Err("نشانی شبکه‌ی دستگاه خالی است".to_string()); }
+    let address = format!("{host}:{port}").to_socket_addrs().map_err(|e| format!("نشانی شبکه معتبر نیست: {e}"))?
+        .next().ok_or_else(|| "نشانی شبکه پیدا نشد".to_string())?;
+    TcpStream::connect_timeout(&address, Duration::from_secs(3))
+        .map(|_| ())
+        .map_err(|e| format!("اتصال واقعی به {host}:{port} ناموفق بود: {e}"))
+}
+
+fn probe_serial(path: &str, baud: u32) -> Result<(), String> {
+    if path.trim().is_empty() { return Err("نام پورت سریال خالی است".to_string()); }
+    serialport::new(path, baud).timeout(Duration::from_secs(2)).open()
+        .map(|_| ())
+        .map_err(|e| format!("بازکردن واقعی پورت {path} ناموفق بود: {e}"))
 }
 
 fn api(client: &Client, server: &str, device: &DeviceConfig, action: &str, body: Option<Value>) -> Result<Value, String> {
@@ -377,6 +433,51 @@ fn pager_command(template: &str, number: i64) -> String {
 }
 
 #[cfg(windows)]
+fn probe_windows_queue(name: &str) -> Result<(), String> {
+    use std::{ffi::c_void, ptr};
+    #[repr(C)]
+    struct PrinterInfo6 { status: u32 }
+    #[link(name = "winspool.drv")]
+    extern "system" {
+        fn OpenPrinterW(name: *const u16, handle: *mut *mut c_void, defaults: *const c_void) -> i32;
+        fn ClosePrinter(handle: *mut c_void) -> i32;
+        fn GetPrinterW(handle: *mut c_void, level: u32, buffer: *mut u8, size: u32, needed: *mut u32) -> i32;
+    }
+    let mut printer_name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let mut handle: *mut c_void = ptr::null_mut();
+    unsafe {
+        if OpenPrinterW(printer_name.as_mut_ptr(), &mut handle, ptr::null()) == 0 {
+            return Err(format!("بازکردن صف چاپگر «{name}» ناموفق بود: {}", std::io::Error::last_os_error()));
+        }
+        let mut needed = 0_u32;
+        let _first = GetPrinterW(handle, 6, ptr::null_mut(), 0, &mut needed);
+        if needed < std::mem::size_of::<PrinterInfo6>() as u32 {
+            ClosePrinter(handle);
+            return Err(format!("خواندن وضعیت صف چاپگر «{name}» ناموفق بود: {}", std::io::Error::last_os_error()));
+        }
+        let mut buffer = vec![0_u64; (needed as usize + 7) / 8];
+        let read_ok = GetPrinterW(handle, 6, buffer.as_mut_ptr().cast(), needed, &mut needed) != 0;
+        let read_error = if read_ok { None } else { Some(std::io::Error::last_os_error()) };
+        let close_ok = ClosePrinter(handle) != 0;
+        if !read_ok || !close_ok {
+            return Err(format!("خواندن وضعیت صف چاپگر «{name}» ناموفق بود: {}", read_error.unwrap_or_else(std::io::Error::last_os_error)));
+        }
+        let status = (*(buffer.as_ptr().cast::<PrinterInfo6>())).status;
+        // PRINTER_STATUS_ERROR | PAPER_OUT | OFFLINE | NOT_AVAILABLE | USER_INTERVENTION
+        let problem = status & (0x0000_0002 | 0x0000_0020 | 0x0000_0080 | 0x0000_1000 | 0x0010_0000);
+        if problem != 0 {
+            return Err(format!("صف چاپگر «{name}» در Windows آماده نیست (کد وضعیت {status:#x})"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn probe_windows_queue(_name: &str) -> Result<(), String> {
+    Err("بررسی صف USB فقط در نسخه‌ی ویندوز پشتیبانی می‌شود".to_string())
+}
+
+#[cfg(windows)]
 fn print_windows_queue(name: &str, data: &[u8]) -> Result<(), String> {
     use std::{ffi::c_void, ptr};
     #[repr(C)]
@@ -416,4 +517,30 @@ fn print_windows_queue(name: &str, data: &[u8]) -> Result<(), String> {
 #[cfg(not(windows))]
 fn print_windows_queue(_name: &str, _data: &[u8]) -> Result<(), String> {
     Err("چاپگر USB نصب‌شده فقط در نسخه‌ی ویندوز پشتیبانی می‌شود".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::probe_tcp;
+    use std::{net::TcpListener, thread};
+
+    #[test]
+    fn tcp_probe_succeeds_only_when_a_listener_accepts_connections() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind local test listener");
+        let port = listener.local_addr().expect("read local port").port();
+        let accept = thread::spawn(move || listener.accept().expect("accept probe connection"));
+        assert!(probe_tcp("127.0.0.1", port).is_ok());
+        let _ = accept.join().expect("probe should reach the listener");
+
+        let closed = TcpListener::bind(("127.0.0.1", 0)).expect("bind closed-port candidate");
+        let closed_port = closed.local_addr().expect("read closed port").port();
+        drop(closed);
+        assert!(probe_tcp("127.0.0.1", closed_port).is_err());
+    }
+
+    #[test]
+    fn invalid_network_configuration_is_rejected() {
+        assert!(probe_tcp("", 9100).is_err());
+        assert!(probe_tcp("127.0.0.1", 0).is_err());
+    }
 }

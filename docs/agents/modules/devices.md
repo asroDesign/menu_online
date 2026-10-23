@@ -11,7 +11,7 @@
 
 ## رابط و جریان کار
 
-DevicePanel برای تولید/مدیریت device code و online status؛ لینک نمایشگر آشپزخانه؛ درخواست‌های POS با polling 4s و نتیجه/خطا و retry/ack طبق device.
+DevicePanel برای تولید/مدیریت device code و online status؛ لینک نمایشگر آشپزخانه؛ درخواست‌های POS با polling 4s و نتیجه/خطا و retry/ack طبق device. وضعیت پرینتر و فرستنده‌ی پیجر با `lastSeenAt` حداکثر ۱۵ ثانیه‌ای نمایش داده می‌شود؛ دکمه‌ی پرینتر یک تست چاپ واقعی به همان ایستگاه می‌فرستد و تا نتیجه‌ی عامل منتظر می‌ماند. دکمه‌ی فرستنده‌ی پیجر heartbeat حاصل از probe واقعی عامل را می‌سنجد؛ دریافت فرمان توسط پیجر با تست شماره‌ی پیجر انجام می‌شود.
 
 ## داده و API
 
@@ -35,9 +35,17 @@ GET/CRUD /api/r/dev_tablet؛ GET /api/r/posrequests (poll 4s)؛ POST /api/r/posr
 - عملیات را با componentهای مشترک `src/components/ui.tsx`, `src/components/resource-page.tsx` و `src/lib/api.ts` هم‌راستا کن؛ بعد از mutation فهرست/cache را تازه کن.
 - tenant isolation، احراز هویت، entitlement و نقش باید سمت API نیز enforce شود؛ مخفی کردن دکمه به‌تنهایی مجوز نیست.
 
+### اتصال و آزمون واقعی پرینتر/پیجر
+
+- `GET /api/device/:code/ping` وضعیت تازه‌ی agent را فقط می‌خواند و timestamp را تغییر نمی‌دهد. برای printer/pager فقط عامل محلی با `POST { connected: true | false }` می‌تواند `lastSeenAt` را ثبت یا پاک کند.
+- عامل Windows پیش از polling صف چاپ، صف USB/وضعیت خطا یا بازشدن TCP/COM را بررسی می‌کند. برای پیجر نیز پیش از دریافت فرمان، اتصال TCP/COM را باز می‌کند. خطای probe دستگاه را آفلاین می‌کند؛ timestamp قدیمی پس از ۱۵ ثانیه آنلاین محسوب نمی‌شود.
+- POST `/api/r/printjobs` فقط چاپگر همان کسب‌وکار را هدف می‌گیرد و اگر در ۱۵ ثانیه‌ی اخیر heartbeat واقعی نداشته باشد، HTTP 409 می‌دهد. موفقیت نهایی فقط پس از پاسخ عامل ثبت می‌شود. status=`printed` یعنی داده به صف Windows یا درگاه چاپ تحویل شده، نه تأیید فیزیکی خروج کاغذ.
+- probe فرستنده‌ی پیجر فقط آماده‌بودن پورت/شبکه را می‌سنجد. پروتکل فعلی acknowledgement از خود pager ندارد؛ برای تأیید دریافت، تست شماره‌ی ۱ را اجرا کنید.
+- `bridge.config.json` در تب پیجر شامل host/port یا COM/baud و قالب `format` است. قالب پیش‌فرض `R{n}\\r\\n` است؛ `{n}` شماره‌ی پیجر و escapeهای `\\r` و `\\n` به بایت تبدیل می‌شوند.
+
 ## مشخصات سطح پیاده‌سازی
 
-ماژول سه رفتار دارد: `Devices` برای ثبت tablet/POS؛ `PosRequests` برای تأیید عملیات پرداخت؛ `PosSetup` برای خروجی config پل محلی. `DevicePanel` resource `/api/r/dev_tablet` هر ۱۰s poll، code تصادفی ۸ hex از API، name/kind، online اگر lastSeen کمتر از ۵ دقیقه، hint endpoint، ping و remove. تبلت route `/tablet/:code` نمایشگر آشپزخانه است.
+ماژول سه رفتار دارد: `Devices` برای ثبت tablet/POS؛ `PosRequests` برای تأیید عملیات پرداخت؛ `PosSetup` برای خروجی config پل محلی. `DevicePanel` resource `/api/r/dev_tablet` هر ۱۰s poll، code تصادفی ۸ hex از API، name/kind، وضعیت آنلاین بر اساس heartbeat تازه (۱۵s برای printer/pager و ۵ دقیقه برای deviceهای دیگر)، hint endpoint، ping و remove. تبلت route `/tablet/:code` نمایشگر آشپزخانه است.
 
 POS request list هر ۴s poll؛ statuses pending/approved/failed/canceled؛ pending را تأیید دستی (اختیاری refNo) یا failed کن؛ failed/canceled را نیز اگر پول واقعاً کسر شده تأیید دستی کن. این اقدام settlement است و نباید بدون رسید واقعی خودکار done شود.
 
