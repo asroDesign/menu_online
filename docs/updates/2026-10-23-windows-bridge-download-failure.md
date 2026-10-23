@@ -37,7 +37,7 @@ Workflow پس از build ویندوز، job جداگانه‌ای با `contents
 
 ## بازبینی Chrome — ۲۰۲۶-۱۰-۲۳
 
-- در صفحهٔ زندهٔ `https://menupeak.ir/dashboard/printers`، دکمه هنوز به صفحهٔ workflow در GitHub Actions می‌رود؛ این نشان می‌دهد نسخهٔ محلیِ لینک مستقیم هنوز روی سایت زنده نیست.
-- اجرای موفق Windows hardware bridge شمارهٔ ۶ در Chrome یک artifact دارد و فقط job ساخت قدیمی را اجرا کرده است؛ release پایدار `windows-bridge-latest` ساخته نشده.
-- بازکردن `https://github.com/asroDesign/menu_online/releases/tag/windows-bridge-latest` در Chrome واقعاً صفحهٔ 404 GitHub را نشان داد. بنابراین علت 404 لینک Release، منتشرنشدن Release است؛ علت صفحهٔ زنده نیز نسخهٔ قدیمی دکمه است.
-- workflow انتشار و لینک مستقیم در commit محلی `c24ca55` آماده‌اند، اما تا push آن به `main` و موفقیت workflow، Release و نسخهٔ تازهٔ دکمه فعال نمی‌شوند.
+- در صفحهٔ زندهٔ `https://menupeak.ir/dashboard/printers`، دکمه هنوز به صفحهٔ workflow در GitHub Actions می‌رود؛ نسخهٔ وبی که کاربر می‌بیند هنوز به Release جدید متصل نشده است.
+- commit `c24ca55` روی GitHub اجرای [شمارهٔ ۷ GitHub Actions](https://github.com/asroDesign/menu_online/actions/runs/39988603898) را ساخت. build و artifact موفق بودند، اما job انتشار شکست خورد.
+- علت شکست از log روشن شد: فایل Setup داخل زیرپوشهٔ artifact بود، ولی فرمان `find dist -maxdepth 1` فقط ریشهٔ `dist` را می‌گشت؛ سپس آزمون مسیر خالی با exit code 1 و بدون پیام کاربردی تمام می‌شد.
+- job انتشار اصلاح شد تا همهٔ زیرپوشه‌ها را برای `.exe` جست‌وجو کند و تعداد فایل‌ها را دقیقاً یک بررسی کند. در صورت تعداد نامعتبر، فهرست فایل‌های پیدا شده را در log نشان می‌دهد. پس از push این اصلاح، موفقیت workflow و سپس deploy نسخهٔ وب باید دوباره بررسی شود.

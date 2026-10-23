@@ -14,6 +14,9 @@ test('Windows installer button points directly to the asset published by the mai
   assert.ok(hardwareSettings.includes(`href="${downloadUrl}"`));
   assert.doesNotMatch(hardwareSettings, /actions\/workflows\/windows-bridge\.yml/);
   assert.match(workflow, /publish-installer:[\s\S]*?needs: build-windows-installer[\s\S]*?if: github\.ref == 'refs\/heads\/main'[\s\S]*?contents: write/);
+  assert.match(workflow, /find dist -type f -iname '\*\.exe' -print/);
+  assert.match(workflow, /Expected exactly one Windows installer \.exe/);
+  assert.doesNotMatch(workflow, /find dist -maxdepth 1 -type f -name '\*\.exe'/);
   assert.match(workflow, /gh release upload windows-bridge-latest dist\/MenuPeak-Bridge-Setup-x64\.exe[\s\S]*?--clobber/);
   assert.match(workflow, /actions\/upload-artifact@v4[\s\S]*?retention-days: 30/);
 });

@@ -75,8 +75,13 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          installer="$(find dist -maxdepth 1 -type f -name '*.exe' -print -quit)"
-          test -n "$installer"
+          mapfile -t installers < <(find dist -type f -iname '*.exe' -print | sort)
+          if [[ ${#installers[@]} -ne 1 ]]; then
+            printf 'Expected exactly one Windows installer .exe in the downloaded artifact, found %s. Files in dist:\n' "${#installers[@]}" >&2
+            find dist -maxdepth 5 -type f -print >&2 || true
+            exit 1
+          fi
+          installer="${installers[0]}"
           cp "$installer" dist/MenuPeak-Bridge-Setup-x64.exe
           if ! gh release view windows-bridge-latest --repo "$GH_REPOSITORY" >/dev/null 2>&1; then
             gh release create windows-bridge-latest \
