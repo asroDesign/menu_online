@@ -4,9 +4,9 @@
 
 ## دریافت نصب‌گر
 
-در GitHub به بخش [**Actions → Windows hardware bridge**](https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml) بروید و آخرین اجرای موفق شاخهٔ `main` را باز کنید. از بخش **Artifacts** فایل `digital-menu-bridge-windows-x64` را دانلود، از ZIP خارج و فایل Setup با پسوند `.exe` را اجرا کنید. اجرای ناموفق نصب‌گر قابل دانلود ندارد؛ پس از خطای ساخت باید اجرای موفق جدید را باز کنید. هر تغییر در `windows-bridge/` نیز ساخت نصب‌گر را خودکار اجرا می‌کند.
+از لینک مستقیم [دانلود نصب‌گر Windows](https://github.com/asroDesign/menu_online/releases/download/windows-bridge-latest/MenuPeak-Bridge-Setup-x64.exe) فایل Setup را دریافت و اجرا کنید. این فایل پس از هر build موفق روی شاخهٔ `main` به‌روزرسانی می‌شود. اگر هنوز نخستین build موفق پس از فعال‌شدن انتشار مستقیم انجام نشده، آخرین اجرای موفق [GitHub Actions](https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml) را باز کنید و فایل artifact را موقتاً از بخش **Artifacts** دریافت کنید. هر تغییر در `windows-bridge/` یا workflow نیز build را اجرا می‌کند.
 
-نصب‌گر ساخته‌شده پس از رفع خطای ساخت در [اجرای موفق شمارهٔ ۴](https://github.com/asroDesign/menu_online/actions/runs/39982211888) نیز در بخش Artifacts همین صفحه در دسترس است.
+فایل artifact در Actions برای عیب‌یابی و نگهداری سی‌روزه باقی می‌ماند؛ دانلود روزمره از لینک مستقیم Release انجام می‌شود و نیازی به بازکردن صفحهٔ GitHub Actions ندارد.
 
 ## راه‌اندازی
 

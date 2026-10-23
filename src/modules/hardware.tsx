@@ -391,7 +391,7 @@ export function BridgeSetup() {
     URL.revokeObjectURL(url);
   }
   return <Card className="mb-6 space-y-4 p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر و ترازو</h2><p className="mt-1 text-xs leading-6 text-stone-500">اپ ویندوزی چند پرینتر و ترازو را هم‌زمان به صف ابری متصل می‌کند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml" target="_blank" rel="noreferrer"><Button size="sm" variant="secondary"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</Button></a><Button data-tour="bridge-download" size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold">اتصال محلی پرینتر و ترازو</h2><p className="mt-1 text-xs leading-6 text-stone-500">اپ ویندوزی چند پرینتر و ترازو را هم‌زمان به صف ابری متصل می‌کند.</p></div><div className="flex flex-wrap gap-2"><a href="https://github.com/asroDesign/menu_online/releases/download/windows-bridge-latest/MenuPeak-Bridge-Setup-x64.exe" aria-label="دانلود مستقیم نصب‌گر پل سخت‌افزار ویندوز" className="btn btn-sm inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-white px-3 text-xs font-medium text-base-content ring-1 ring-base-300 transition hover:bg-base-200 active:bg-base-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"><Icon name="download" className="size-4" />دریافت نصب‌گر ویندوز</a><Button data-tour="bridge-download" size="sm" variant="secondary" onClick={downloadConfig}><Icon name="download" className="size-4" />دانلود تنظیمات</Button><Button size="sm" onClick={copy}><Icon name="copy" className="size-4" />کپی تنظیمات</Button></div></div>
     {devices.length === 0 ? <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-500">ابتدا پرینتر یا ترازو را در همین صفحه اضافه کنید تا تنظیمات نمونه ساخته شود.</p> : <div className="grid gap-3 lg:grid-cols-2">{devices.map((d) => {
       const c = configFor(d);
       const set = (key: keyof LocalDeviceConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => updateConfig(d, { [key]: e.target.value } as Partial<LocalDeviceConfig>);
@@ -407,7 +407,7 @@ export function BridgeSetup() {
       </div>;
     })}</div>}
     <pre dir="ltr" className="max-h-56 overflow-auto rounded-xl bg-stone-900 p-3 text-[11px] leading-5 text-emerald-100">{configText}</pre>
-    <p className="text-[11px] leading-6 text-stone-500">نصب‌گر از workflow ویندوزی GitHub ساخته می‌شود؛ از آخرین اجرای موفق، فایل Setup را دریافت و نصب کنید. سپس فایل JSON همین صفحه را داخل اپ وارد و اتصال را شروع کنید. پرینتر USB باید در Windows نصب شده باشد؛ نام صف چاپ را در تنظیم دستگاه وارد کنید. پورت‌های USB-سریال نیز از COM قابل انتخاب‌اند.</p>
+    <p className="text-[11px] leading-6 text-stone-500">دکمهٔ دریافت، فایل Setup آخرین ساخت موفق را مستقیم دانلود می‌کند. سپس فایل JSON همین صفحه را داخل اپ وارد و اتصال را شروع کنید. پرینتر USB باید در Windows نصب شده باشد؛ نام صف چاپ را در تنظیم دستگاه وارد کنید. پورت‌های USB-سریال نیز از COM قابل انتخاب‌اند.</p>
   </Card>;
 }
 

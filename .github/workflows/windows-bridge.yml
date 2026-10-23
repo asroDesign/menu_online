@@ -54,3 +54,38 @@ jobs:
           path: windows-bridge/src-tauri/target/**/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 30
+
+  publish-installer:
+    needs: build-windows-installer
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: digital-menu-bridge-windows-x64
+          path: dist
+
+      - name: Publish stable direct download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          installer="$(find dist -maxdepth 1 -type f -name '*.exe' -print -quit)"
+          test -n "$installer"
+          cp "$installer" dist/MenuPeak-Bridge-Setup-x64.exe
+          if ! gh release view windows-bridge-latest --repo "$GH_REPOSITORY" >/dev/null 2>&1; then
+            gh release create windows-bridge-latest \
+              --repo "$GH_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "MenuPeak Windows Hardware Bridge" \
+              --notes "Latest stable Windows installer for the MenuPeak local hardware bridge. This release asset is replaced after each successful build on main." \
+              --latest=false
+          fi
+          gh release upload windows-bridge-latest dist/MenuPeak-Bridge-Setup-x64.exe \
+            --repo "$GH_REPOSITORY" \
+            --clobber
