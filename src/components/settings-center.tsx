@@ -36,6 +36,7 @@ const GROUPS = [
     icon: "users",
     items: [
       ["وفاداری و سطح عضویت", "قواعد عضویت و مزایا", "/dashboard/customers#membership-tiers", "star"],
+      ["جایزه‌های وفاداری با QR", "تعریف تخفیف یا آیتم رایگان و چاپ کارت", "/dashboard/customers", "qr"],
       ["باشگاه مشتریان", "فهرست و دسته‌بندی مشتریان", "/dashboard/customers", "users"],
     ],
   },

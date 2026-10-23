@@ -16,6 +16,15 @@
 - Migration `0044_product_media_reviews_points.sql` ستون و جدول‌ها را افزایشی می‌سازد و ماندهٔ فعلی امتیاز را با رکورد `opening` به دفتر می‌آورد؛ rollback اگر نظر یا تراکنش جدید ثبت شده باشد متوقف می‌شود. Migration در این تغییر اجرا نشده است؛ تا اجرا، مسیرهای API به schema تازه نیاز دارند. بازگشت کد به‌تنهایی migration را اجرا یا rollback نمی‌کند.
 - اعتبارسنجی: با runtime موجود Node `v24.19.0`، دستور `npm run typecheck` موفق شد؛ ESLint هدفمند فایل‌های تغییرکرده بدون خطا و هشدار موفق شد؛ `node --test tests/*.test.cjs` با ۱۳۹ آزمون اجراشده، ۱۳۲ موفق، ۷ مورد نیازمند PostgreSQL که skip شدند و صفر شکست تمام شد؛ `npm run build` موفق شد؛ و `git diff --check` بدون خطا گذشت. Build دو هشدار CSS برای `@property --radialprogress` و `@property --aura-angle` از DaisyUI چاپ کرد. Node سیستمی `v18.17.1` برای Next.js 16 کم است و migration روی پایگاه‌داده اجرا نشده؛ در نتیجه آزمون یکپارچهٔ PostgreSQL و مسیر migration اجرا نشده‌اند.
 
+## جایزهٔ وفاداری با QR چاپی — ۲۰۲۶-۱۰-۲۳
+
+- در باشگاه مشتریان مدیر می‌تواند طرح QR با تخفیف درصدی یا آیتم رایگان، تعداد روز اعتبار بعد از فعال‌سازی و سقف فعال‌سازی بسازد، متوقف/فعال کند و کارت A6 چاپ کند. QR به منوی همان کسب‌وکار می‌رود و توکن تصادفی ۱۹۲بیتی دارد.
+- اسکن منو را با پروفایل OTP باز می‌کند. بعد از ورود مشتری، سرور توکن و کمپین را tenant-scope/rate-limit بررسی می‌کند؛ هر مشتری هر کمپین را یک‌بار می‌گیرد، هر مشتری هم‌زمان فقط یک جایزهٔ فعال دارد و سقف کمپین زیر lock کنترل می‌شود. فعال‌سازی و انقضا در `customer_reward_claims` ثبت می‌شوند.
+- جایزه در پروفایل دیده می‌شود و هنگام ثبت سفارش بعدی به‌طور پیش‌فرض انتخاب شده است. درصد تخفیف یا قیمت آیتم رایگان از کاتالوگ همان tenant در سرور محاسبه می‌شود. انتخاب جایزه با کد تخفیف/تخفیف صندوق/عضویت ترکیب نمی‌شود؛ اعتبار کیف پول جدا باقی می‌ماند. جایزه با اولین سفارش ثبت‌شده مصرف می‌شود؛ اگر انتخاب نشود منقضی می‌شود، و اگر سفارش لغو شود جایزه برنمی‌گردد.
+- فایل‌های اصلی: `src/modules/growth-a.tsx`, `src/app/api/loyalty-reward-campaigns/*`, `src/app/api/public/[slug]/customer/rewards/claim/route.ts`, `src/lib/loyalty-rewards-core.ts`, `src/lib/public-customer-data.ts`, `src/components/menu-client.tsx`, `src/components/public-menu-navigation.tsx`, `src/lib/orders.ts`, schema و migration شمارهٔ `0045`.
+- جزئیات طراحی، قاعده‌های سرور و محدودیت‌ها در [راهنمای مشتریان](docs/agents/modules/customers.md)، [منوی عمومی](docs/agents/core-pages/public-menu.md) و [گزارش تغییر](docs/updates/2026-10-23-loyalty-reward-barcodes.md) ذخیره شده‌اند. Migration روی دیتابیس اجرا نشده است.
+- اعتبارسنجی: با Node 24.19.0، `node --test tests/*.test.cjs` برابر ۱۴۴ تست را اجرا کرد: ۱۳۷ موفق، ۷ مورد نیازمند PostgreSQL که skip شدند و صفر شکست؛ `next typegen` و `npm run typecheck` موفق؛ ESLint هدفمند همهٔ فایل‌های تغییرکرده موفق؛ `npm run build` موفق و مسیرهای جدید API در خروجی دیده شدند؛ `git diff --check` موفق. Build دو هشدار CSS از DaisyUI دربارهٔ `@property --radialprogress` و `@property --aura-angle` داشت. Migration اجرا نشده و تست integration متصل به PostgreSQL انجام نشد.
+
 ## درخواست گارسون از منوی مشتری و اعلان دو پنل — ۲۰۲۶-۱۰-۲۲
 
 ### بازطراحی باکس پیام در پنل گارسون و صندوق — ۲۰۲۶-۱۰-۲۲

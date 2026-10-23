@@ -67,6 +67,125 @@ function CustomerRewardsSettingsCard() {
   </>;
 }
 
+type RewardCampaign = {
+  id: number; name: string; token: string; rewardType: "discount_percent" | "free_item";
+  discountPercent: number; productId: number | null; productName: string; expiresAfterDays: number;
+  maxClaims: number; isActive: boolean; claimCount: number;
+};
+
+type RewardProduct = { id: number; name: string; price: number; sellingMode: string; isAvailable: boolean };
+
+function BarcodeRewardSettings() {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [campaigns, setCampaigns] = useState<RewardCampaign[]>([]);
+  const [products, setProducts] = useState<RewardProduct[]>([]);
+  const [businessSlug, setBusinessSlug] = useState("");
+  const [name, setName] = useState("");
+  const [rewardType, setRewardType] = useState<RewardCampaign["rewardType"]>("discount_percent");
+  const [discountPercent, setDiscountPercent] = useState("10");
+  const [productId, setProductId] = useState("");
+  const [expiresAfterDays, setExpiresAfterDays] = useState("7");
+  const [maxClaims, setMaxClaims] = useState("0");
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const [campaignResult, productResult] = await Promise.all([
+        api<{ items: RewardCampaign[]; businessSlug: string }>("/api/loyalty-reward-campaigns"),
+        api<{ items: RewardProduct[] }>("/api/r/products"),
+      ]);
+      setCampaigns(campaignResult.items);
+      setBusinessSlug(campaignResult.businessSlug);
+      setProducts(productResult.items.filter((product) => product.isAvailable && product.price > 0 && product.sellingMode === "count"));
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setLoading(false); }
+  }
+
+  function rewardUrl(campaign: RewardCampaign) {
+    return `${window.location.origin}/m/${encodeURIComponent(businessSlug)}?reward=${encodeURIComponent(campaign.token)}`;
+  }
+
+  function printCampaign(campaign: RewardCampaign) {
+    const svg = document.getElementById(`loyalty-reward-qr-${campaign.id}`)?.innerHTML;
+    if (!svg) { toast("تصویر بارکد آماده نیست؛ پنجره را دوباره باز کنید", "error"); return; }
+    const popup = window.open("", "_blank", "width=720,height=900");
+    if (!popup) { toast("مرورگر پنجرهٔ چاپ را مسدود کرد؛ اجازهٔ بازشدن پنجره را بدهید", "error"); return; }
+    popup.opener = null;
+    const escape = (value: string) => value.replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char] ?? char);
+    const title = escape(campaign.name);
+    const description = campaign.rewardType === "discount_percent" ? `${toFa(campaign.discountPercent)}٪ تخفیف در سفارش بعدی` : `${escape(campaign.productName)} رایگان در سفارش بعدی`;
+    const url = escape(rewardUrl(campaign));
+    popup.document.write(`<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f8fc;color:#10233e;font-family:Arial,sans-serif}.card{width:90mm;min-height:125mm;padding:12mm 9mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:white;border:1px solid #dbe8f5;border-radius:24px;box-shadow:0 20px 60px #16365c18}.brand{font-size:12px;font-weight:700;letter-spacing:.12em;color:#3976b9}.qr{margin:24px 0 16px;padding:12px;border:1px solid #dbe8f5;border-radius:20px}.qr svg{display:block;width:58mm;height:58mm}.pill{padding:7px 14px;border-radius:999px;background:#eff6ff;color:#1d5b9d;font-size:13px;font-weight:700}.title{margin:14px 0 5px;font-size:22px}.desc{font-size:15px;line-height:1.8;color:#50647a}.hint{margin-top:18px;font-size:12px;line-height:1.8;color:#708196}.site{margin-top:12px;font-size:9px;color:#91a0b2;word-break:break-all}@page{size:A6;margin:0}@media print{body{background:white}.card{border:0;box-shadow:none;border-radius:0;width:100vw;height:100vh}}</style></head><body><main class="card"><div class="brand">باشگاه مشتریان</div><div class="qr">${svg}</div><span class="pill">جایزهٔ ویژهٔ شما</span><h1 class="title">${title}</h1><div class="desc">${description}</div><p class="hint">بارکد را اسکن کنید، با شماره موبایل وارد شوید و جایزه را برای سفارش بعدی فعال کنید.<br>جایزه پس از فعال‌سازی ${toFa(campaign.expiresAfterDays)} روز اعتبار دارد.</p><div class="site">${url}</div></main><script>window.onload=()=>window.print()</script></body></html>`);
+    popup.document.close();
+  }
+
+  async function createCampaign(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ item: RewardCampaign; businessSlug: string }>("/api/loyalty-reward-campaigns", {
+        method: "POST",
+        body: { name, rewardType, discountPercent: Number(discountPercent), productId: Number(productId), expiresAfterDays: Number(expiresAfterDays), maxClaims: Number(maxClaims) },
+      });
+      setBusinessSlug(result.businessSlug);
+      setCampaigns((current) => [result.item, ...current]);
+      setName("");
+      toast("جایزه ساخته شد؛ QR اختصاصی آن را چاپ و به مشتری بدهید");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function toggleCampaign(campaign: RewardCampaign) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ item: RewardCampaign }>(`/api/loyalty-reward-campaigns/${campaign.id}`, { method: "PATCH", body: { isActive: !campaign.isActive } });
+      setCampaigns((current) => current.map((item) => item.id === campaign.id ? { ...item, ...result.item } : item));
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  return <>
+    <Button size="sm" variant="secondary" onClick={() => { setOpen(true); void load(); }}><Icon name="qr" className="size-4"/> جایزه‌های بارکدی</Button>
+    <Modal open={open} onClose={() => { if (!busy) setOpen(false); }} title="جایزهٔ وفاداری با بارکد" description="یک QR چاپ کنید؛ مشتری پس از ورود با شمارهٔ تأییدشده جایزه را فعال می‌کند." size="xl">
+      <div className="space-y-5">
+        {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+        <form onSubmit={(event) => void createCampaign(event)} className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-white p-4 sm:p-5">
+          <div className="mb-4 flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-blue-700 shadow-sm"><Icon name="award" className="size-5"/></span><div><h3 className="text-sm font-extrabold">ساخت کارت جایزه</h3><p className="mt-1 text-xs leading-5 text-stone-500">فعال‌سازی هر کد برای هر مشتری یک‌بار است و جایزه فقط در سفارش بعدی مصرف می‌شود.</p></div></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="نام طرح"><Input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً هدیهٔ مشتریان وفادار"/></Field>
+            <Field label="نوع جایزه"><Select value={rewardType} onChange={(event) => setRewardType(event.target.value as RewardCampaign["rewardType"])}><option value="discount_percent">درصد تخفیف سفارش</option><option value="free_item">یک آیتم رایگان از منو</option></Select></Field>
+            {rewardType === "discount_percent" ? <Field label="درصد تخفیف"><Input type="number" min={1} max={100} required inputMode="numeric" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)}/></Field> : <Field label="آیتم رایگان"><Select required value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">انتخاب محصول موجود…</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} · {formatPrice(product.price)}</option>)}</Select>{!products.length && <span className="text-[11px] text-amber-700">محصول موجود و قیمت‌دار برای جایزه پیدا نشد.</span>}</Field>}
+            <Field label="اعتبار پس از فعال‌سازی (روز)" hint="پس از این مدت، جایزه قابل مصرف نیست."><Input type="number" min={1} max={365} required inputMode="numeric" value={expiresAfterDays} onChange={(event) => setExpiresAfterDays(event.target.value)}/></Field>
+            <Field label="سقف فعال‌سازی" hint="صفر یعنی بدون سقف؛ هر مشتری فقط یک بار این کد را فعال می‌کند."><Input type="number" min={0} max={1000000} required inputMode="numeric" value={maxClaims} onChange={(event) => setMaxClaims(event.target.value)}/></Field>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="max-w-xl text-[11px] leading-5 text-stone-500">کد QR به منوی همین کسب‌وکار می‌رسد. مشتری برای فعال‌سازی حتماً باید با OTP وارد حساب همان رستوران شود.</p><Button type="submit" loading={busy}><Icon name="plus" className="size-4"/> ساخت بارکد و جایزه</Button></div>
+        </form>
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-extrabold">طرح‌های ساخته‌شده</h3><p className="mt-1 text-xs text-stone-500">برای چاپ دوباره، QR هر طرح را باز کنید.</p></div><Button size="sm" variant="ghost" onClick={() => void load()} disabled={loading}><Icon name="refresh" className="size-4"/> تازه‌سازی</Button></div>
+          {loading ? <Skeleton className="h-28 rounded-2xl"/> : campaigns.length === 0 ? <EmptyState title="هنوز جایزه‌ای نساخته‌اید" description="فرم بالا را کامل کنید تا بارکد آمادهٔ چاپ شود."/> : <div className="grid gap-3 md:grid-cols-2">
+            {campaigns.map((campaign) => {
+              const url = businessSlug ? rewardUrl(campaign) : "";
+              const qrId = `loyalty-reward-qr-${campaign.id}`;
+              return <article key={campaign.id} className="rounded-2xl border border-stone-200 bg-white p-3.5">
+                <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h4 className="truncate text-sm font-bold">{campaign.name}</h4><p className="mt-1 text-xs text-stone-500">{campaign.rewardType === "discount_percent" ? `${toFa(campaign.discountPercent)}٪ تخفیف` : `${campaign.productName} رایگان`} · {toFa(campaign.expiresAfterDays)} روز اعتبار</p><p className="mt-1 text-[11px] text-stone-400">{toFa(campaign.claimCount)} فعال‌سازی{campaign.maxClaims ? ` از ${toFa(campaign.maxClaims)}` : " · بدون سقف"}</p></div><Badge color={campaign.isActive ? "emerald" : "stone"}>{campaign.isActive ? "فعال" : "متوقف"}</Badge></div>
+                <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={!campaign.isActive} onClick={() => printCampaign(campaign)}><Icon name="print" className="size-4"/> چاپ QR</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void toggleCampaign(campaign)}>{campaign.isActive ? "توقف کد" : "فعال‌سازی کد"}</Button>{url && <button type="button" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50" onClick={() => navigator.clipboard.writeText(url).then(() => toast("پیوند جایزه کپی شد")).catch(() => toast("کپی پیوند انجام نشد", "error"))}><Icon name="copy" className="size-3.5"/> کپی پیوند</button>}</div>
+                {url && <div id={qrId} className="sr-only"><QRCodeSVG value={url} size={240} level="H" marginSize={2}/></div>}
+              </article>;
+            })}
+          </div>}
+        </section>
+      </div>
+    </Modal>
+  </>;
+}
+
 type ProductReviewRow = { id: number; productId: number; productName: string; customerId: number; customerName: string; customerPhone: string; rating: number; body: string; status: "pending" | "approved" | "rejected"; awardedPoints: number; createdAt: string };
 
 function ProductReviewManager() {
@@ -180,7 +299,7 @@ export function Customers() {
         search={(r, t) => r.name.includes(t) || r.phone.includes(t)}
         header={({ items }) => (
           <div className="mb-4 space-y-3">
-            {f.isManager && <div className="flex flex-wrap justify-end gap-2"><MembershipTierManager /><CustomerRewardsSettingsCard /><Button size="sm" variant="secondary" onClick={() => window.location.assign("/api/customers/export")}><Icon name="download" className="size-4"/> خروجی CSV همه مشتریان</Button></div>}
+            {f.isManager && <div className="flex flex-wrap justify-end gap-2"><MembershipTierManager /><CustomerRewardsSettingsCard /><BarcodeRewardSettings /><Button size="sm" variant="secondary" onClick={() => window.location.assign("/api/customers/export")}><Icon name="download" className="size-4"/> خروجی CSV همه مشتریان</Button></div>}
             <SettingCard title="نرخ کسب امتیاز" desc="به ازای هر چند تومان خرید، ۱ امتیاز به مشتری تعلق می‌گیرد." k="pointsPerToman" suffix="تومان = ۱ امتیاز" />
             <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
               <IconText>{[{ key: "all", label: "همه", emoji: "" }, ...SEGMENTS].map((s) => {

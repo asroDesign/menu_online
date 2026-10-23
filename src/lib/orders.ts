@@ -8,6 +8,7 @@ import {
   cashShifts,
   couriers,
   customers,
+  customerRewardClaims,
   deliveryZones,
   devices,
   diningTables,
@@ -41,6 +42,7 @@ import { membershipDiscountAmount, type MembershipOrderSnapshot } from "@/lib/me
 import { normalizePrinterSettings, printOutputs, type PrintMoment } from "@/lib/printer-policy";
 import { addCustomerPoints } from "@/lib/customer-points";
 import { normalizeCustomerRewards, referralRewardPoints } from "@/lib/customer-rewards-core";
+import { rewardDiscountAmount, rewardIsExpired } from "@/lib/loyalty-rewards-core";
 
 type Biz = typeof businesses.$inferSelect;
 type QueryDb = typeof db;
@@ -72,6 +74,7 @@ export type OrderInput = {
   manualDiscountAmount?: number;
   useCashback?: boolean;
   useMembership?: boolean;
+  rewardClaimId?: number | null;
   payNow?: string | null; // staff: settle immediately with this method
   payment?: string | null; // customer: cash | ipg | snappay | digipay
   items: { productId: number; quantity: number; note?: string; optionIds: string[]; weightGrams?: number | null; tareGrams?: number }[];
@@ -148,6 +151,7 @@ export function parseOrderInput(body: Record<string, unknown>): OrderInput {
     manualDiscountAmount,
     useCashback: Boolean(body.useCashback),
     useMembership: body.useMembership === true,
+    rewardClaimId: num(body.rewardClaimId),
     payNow: typeof body.payNow === "string" ? body.payNow : null,
     payment: typeof body.payment === "string" ? body.payment : null,
   };
@@ -203,6 +207,13 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
   const can = (k: string) => hasAny(features, k);
   if (input.useMembership && source !== "cashier") throw new HttpError(403, "مزیت عضویت فقط در صندوق و با تأیید کارمند قابل اعمال است");
   if (input.useMembership && !can("loyalty")) throw new HttpError(403, "باشگاه مشتریان در پلن این رستوران فعال نیست");
+  if (input.rewardClaimId !== undefined && input.rewardClaimId !== null) {
+    if (!Number.isSafeInteger(input.rewardClaimId) || input.rewardClaimId < 1) throw new HttpError(400, "شناسهٔ جایزه معتبر نیست");
+    if (source !== "customer" || !opts.verifiedCustomerId) throw new HttpError(403, "جایزه فقط برای مشتری واردشده و تأییدشده قابل استفاده است");
+    if (!can("loyalty")) throw new HttpError(403, "باشگاه مشتریان در پلن این رستوران فعال نیست");
+    if (input.discountCode || input.manualDiscountAmount || input.useMembership) throw new HttpError(409, "برای استفاده از جایزه، کد تخفیف یا مزیت عضویت را از این سفارش بردارید");
+  }
+  if (input.rewardClaimId && input.appendTo) throw new HttpError(400, "جایزه فقط هنگام ثبت سفارش جدید قابل استفاده است");
   if (input.useMembership && (input.discountCode || input.manualDiscountAmount)) throw new HttpError(400, "مزیت عضویت با کد تخفیف یا تخفیف دستی هم‌زمان نمی‌شود");
   const ids = [...new Set(input.items.map((i) => i.productId))];
   const prods = await db
@@ -409,20 +420,64 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     } else if (input.useCashback) {
       throw new HttpError(400, "باشگاه مشتریان در پلن این رستوران فعال نیست");
     }
+    let orderItemsToSave = newItems;
+    let orderSubtotal = addSubtotal;
+    let appliedDiscountCode = discountCode;
+    let selectedRewardClaim: typeof customerRewardClaims.$inferSelect | null = null;
+    let expiredRewardClaimId: number | null = null;
+    if (source === "customer" && customerId && can("loyalty")) {
+      const [activeReward] = await tx.select().from(customerRewardClaims).where(and(
+        eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.customerId, customerId),
+        eq(customerRewardClaims.status, "active"),
+      )).for("update").limit(1);
+      if (input.rewardClaimId) {
+        if (!activeReward || activeReward.id !== input.rewardClaimId) throw new HttpError(409, "این جایزه دیگر برای سفارش بعدی شما فعال نیست");
+        if (rewardIsExpired(activeReward.expiresAt)) throw new HttpError(409, "مهلت این جایزه تمام شده است");
+        selectedRewardClaim = activeReward;
+      } else if (activeReward) {
+        expiredRewardClaimId = activeReward.id;
+      }
+    } else if (input.rewardClaimId) {
+      throw new HttpError(403, "برای استفاده از جایزه، پروفایل تأییدشدهٔ مشتری لازم است");
+    }
+
     let cashbackUsed = 0;
     let appliedDiscountAmount = discountAmount;
     let membershipDiscount = 0;
     let membershipSnapshot: MembershipOrderSnapshot | null = null;
+    if (selectedRewardClaim) {
+      if (selectedRewardClaim.rewardType === "discount_percent") {
+        appliedDiscountAmount = rewardDiscountAmount(orderSubtotal, selectedRewardClaim.discountPercent);
+        if (appliedDiscountAmount < 1) throw new HttpError(400, "مبلغ سفارش برای استفاده از این جایزه کافی نیست");
+        appliedDiscountCode = `جایزه وفاداری · ${selectedRewardClaim.discountPercent}٪`;
+      } else {
+        const [freeProduct] = selectedRewardClaim.productId ? await tx.select().from(products).where(and(
+          eq(products.id, selectedRewardClaim.productId), eq(products.businessId, biz.id), eq(products.isAvailable, true),
+        )).limit(1) : [];
+        if (!freeProduct || freeProduct.price <= 0 || freeProduct.sellingMode !== "count") throw new HttpError(409, "آیتم جایزه در حال حاضر قابل ارائه نیست؛ با رستوران تماس بگیرید");
+        try { resolveProductOptionSelection(freeProduct.modifierGroups ?? [], []); }
+        catch { throw new HttpError(409, "آیتم جایزه به گزینهٔ اجباری نیاز دارد؛ با رستوران تماس بگیرید"); }
+        const freeItem = {
+          productId: freeProduct.id, name: freeProduct.name, emoji: freeProduct.emoji, price: freeProduct.price,
+          quantity: 1, weightGrams: null, tareGrams: 0, yieldRatioSnapshot: 1,
+          lineTotal: freeProduct.price, note: "جایزه وفاداری", optionSnapshot: [],
+        };
+        orderItemsToSave = [...newItems, freeItem];
+        orderSubtotal += freeProduct.price;
+        appliedDiscountAmount = freeProduct.price;
+        appliedDiscountCode = `جایزه آیتم رایگان · ${freeProduct.name}`;
+      }
+    }
     if (input.useMembership) {
       if (!customerId) throw new HttpError(400, "برای اعمال مزیت عضویت، مشتری ثبت‌شده با شماره معتبر لازم است");
       const membership = await currentMembership(biz.id, customerId, settingsOf(biz).membershipTiers ?? [], new Date(), tx);
       if (!membership) throw new HttpError(409, "این مشتری در بازه فعلی واجد شرایط هیچ سطح عضویتی نیست");
-      membershipDiscount = membershipDiscountAmount(addSubtotal, membership.tier);
+      membershipDiscount = membershipDiscountAmount(orderSubtotal, membership.tier);
       if (membershipDiscount < 1) throw new HttpError(400, "مبلغ سفارش برای استفاده از مزیت عضویت کافی نیست");
       appliedDiscountAmount = membershipDiscount;
       membershipSnapshot = membership.snapshot;
     }
-    const totals = computeTotals(biz, { subtotal: addSubtotal, discount: appliedDiscountAmount, deliveryFee, type });
+    const totals = computeTotals(biz, { subtotal: orderSubtotal, discount: appliedDiscountAmount, deliveryFee, type });
     if (totals.pre > 2_147_483_647) throw new HttpError(400, "مبلغ سفارش از سقف مجاز بیشتر است");
     if (input.useCashback && customerId) {
       if (walletBalance <= 0) throw new HttpError(400, "اعتبار کش‌بک این مشتری صفر است");
@@ -442,13 +497,21 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       address: type === "delivery" ? (input.address ?? "") : "", zoneId, deliveryFee,
       lat: type === "delivery" ? (input.lat ?? null) : null,
       lng: type === "delivery" ? (input.lng ?? null) : null,
-      scheduledFor, discountCode, discountAmount: appliedDiscountAmount, membershipDiscount, membershipSnapshot, membershipAppliedBy: membershipSnapshot ? opts.actorId ?? null : null, cashbackUsed,
+      scheduledFor, discountCode: appliedDiscountCode, discountAmount: appliedDiscountAmount, membershipDiscount, membershipSnapshot, membershipAppliedBy: membershipSnapshot ? opts.actorId ?? null : null, cashbackUsed,
       paymentMethod: source === "customer" || source === "kiosk" ? input.payment ?? null : null,
       subtotal: totals.subtotal, tax: totals.tax, service: totals.service,
       total: Math.max(0, totals.pre - cashbackUsed),
     }).returning();
     await recordOrderEvents(tx, biz.id, created.id, { order: [null, created.status], payment: [null, created.paymentStatus] }, source);
-    await tx.insert(orderItems).values(newItems.map((i) => ({ ...i, orderId: created.id })));
+    await tx.insert(orderItems).values(orderItemsToSave.map((i) => ({ ...i, orderId: created.id })));
+    if (selectedRewardClaim) {
+      const [updatedReward] = await tx.update(customerRewardClaims).set({ status: "redeemed", consumedOrderId: created.id })
+        .where(and(eq(customerRewardClaims.id, selectedRewardClaim.id), eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.status, "active"))).returning({ id: customerRewardClaims.id });
+      if (!updatedReward) throw new HttpError(409, "جایزه هم‌زمان در سفارش دیگری استفاده شد؛ سفارش را دوباره بررسی کنید");
+    } else if (expiredRewardClaimId) {
+      await tx.update(customerRewardClaims).set({ status: "expired", consumedOrderId: created.id })
+        .where(and(eq(customerRewardClaims.id, expiredRewardClaimId), eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.status, "active")));
+    }
     if (source === "customer" || source === "kiosk") {
       await tx.insert(menuEvents).values({ businessId: biz.id, eventId: `order:${created.id}`, eventName: "order_created" }).onConflictDoNothing();
     }

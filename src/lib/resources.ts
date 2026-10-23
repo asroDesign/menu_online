@@ -1,10 +1,10 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { categories, diningTables, orders, products, reservations, uploads } from "@/db/schema";
+import { categories, customerRewardCampaigns, customerRewardClaims, diningTables, orders, products, reservations, uploads } from "@/db/schema";
 import { effectiveTableState } from "@/lib/table-lifecycle-core";
 import { can, HttpError } from "@/lib/auth";
 import { makeCrud } from "@/lib/crud";
-import { ALLERGEN_TAGS, DIETARY_TAGS, normalizeProductOptionGroups, normalizeTags } from "@/lib/product-options";
+import { ALLERGEN_TAGS, DIETARY_TAGS, normalizeProductOptionGroups, normalizeTags, resolveProductOptionSelection } from "@/lib/product-options";
 import { categoryParentError } from "@/lib/category-tree";
 
 export const categoriesCrud = makeCrud({
@@ -66,7 +66,7 @@ export const productsCrud = makeCrud({
       throw new HttpError(400, error instanceof Error ? error.message : "اطلاعات گزینه‌های محصول نامعتبر است");
     }
     const [existing] = !creating && id
-      ? await db.select({ sellingMode: products.sellingMode, yieldRatio: products.yieldRatio, modifierGroups: products.modifierGroups })
+      ? await db.select({ sellingMode: products.sellingMode, yieldRatio: products.yieldRatio, modifierGroups: products.modifierGroups, price: products.price, isAvailable: products.isAvailable })
         .from(products).where(and(eq(products.id, id), eq(products.businessId, biz.id))).limit(1)
       : [];
     const mode = String(data.sellingMode ?? existing?.sellingMode ?? "count");
@@ -76,6 +76,25 @@ export const productsCrud = makeCrud({
     const effectiveModifierGroups = data.modifierGroups ?? existing?.modifierGroups;
     if (mode === "weight" && Array.isArray(effectiveModifierGroups) && effectiveModifierGroups.some((group) => (group as { active?: boolean }).active !== false))
       throw new HttpError(400, "برای محصول وزنی فعلاً گزینه‌های متغیر فعال نشود؛ نرخ ترازو باید مبنای محاسبه باشد");
+    if (id) {
+      const [[activeCampaign], [activeClaim]] = await Promise.all([
+        db.select({ id: customerRewardCampaigns.id }).from(customerRewardCampaigns).where(and(
+          eq(customerRewardCampaigns.businessId, biz.id), eq(customerRewardCampaigns.productId, id), eq(customerRewardCampaigns.isActive, true),
+        )).limit(1),
+        db.select({ id: customerRewardClaims.id }).from(customerRewardClaims).where(and(
+          eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.productId, id), eq(customerRewardClaims.status, "active"),
+        )).limit(1),
+      ]);
+      if (activeCampaign || activeClaim) {
+        const available = data.isAvailable ?? existing?.isAvailable ?? true;
+        const price = Number(data.price ?? existing?.price ?? 0);
+        let requiredOptions = false;
+        try { resolveProductOptionSelection(Array.isArray(effectiveModifierGroups) ? effectiveModifierGroups : [], []); }
+        catch { requiredOptions = true; }
+        if (!available || price <= 0 || mode !== "count" || requiredOptions)
+          throw new HttpError(409, "این محصول به یک جایزهٔ QR فعال وابسته است؛ تا مصرف یا انقضای جایزه، محصول را موجود، تعدادی، قیمت‌دار و بدون گزینهٔ اجباری نگه دارید");
+      }
+    }
     if (data.arModelUrl && !can(auth, "ar")) throw new HttpError(403, "واقعیت افزوده در پلن شما فعال نیست");
     if (data.categoryId) {
       const [c] = await db
@@ -84,6 +103,16 @@ export const productsCrud = makeCrud({
         .where(and(eq(categories.id, data.categoryId as number), eq(categories.businessId, biz.id)));
       if (!c) throw new HttpError(400, "دسته‌بندی نامعتبر است");
     }
+  },
+  beforeDelete: async (biz, id) => {
+    const [activeCampaign] = await db.select({ id: customerRewardCampaigns.id }).from(customerRewardCampaigns).where(and(
+      eq(customerRewardCampaigns.businessId, biz.id), eq(customerRewardCampaigns.productId, id), eq(customerRewardCampaigns.isActive, true),
+    )).limit(1);
+    if (activeCampaign) throw new HttpError(409, "این محصول جایزهٔ QR فعال دارد؛ ابتدا طرح جایزه را متوقف کنید");
+    const [activeClaim] = await db.select({ id: customerRewardClaims.id }).from(customerRewardClaims).where(and(
+      eq(customerRewardClaims.businessId, biz.id), eq(customerRewardClaims.productId, id), eq(customerRewardClaims.status, "active"),
+    )).limit(1);
+    if (activeClaim) throw new HttpError(409, "مشتری هنوز برای این محصول جایزهٔ فعال دارد؛ تا مصرف یا انقضای آن، محصول را حذف نکنید");
   },
 });
 

@@ -15,6 +15,7 @@ import { Button, cn, Icon, Input, Modal, PersianDateInput, ProductThumb, Select,
 import { ProductOptionPicker } from "@/components/product-option-picker";
 import { PublicMenuNavigation, type PublicCustomerProfile } from "@/components/public-menu-navigation";
 import { PublicProductDetails } from "@/components/public-product-details";
+import { rewardDiscountAmount } from "@/lib/loyalty-rewards-core";
 import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
 import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
 import { trackMenuEvent } from "@/lib/menu-analytics";
@@ -31,7 +32,7 @@ const DICT: Record<string, Record<string, string>> = {
   tr: { search: "Menüde ara…", featured: " Öne çıkanlar", cart: "Siparişi gör", sold: "Tükendi", submit: "Siparişi ver", total: "Toplam", sub: "Ara toplam", suggest: "Siparişinize yakışır", ar: "3D / AR görüntüle", menu: "Dijital menü", empty: "Sonuç yok", zeroPrice: "Bu ürünün fiyatı sıfır olduğu için sepete eklenemez." },
 };
 
-export function MenuClient(props: { data: PublicMenu; initialTableId: number | null; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
+export function MenuClient(props: { data: PublicMenu; initialTableId: number | null; initialRewardToken?: string; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
   return (
     <ToastProvider>
       <Menu {...props} />
@@ -39,7 +40,7 @@ export function MenuClient(props: { data: PublicMenu; initialTableId: number | n
   );
 }
 
-function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = false }: { data: PublicMenu; initialTableId: number | null; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
+function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = false, readOnlyPreview = false }: { data: PublicMenu; initialTableId: number | null; initialRewardToken?: string; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
   const { business: biz, categories, products, tables, zones, caps, languages } = data;
   const editorial = biz.menuTemplate === "editorial";
   const compact = biz.menuTemplate === "compact";
@@ -91,10 +92,16 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const [ar, setAr] = useState<Prod | null>(null);
   const [detailProduct, setDetailProduct] = useState<Prod | null>(null);
   const [customerProfile, setCustomerProfile] = useState<PublicCustomerProfile | null>(null);
-  const [profileRequest, setProfileRequest] = useState(0);
+  const [profileRequest, setProfileRequest] = useState(initialRewardToken ? 1 : 0);
+  const [rewardToken, setRewardToken] = useState(initialRewardToken);
+  const [rewardClaimBusy, setRewardClaimBusy] = useState(false);
+  const [rewardClaimError, setRewardClaimError] = useState("");
+  const [rewardCelebration, setRewardCelebration] = useState<NonNullable<PublicCustomerProfile["activeReward"]> | null>(null);
+  const [selectedRewardClaimId, setSelectedRewardClaimId] = useState<number | null>(null);
   const [useWalletCredit, setUseWalletCredit] = useState(false);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const lockRef = useRef(false);
+  const rewardAttemptRef = useRef("");
 
   const canOrder = !readOnlyDemo && !readOnlyPreview && biz.acceptOrders && (caps.selfOrder || caps.delivery);
   const initialTable = initialTableId ? tables.find((table) => table.id === initialTableId) : undefined;
@@ -155,15 +162,24 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
   const disc = applied ? Math.min(applied.amount, subtotal) : 0;
+  const activeReward = customerProfile?.activeReward ?? null;
+  const selectedReward = activeReward?.id === selectedRewardClaimId ? activeReward : null;
+  const freeRewardProduct = selectedReward?.rewardType === "free_item" ? products.find((product) => product.id === selectedReward.productId) : undefined;
+  const freeRewardPrice = selectedReward?.rewardType === "free_item" ? freeRewardProduct?.price ?? 0 : 0;
+  const orderSubtotal = subtotal + freeRewardPrice;
+  const rewardDiscount = selectedReward?.rewardType === "discount_percent"
+    ? rewardDiscountAmount(subtotal, selectedReward.discountPercent)
+    : freeRewardPrice;
+  const appliedCheckoutDiscount = selectedReward ? rewardDiscount : disc;
   const radiusMode = zones.some((z) => z.radiusKm > 0);
   const dist = biz.lat != null && biz.lng != null && pin ? haversineKm({ lat: biz.lat, lng: biz.lng }, pin) : null;
   const autoZone = radiusMode && dist !== null ? zones.filter((z) => z.radiusKm > 0 && z.radiusKm >= dist).sort((a, b) => a.radiusKm - b.radiusKm)[0] : undefined;
   const zone = radiusMode ? autoZone : zones.find((z) => String(z.id) === zoneId);
   const outOfRange = type === "delivery" && radiusMode && dist !== null && !autoZone;
   const fee = type === "delivery" ? (zone?.fee ?? 0) : 0;
-  const tax = Math.round(((subtotal - disc) * biz.taxPercent) / 100);
-  const svc = type === "delivery" ? 0 : Math.round(((subtotal - disc) * biz.servicePercent) / 100);
-  const total = subtotal - disc + tax + svc + fee;
+  const tax = Math.round(((orderSubtotal - appliedCheckoutDiscount) * biz.taxPercent) / 100);
+  const svc = type === "delivery" ? 0 : Math.round(((orderSubtotal - appliedCheckoutDiscount) * biz.servicePercent) / 100);
+  const total = orderSubtotal - appliedCheckoutDiscount + tax + svc + fee;
   const walletCreditCap = Math.floor(Math.max(0, total) * Math.min(100, Math.max(0, caps.walletMaxRedeemPercent ?? 100)) / 100);
   const walletCreditApplied = useWalletCredit && customerProfile ? Math.min(customerProfile.walletBalance, walletCreditCap) : 0;
   const checkoutTotal = Math.max(0, total - walletCreditApplied);
@@ -180,7 +196,41 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
     return () => { live = false; clearTimeout(h); };
   }, [idsKey, caps.crossSell, biz.slug]);
 
+  function handleCustomerProfileChange(profile: PublicCustomerProfile | null) {
+    setCustomerProfile(profile);
+    setSelectedRewardClaimId(profile?.activeReward?.id ?? null);
+    if (profile?.activeReward) { setApplied(null); setCode(""); }
+  }
+
+  async function activateScannedReward(token: string) {
+    setRewardClaimBusy(true);
+    setRewardClaimError("");
+    try {
+      const result = await api<{ profile: PublicCustomerProfile; reward: NonNullable<PublicCustomerProfile["activeReward"]> }>(`/api/public/${encodeURIComponent(biz.slug)}/customer/rewards/claim`, { method: "POST", body: { token } });
+      handleCustomerProfileChange(result.profile);
+      setRewardCelebration(result.reward);
+      setRewardToken("");
+      setProfileRequest(0);
+      rewardAttemptRef.current = "";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("reward");
+      window.history.replaceState(window.history.state, "", url);
+    } catch (cause) {
+      setRewardClaimError((cause as Error).message);
+      rewardAttemptRef.current = "";
+    } finally { setRewardClaimBusy(false); }
+  }
+
+  useEffect(() => {
+    if (!rewardToken || !customerProfile || readOnlyDemo || readOnlyPreview || rewardAttemptRef.current === rewardToken) return;
+    rewardAttemptRef.current = rewardToken;
+    void activateScannedReward(rewardToken);
+    // A scanned code is submitted once after OTP profile login; explicit retry is shown on failure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rewardToken, customerProfile?.id, readOnlyDemo, readOnlyPreview]);
+
   async function applyCode() {
+    if (selectedRewardClaimId) return toast("برای واردکردن کد تخفیف، ابتدا جایزهٔ وفاداری را از این سفارش بردارید", "error");
     try {
       const r = await api<{ code: string; amount: number }>(`/api/public/${biz.slug}/discount?code=${encodeURIComponent(code)}&subtotal=${subtotal}`);
       setApplied(r);
@@ -233,8 +283,10 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
           customerName: customerProfile?.name ?? name, customerPhone: customerProfile?.phone ?? phone, address, zoneId: zone?.id ?? null, lat: pin?.lat ?? null, lng: pin?.lng ?? null,
           scheduledFor: pre && when ? new Date(when).toISOString() : null,
           discountCode: applied?.code ?? "", payment, note, useCashback: useWalletCredit,
+          rewardClaimId: selectedReward?.id ?? null,
         },
       });
+      if (customerProfile?.activeReward) handleCustomerProfileChange({ ...customerProfile, activeReward: null });
       rememberTrackedMenuOrder(biz.slug, item.number, item.trackingUrl);
       setCart({});
       setSheet(false);
@@ -472,8 +524,20 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
               {pre && <PersianDateInput className="mt-2" value={when} onChange={setWhen} withTime placeholder="انتخاب روز و ساعت" />}
             </div>
           )}</IconText>
+          {customerProfile?.activeReward && <section className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-3.5 text-sm">
+            <label className={cn("flex cursor-pointer items-start gap-2.5", applied && "cursor-not-allowed opacity-60")}>
+              <input type="checkbox" className="mt-1 accent-amber-700" checked={selectedRewardClaimId === customerProfile.activeReward.id} disabled={!!applied} onChange={(event) => {
+                const useReward = event.target.checked;
+                setSelectedRewardClaimId(useReward ? customerProfile.activeReward!.id : null);
+                if (useReward) { setApplied(null); setCode(""); }
+              }} />
+              <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 font-extrabold text-amber-950"><Icon name="award" className="size-4"/> جایزهٔ شما در سفارش بعدی</span><span className="mt-1 block text-xs font-semibold text-amber-900">{customerProfile.activeReward.rewardType === "discount_percent" ? `${toFa(customerProfile.activeReward.discountPercent)}٪ تخفیف روی سفارش` : `${customerProfile.activeReward.productName} به‌صورت رایگان`}</span><span className="mt-1 block text-[11px] leading-5 text-amber-900/75">{customerProfile.activeReward.campaignName} · اعتبار تا {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(customerProfile.activeReward.expiresAt))}</span></span>
+            </label>
+            {selectedReward && <p className="mt-2 border-t border-amber-200 pt-2 text-[11px] leading-5 text-amber-900">این جایزه فقط برای همین سفارش بعدی است. اگر سفارش را بدون جایزه ثبت کنید، امکان استفادهٔ دوباره از آن وجود ندارد.{applied ? " ابتدا کد تخفیف را پاک کنید." : ""}</p>}
+            {selectedReward?.rewardType === "free_item" && !freeRewardProduct && <p role="alert" className="mt-2 text-xs text-rose-700">آیتم جایزه در منوی فعلی موجود نیست؛ پیش از ثبت سفارش با رستوران تماس بگیرید.</p>}
+          </section>}
           {caps.discount && (
-            <div className="flex gap-2"><Input dir="ltr" className="text-left uppercase" placeholder="کد تخفیف" value={code} onChange={(e) => { setCode(e.target.value); setApplied(null); }} /><Button variant="secondary" onClick={applyCode} disabled={!code.trim()}>اعمال</Button></div>
+            <div className="space-y-1.5"><div className="flex gap-2"><Input dir="ltr" className="text-left uppercase" placeholder={selectedRewardClaimId ? "برای کد، جایزه را بردارید" : "کد تخفیف"} value={code} disabled={!!selectedRewardClaimId} onChange={(e) => { setCode(e.target.value); setApplied(null); }} /><Button variant="secondary" onClick={applyCode} disabled={!code.trim() || !!selectedRewardClaimId}>اعمال</Button></div>{applied && <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><span>{applied.code} · {formatPrice(disc)} تخفیف</span><button type="button" className="font-bold underline" onClick={() => { setApplied(null); setCode(""); }}>حذف کد</button></div>}</div>
           )}
           {caps.walletPayment && <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm">
             {customerProfile ? customerProfile.walletBalance > 0 ? <label className="flex cursor-pointer items-start gap-2"><input type="checkbox" className="mt-1 accent-emerald-700" checked={useWalletCredit} onChange={(event) => setUseWalletCredit(event.target.checked)} /><span className="min-w-0 flex-1"><span className="block font-bold text-emerald-950">استفاده از اعتبار کیف پول</span><span className="mt-1 block text-xs leading-5 text-emerald-900/75">موجودی {formatPrice(customerProfile.walletBalance)} · قابل استفاده برای این فاکتور تا {formatPrice(Math.min(customerProfile.walletBalance, walletCreditCap))}</span></span></label> : <p className="text-xs leading-5 text-emerald-900">اعتبار کیف پول این پروفایل فعلاً صفر است.</p> : <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs leading-5 text-emerald-900">برای استفاده از امتیازها و اعتبار کیف پول، با شماره موبایل تأییدشده وارد شوید.</p><Button type="button" size="sm" variant="secondary" onClick={() => { setSheet(false); setProfileRequest((value) => value + 1); }}>ورود به پروفایل</Button></div>}
@@ -487,8 +551,9 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             </fieldset>
           )}
           <div className="space-y-1.5 rounded-xl bg-stone-50 p-3.5 text-sm text-stone-600">
-            <div className="flex justify-between"><span>{t("sub")}</span><span>{formatPrice(subtotal)}</span></div>
-            {disc > 0 && <div className="flex justify-between text-emerald-600"><span>تخفیف ({applied?.code})</span><span>-{formatPrice(disc)}</span></div>}
+            <div className="flex justify-between"><span>{t("sub")}</span><span>{formatPrice(orderSubtotal)}</span></div>
+            {selectedReward && rewardDiscount > 0 && <div className="flex justify-between text-amber-700"><span>{selectedReward.rewardType === "free_item" ? `آیتم رایگان (${selectedReward.productName})` : `جایزهٔ وفاداری · ${toFa(selectedReward.discountPercent)}٪`}</span><span>-{formatPrice(rewardDiscount)}</span></div>}
+            {!selectedReward && disc > 0 && <div className="flex justify-between text-emerald-600"><span>تخفیف ({applied?.code})</span><span>-{formatPrice(disc)}</span></div>}
             {fee > 0 && <div className="flex justify-between"><span>هزینه ارسال</span><span>{formatPrice(fee)}</span></div>}
             {tax > 0 && <div className="flex justify-between"><span>مالیات ({toFa(biz.taxPercent)}٪)</span><span>{formatPrice(tax)}</span></div>}
             {svc > 0 && <div className="flex justify-between"><span>خدمات ({toFa(biz.servicePercent)}٪)</span><span>{formatPrice(svc)}</span></div>}
@@ -526,6 +591,22 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         )}</IconText>
       </Modal>
 
+      <Modal open={!!rewardCelebration} onClose={() => setRewardCelebration(null)} title="جایزهٔ وفاداری" size="sm" footer={<Button className="w-full" onClick={() => setRewardCelebration(null)}>رفتن به منو و انتخاب سفارش بعدی</Button>}>
+        {rewardCelebration && <div className="relative overflow-hidden py-4 text-center">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">{Array.from({ length: 12 }, (_, index) => <span key={index} className={cn("absolute top-5 size-2.5 rounded-sm animate-bounce", index % 3 === 0 ? "bg-amber-400" : index % 3 === 1 ? "bg-sky-400" : "bg-emerald-400")} style={{ insetInlineStart: `${8 + index * 7}%`, animationDelay: `${(index % 6) * 90}ms`, transform: `rotate(${index * 29}deg)` }} />)}</div>
+          <div className="relative mx-auto grid size-28 place-items-center rounded-full bg-gradient-to-br from-amber-100 via-white to-sky-100 shadow-[0_16px_45px_-18px_rgba(217,119,6,.6)] animate-pop"><span className="absolute inset-2 rounded-full border border-dashed border-amber-300 animate-spin" style={{ animationDuration: "14s" }}/><span className="grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg"><Icon name="award" className="size-9"/></span><Icon name="sparkles" className="absolute -end-1 top-2 size-7 text-sky-500 animate-pulse"/><Icon name="sparkles" className="absolute -start-2 bottom-3 size-5 text-amber-500 animate-pulse"/></div>
+          <p className="mt-5 text-xl font-black text-stone-900">شما برنده شدید!</p>
+          <p className="mt-2 text-sm font-extrabold text-amber-800">{rewardCelebration.rewardType === "discount_percent" ? `${toFa(rewardCelebration.discountPercent)}٪ تخفیف سفارش بعدی` : `${rewardCelebration.productName} رایگان در سفارش بعدی`}</p>
+          <p className="mt-1 text-xs text-stone-500">{rewardCelebration.campaignName}</p>
+          <div className="mx-auto mt-4 max-w-xs rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-950">جایزه در پروفایل شما ذخیره شد و تا <b>{new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(rewardCelebration.expiresAt))}</b> اعتبار دارد. آن را در سفارش بعدی انتخاب کنید.</div>
+        </div>}
+      </Modal>
+
+      <Modal open={!!rewardClaimError} onClose={() => setRewardClaimError("")} title="فعال‌سازی جایزه انجام نشد" size="sm" footer={<div className="flex w-full gap-2"><Button variant="ghost" className="flex-1" onClick={() => { setRewardClaimError(""); setRewardToken(""); }}>بستن</Button><Button className="flex-1" loading={rewardClaimBusy} disabled={!customerProfile || !rewardToken} onClick={() => void activateScannedReward(rewardToken)}>تلاش دوباره</Button></div>}>
+        <div className="rounded-2xl bg-rose-50 p-4 text-sm leading-7 text-rose-900">{rewardClaimError}</div>
+        {!customerProfile && <p className="mt-3 text-xs text-stone-500">برای فعال‌سازی با شمارهٔ تأییدشده وارد پروفایل شوید.</p>}
+      </Modal>
+
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
       <PublicProductDetails key={detailProduct?.id ?? "closed"} product={detailProduct} slug={biz.slug} accent={biz.accentColor} profile={customerProfile} readOnly={readOnlyDemo || readOnlyPreview} onClose={() => setDetailProduct(null)} onProfileRequired={() => setProfileRequest((value) => value + 1)} />
       {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) { trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); } }} />}
@@ -547,7 +628,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         canOrder={canOrder}
         readOnly={readOnlyDemo || readOnlyPreview}
         profileRequest={profileRequest}
-        onProfileChange={setCustomerProfile}
+        onProfileChange={handleCustomerProfileChange}
         onProfileRequestHandled={() => setProfileRequest(0)}
         onMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         onCart={() => {

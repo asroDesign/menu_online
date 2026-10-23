@@ -587,6 +587,45 @@ export const customerPointEntries = pgTable("customer_point_entries", {
   index("customer_point_entries_customer_created_idx").on(t.businessId, t.customerId, t.createdAt),
 ]);
 
+export const customerRewardCampaigns = pgTable("customer_reward_campaigns", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  name: text("name").notNull(),
+  token: text("token").notNull(),
+  rewardType: text("reward_type").notNull(), // discount_percent | free_item
+  discountPercent: integer("discount_percent").notNull().default(0),
+  productId: integer("product_id"), // verified against this business on create, claim and order
+  productName: text("product_name").notNull().default(""),
+  expiresAfterDays: integer("expires_after_days").notNull().default(7),
+  maxClaims: integer("max_claims").notNull().default(0), // 0 means unlimited
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("customer_reward_campaigns_business_token_uq").on(t.businessId, t.token),
+  index("customer_reward_campaigns_business_created_idx").on(t.businessId, t.createdAt),
+]);
+
+export const customerRewardClaims = pgTable("customer_reward_claims", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  campaignId: integer("campaign_id").notNull().references(() => customerRewardCampaigns.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  rewardType: text("reward_type").notNull(), // snapshot: discount_percent | free_item
+  discountPercent: integer("discount_percent").notNull().default(0),
+  productId: integer("product_id"), // reward snapshot; missing products are rejected at claim/order time
+  productName: text("product_name").notNull().default(""),
+  campaignName: text("campaign_name").notNull(),
+  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("active"), // active | redeemed | expired
+  consumedOrderId: integer("consumed_order_id").references(() => orders.id, { onDelete: "set null" }),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("customer_reward_claims_campaign_customer_uq").on(t.businessId, t.campaignId, t.customerId),
+  uniqueIndex("customer_reward_claims_one_active_customer_uq").on(t.businessId, t.customerId).where(sql`${t.status} = 'active'`),
+  index("customer_reward_claims_customer_status_idx").on(t.businessId, t.customerId, t.status, t.expiresAt),
+]);
+
 export const discountCodes = pgTable(
   "discount_codes",
   {
