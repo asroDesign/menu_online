@@ -106,7 +106,6 @@ function Inner({ me }: { me: Me }) {
 
   async function logout() { await api("/api/auth/logout", { method: "POST" }).catch(() => {}); router.push("/login"); router.refresh(); }
   const dept = ADMIN_DEPTS[me.dept] ?? ADMIN_DEPTS.super;
-  const current = allowed.find((t) => t.key === tab);
 
   const sidebar = (
     <div className="panel-sidebar flex h-full flex-col border-e border-base-300 bg-base-100 text-base-content">
@@ -145,12 +144,8 @@ function Inner({ me }: { me: Me }) {
         <aside ref={drawerRef} id="admin-navigation-drawer" role="dialog" aria-modal="true" aria-label="منوی مدیریت سامانه" tabIndex={-1} className="absolute inset-y-0 start-0 w-72 max-w-[90vw] animate-slide-up outline-none">{sidebar}</aside>
       </div>}
       <div className="lg:ps-72">
-        <header className="sticky top-0 z-20 flex h-[4.25rem] items-center gap-2 border-b border-base-300 bg-base-100/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
-          <button ref={menuTriggerRef} type="button" aria-label="منو" aria-expanded={open} aria-controls="admin-navigation-drawer" onClick={() => setOpen(true)} className="btn btn-ghost btn-square btn-sm inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-base-content/65 transition hover:bg-base-200 hover:text-base-content lg:hidden"><Icon name="menuBurger" className="size-[18px]" /></button>
-          <h2 className="min-w-0 flex-1 truncate text-sm font-bold">{current?.label}</h2>
-          <span className="badge ms-auto shrink-0 border-0 bg-primary/10 font-bold text-primary">{dept.label}</span>
-        </header>
-        <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">
+        <button ref={menuTriggerRef} type="button" aria-label="باز کردن منوی مدیریت سامانه" aria-expanded={open} aria-controls="admin-navigation-drawer" onClick={() => setOpen(true)} className="btn btn-ghost btn-square fixed end-3 top-3 z-30 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-300 bg-base-100/95 text-base-content/75 shadow-lg backdrop-blur transition hover:bg-base-200 hover:text-base-content lg:hidden"><Icon name="menuBurger" className="size-[18px]" /></button>
+        <main className="mx-auto max-w-[1500px] p-4 pt-14 sm:p-6 sm:pt-14 lg:p-8">
           {tab === "overview" && <Overview go={go} />}
           {tab === "businesses" && <Businesses me={me} params={params} />}
           {tab === "accounting" && <AdminAccounting me={me} params={params} />}

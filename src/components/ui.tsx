@@ -460,6 +460,7 @@ export function Modal({
   footer,
   size = "md",
   description,
+  theme = "default",
 }: {
   open: boolean;
   onClose: () => void;
@@ -468,6 +469,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
+  theme?: "default" | "dark";
 }) {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -519,10 +521,11 @@ export function Modal({
   }, [open]);
 
   if (!open || !mounted) return null;
+  const dark = theme === "dark";
   const widths = { sm: "sm:max-w-sm", md: "sm:max-w-lg", lg: "sm:max-w-2xl", xl: "sm:max-w-6xl" };
   return createPortal((
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4" role="presentation">
-      <button type="button" tabIndex={-1} aria-label="بستن پنجره" className="absolute inset-0 cursor-default animate-fade-in bg-slate-950/55 backdrop-blur-[3px]" onClick={onClose} />
+      <button type="button" tabIndex={-1} aria-label="بستن پنجره" className={cn("absolute inset-0 cursor-default animate-fade-in backdrop-blur-[3px]", dark ? "bg-[#02040d]/80 backdrop-blur-md" : "bg-slate-950/55")} onClick={onClose} />
       <div
         ref={dialogRef}
         tabIndex={-1}
@@ -531,20 +534,21 @@ export function Modal({
         aria-label={title}
         style={size === "xl" ? { maxWidth: "72rem" } : undefined}
         className={cn(
-          "modal-box relative flex max-h-[min(92dvh,56rem)] w-full !overflow-hidden !p-0 animate-slide-up flex-col rounded-t-3xl border border-white/70 bg-base-100 text-base-content shadow-[0_24px_80px_-20px_rgba(15,23,42,.42)] outline-none sm:rounded-3xl",
+          "modal-box relative flex max-h-[min(92dvh,56rem)] w-full !overflow-hidden !p-0 animate-slide-up flex-col rounded-t-3xl outline-none sm:rounded-3xl",
+          dark ? "border border-indigo-100/15 bg-[#080d20] text-[#f4f7ff] shadow-[0_28px_100px_-24px_rgba(3,7,20,.9)]" : "border border-white/70 bg-base-100 text-base-content shadow-[0_24px_80px_-20px_rgba(15,23,42,.42)]",
           widths[size],
         )}
       >
-        <div className="relative flex shrink-0 items-center justify-between gap-3 border-b border-base-200 bg-gradient-to-l from-brand-50/70 via-base-100 to-base-100 px-4 py-3.5 sm:px-6 sm:py-4">
-          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-l from-brand-500 via-sky-400 to-transparent" />
+        <div className={cn("relative flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-6 sm:py-4", dark ? "border-indigo-100/10 bg-gradient-to-l from-[#172344] via-[#101a32] to-[#0b1328]" : "border-base-200 bg-gradient-to-l from-brand-50/70 via-base-100 to-base-100")}>
+          <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-0.5 bg-gradient-to-l to-transparent", dark ? "from-cyan-300 via-indigo-400" : "from-brand-500 via-sky-400")} />
           <div className="min-w-0">
-            <h2 className="truncate text-base font-extrabold text-base-content sm:text-lg"><IconText>{title}</IconText></h2>
-            {description && <p className="mt-1 text-xs leading-5 text-base-content/60 sm:text-sm">{description}</p>}
+            <h2 className={cn("truncate text-base font-extrabold sm:text-lg", dark ? "text-white" : "text-base-content")}><IconText>{title}</IconText></h2>
+            {description && <p className={cn("mt-1 text-xs leading-5 sm:text-sm", dark ? "text-indigo-100/65" : "text-base-content/60")}>{description}</p>}
           </div>
-          <IconButton icon="x" label="بستن" onClick={onClose} className="size-10 shrink-0 rounded-xl bg-base-100/80 text-base-content/65 ring-1 ring-base-300 hover:bg-base-200" />
+          <IconButton icon="x" label="بستن" onClick={onClose} className={cn("size-10 shrink-0 rounded-xl ring-1", dark ? "bg-[#101a32] text-indigo-100/75 ring-indigo-100/15 hover:bg-[#1b294b] hover:text-white" : "bg-base-100/80 text-base-content/65 ring-base-300 hover:bg-base-200")} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-base-200 bg-base-100/95 px-4 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-3.5">{footer}</div>}
+        <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5", dark && "text-[#eef4ff]")}>{children}</div>
+        {footer && <div className={cn("flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-4 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-3.5", dark ? "border-indigo-100/10 bg-[#0b1328]/95" : "border-base-200 bg-base-100/95")}>{footer}</div>}
       </div>
     </div>
   ), document.body);

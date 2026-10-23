@@ -183,6 +183,15 @@
   color: #c8f5ff;
 }
 
+.productDetails {
+  color: #f4f7ff;
+}
+
+.productDetails h3,
+.productDetails h4 {
+  color: #f4f7ff;
+}
+
 .productImage {
   background: linear-gradient(140deg, #18264a, #201b48);
 }

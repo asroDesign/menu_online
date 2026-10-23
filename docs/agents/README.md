@@ -102,7 +102,7 @@
 |---|---|
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
 | [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
-| [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه و تنظیم برند |
+| [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه، تنظیم برند، و ناوبری موبایل بدون نوار هدر سراسری |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
 | [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، پنج قالب قابل انتخاب، درخواست میز برای گارسون با entitlement `waiter_call` و جلوگیری از افزودن محصول رایگان |
 | [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو میز سمت مشتری |

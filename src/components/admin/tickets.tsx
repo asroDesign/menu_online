@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { formatTime, timeAgo, toFa } from "@/lib/format";
@@ -22,12 +21,19 @@ export function AdminTickets({ me, params }: { me: Me; params: Record<string, st
   const [status, setStatus] = useState(params.status ?? "");
   const [assigned, setAssigned] = useState(params.assigned ?? "");
   const [q, setQ] = useState("");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const url = `/api/admin/tickets?dept=${dept}&status=${status}&assigned=${assigned}&q=${encodeURIComponent(q)}`;
   const list = useGet<{ items: any[]; counts: { dept: string; st: string; n: number }[] }>(url, 15000);
   const [openId, setOpenId] = useState<number | null>(null);
   const [agents, setAgents] = useState<{ id: number; name: string; dept: string }[]>([]);
   useEffect(() => { api<{ items: typeof agents }>("/api/admin/agents").then((r) => setAgents(r.items)).catch(() => {}); }, []);
   const cnt = (d: string) => (list.data?.counts ?? []).filter((c) => (!d || c.dept === d) && c.st === "open").reduce((s, c) => s + c.n, 0);
+  const activeFilterCount = Number(!!status) + Number(!!assigned) + Number(!!q.trim());
+  const filterControls = () => <>
+    <Select aria-label="فیلتر وضعیت تیکت" className="w-full shrink-0 sm:w-36" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">همه وضعیت‌ها</option>{Object.entries(TICKET_STATUS).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}</Select>
+    <Select aria-label="فیلتر کارشناس تیکت" className="w-full shrink-0 sm:w-44" value={assigned} onChange={(e) => setAssigned(e.target.value)}><option value="">همه کارشناسان</option><option value="me">تیکت‌های من</option><option value="none">بدون کارشناس</option></Select>
+    <div className="relative min-w-0 sm:flex-1"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input aria-label="جست‌وجوی تیکت‌ها" className="w-full ps-9" placeholder="موضوع، کسب‌وکار یا شماره…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+  </>;
 
   return (
     <div className="animate-fade-in">
@@ -37,10 +43,17 @@ export function AdminTickets({ me, params }: { me: Me; params: Record<string, st
           <button key={k} onClick={() => setDept(k)} className={cn("flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold", dept === k ? "bg-stone-900 text-white shadow" : "bg-white ring-1 ring-stone-200 hover:bg-stone-50")}>{e} {l}{cnt(k) > 0 && <span className={cn("rounded-full px-1.5 text-[11px] font-extrabold", dept === k ? "bg-amber-400 text-stone-900" : "bg-amber-100 text-amber-800")}>{toFa(cnt(k))}</span>}</button>
         ))}</IconText>
       </div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select className="w-36" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">همه وضعیت‌ها</option>{Object.entries(TICKET_STATUS).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}</Select>
-        <Select className="w-44" value={assigned} onChange={(e) => setAssigned(e.target.value)}><option value="">همه کارشناسان</option><option value="me">تیکت‌های من</option><option value="none">بدون کارشناس</option></Select>
-        <div className="relative w-60"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder="موضوع، کسب‌وکار یا شماره…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="mb-4 hidden min-w-0 items-center gap-2 sm:flex sm:flex-nowrap">
+        {filterControls()}
+      </div>
+      <div className="relative mb-4 sm:hidden">
+        <button type="button" aria-label={mobileFiltersOpen ? "بستن فیلترها" : "نمایش فیلترها"} aria-expanded={mobileFiltersOpen} aria-controls="admin-ticket-mobile-filters" onClick={() => setMobileFiltersOpen((value) => !value)} className={cn("btn btn-ghost btn-square relative size-10 rounded-xl border bg-base-100 shadow-sm", mobileFiltersOpen || activeFilterCount ? "border-primary/40 text-primary" : "border-base-300 text-base-content/70")}>
+          <Icon name="filter" className="size-[18px]" />
+          {!!activeFilterCount && <span className="absolute -end-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-content">{toFa(activeFilterCount)}</span>}
+        </button>
+        {mobileFiltersOpen && <div id="admin-ticket-mobile-filters" className="mt-2 grid gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-lg">
+          {filterControls()}
+        </div>}
       </div>
       <div className="grid gap-5 xl:grid-cols-[400px_1fr]">
         <div className="space-y-2 xl:max-h-[calc(100dvh-16rem)] xl:overflow-y-auto xl:pe-1">
