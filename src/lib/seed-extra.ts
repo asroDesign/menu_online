@@ -318,6 +318,8 @@ export async function seedExtras() {
 async function lite(email: string, name: string, bizName: string, slug: string, plan: string, logo: string, color: string, catIdx: number[], withOrders: boolean) {
   const [exists] = await db.select({ id: S.users.id }).from(S.users).where(eq(S.users.email, email));
   if (exists) return;
+  const [existingBusiness] = await db.select({ id: S.businesses.id }).from(S.businesses).where(eq(S.businesses.slug, slug));
+  if (existingBusiness) return;
   const [user] = await db.insert(S.users).values({ name, email, passwordHash: hashPassword(randomBytes(32).toString("hex")), role: email.startsWith("admin") ? "admin" : "owner" }).onConflictDoNothing().returning();
   if (!user) return;
   const [biz] = await db.insert(S.businesses).values({ userId: user.id, name: bizName, slug, plan, logoEmoji: logo, accentColor: color, description: "منوی دیجیتال " + bizName, phone: "۰۲۱-۲۲۳۳۴۴۵۵", address: "تهران، خیابان انقلاب", taxPercent: 10, servicePercent: 0 }).returning();
@@ -343,9 +345,9 @@ async function lite(email: string, name: string, bizName: string, slug: string, 
 }
 
 export async function seedAccounts() {
-  await lite("basic@menudigital.ir", "آرش پارسایی", "کافه کتاب پارسه", "parse", "basic", "", "#0d9488", [1, 2, 8], false);
-  await lite("premium@menudigital.ir", "نسرین فلاحی", "ساندویچ‌لند", "sandwichland", "premium", "", "#ef4444", [3, 4, 6], true);
-  await lite("admin@menudigital.ir", "مدیر سامانه", "مدیریت سامانه منوی دیجیتال", "admin-panel", "premium_plus", "", "#44403c", [], false);
+  await lite("basic@menupeak.ir", "آرش پارسایی", "کافه کتاب پارسه", "parse", "basic", "", "#0d9488", [1, 2, 8], false);
+  await lite("premium@menupeak.ir", "نسرین فلاحی", "ساندویچ‌لند", "sandwichland", "premium", "", "#ef4444", [3, 4, 6], true);
+  await lite("admin@menupeak.ir", "مدیر سامانه", "مدیریت سامانه منوی دیجیتال", "admin-panel", "premium_plus", "", "#44403c", [], false);
 }
 
 /* ------------------------------------------------------------------ phase 3 */
@@ -370,11 +372,11 @@ export async function seedPhase3() {
     if (row) await db.update(S.staff).set({ userId: usr.id, role, isActive: true }).where(eq(S.staff.id, row.id));
     else await db.insert(S.staff).values({ businessId: bid, name, role, userId: usr.id });
   };
-  await link("waiter@menudigital.ir", "علی رضایی", "waiter", "علی رضایی");
-  await link("cashier@menudigital.ir", "نگار احمدی", "cashier", "نگار احمدی");
-  await link("kitchen@menudigital.ir", "حسین موسوی", "chef", "حسین موسوی");
-  await link("accountant@menudigital.ir", "ژیلا امینی", "accountant");
-  await link("warehouse@menudigital.ir", "بهروز انصاری", "warehouse");
+  await link("waiter@menupeak.ir", "علی رضایی", "waiter", "علی رضایی");
+  await link("cashier@menupeak.ir", "نگار احمدی", "cashier", "نگار احمدی");
+  await link("kitchen@menupeak.ir", "حسین موسوی", "chef", "حسین موسوی");
+  await link("accountant@menupeak.ir", "ژیلا امینی", "accountant");
+  await link("warehouse@menupeak.ir", "بهروز انصاری", "warehouse");
 
   // 2) map: restaurant location, radius zones, delivery coordinates
   await db.update(S.businesses).set({ lat: 35.7546, lng: 51.4105 }).where(eq(S.businesses.id, bid));
@@ -452,9 +454,9 @@ export async function seedPhase4() {
 /* ------------------------------------------------------------------ phase 5 (admin panel + couriers) */
 export async function seedPhase5() {
   const { sql } = await import("drizzle-orm");
-  const [done] = await db.select({ id: S.users.id }).from(S.users).where(eq(S.users.email, "support@menudigital.ir"));
+  const [done] = await db.select({ id: S.users.id }).from(S.users).where(eq(S.users.email, "support@menupeak.ir"));
   if (done) return;
-  const [adm] = await db.select().from(S.users).where(eq(S.users.email, "admin@menudigital.ir"));
+  const [adm] = await db.select().from(S.users).where(eq(S.users.email, "admin@menupeak.ir"));
   const [demoOwner] = await db.select().from(S.users).where(eq(S.users.email, DEMO_EMAIL));
   if (!adm || !demoOwner) return;
   const [admBiz] = await db.select().from(S.businesses).where(eq(S.businesses.userId, adm.id));
@@ -463,14 +465,14 @@ export async function seedPhase5() {
 
   // admin team (each department sees only what it needs)
   const [sup, fin] = await db.insert(S.users).values([
-    { name: "مریم پشتیبان", email: "support@menudigital.ir", passwordHash: pw(), role: "admin", staffRole: "support", businessId: admBiz.id },
-    { name: "رضا حسابدار", email: "finance@menudigital.ir", passwordHash: pw(), role: "admin", staffRole: "finance", businessId: admBiz.id },
+    { name: "مریم پشتیبان", email: "support@menupeak.ir", passwordHash: pw(), role: "admin", staffRole: "support", businessId: admBiz.id },
+    { name: "رضا حسابدار", email: "finance@menupeak.ir", passwordHash: pw(), role: "admin", staffRole: "finance", businessId: admBiz.id },
   ]).returning();
 
   // courier account for the demo restaurant
   const crs = await db.select().from(S.couriers).where(eq(S.couriers.businessId, biz.id)).orderBy(asc(S.couriers.id));
   if (crs[0]) {
-    const [cu] = await db.insert(S.users).values({ name: crs[0].name, email: "courier@menudigital.ir", passwordHash: pw(), role: "courier", businessId: biz.id }).returning();
+    const [cu] = await db.insert(S.users).values({ name: crs[0].name, email: "courier@menupeak.ir", passwordHash: pw(), role: "courier", businessId: biz.id }).returning();
     await db.update(S.couriers).set({ userId: cu.id, status: "available" }).where(eq(S.couriers.id, crs[0].id));
     // a ready order for the courier to pick up right away
     await db.execute(sql`update orders set courier_id = ${crs[0].id} where business_id = ${biz.id} and type = 'delivery' and status = 'ready' and courier_id is null`);
@@ -537,6 +539,6 @@ export async function seedPhase5() {
     { title: "به‌روزرسانی جدید: پنل پیک و آپلود تصویر محصول", body: "اکنون پیک‌ها پنل اختصاصی دارند و می‌توانید تصویر محصولات را مستقیم از دستگاه بارگذاری کنید.", level: "success", audience: "all", createdBy: "مدیر سامانه" },
     { title: "تعمیرات شبانه", body: "جمعه ساعت ۳ تا ۴ بامداد ممکن است سرویس برای چند دقیقه در دسترس نباشد.", level: "warning", audience: "all", expiresAt: new Date(Date.now() + 6 * DAY), createdBy: "مدیر سامانه" },
   ]);
-  await db.insert(S.appSettings).values({ key: "support", value: { phone: "", email: "support@menudigital.ir", hours: "همه روزه ۸ تا ۲۴" } }).onConflictDoNothing();
+  await db.insert(S.appSettings).values({ key: "support", value: { phone: "", email: "support@menupeak.ir", hours: "همه روزه ۸ تا ۲۴" } }).onConflictDoNothing();
   void fin; void t3;
 }

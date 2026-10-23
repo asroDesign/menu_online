@@ -14,7 +14,7 @@ import {
 } from "@/db/schema";
 import { hashPassword } from "@/lib/auth";
 
-export const DEMO_EMAIL = "demo@menudigital.ir";
+export const DEMO_EMAIL = "demo@menupeak.ir";
 export { DEMO_SLUG };
 
 type P = [string, string, number, string, number, { f?: boolean; old?: number; off?: boolean }?];
@@ -122,8 +122,9 @@ export function rng(seed: number) {
 }
 
 async function seedDemo() {
-  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, DEMO_EMAIL));
-  if (existing) return;
+  const [existingByEmail] = await db.select({ id: users.id }).from(users).where(eq(users.email, DEMO_EMAIL));
+  const [existingBySlug] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.slug, DEMO_SLUG));
+  if (existingByEmail || existingBySlug) return;
 
   const [user] = await db
     .insert(users)

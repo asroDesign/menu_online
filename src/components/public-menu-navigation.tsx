@@ -153,6 +153,10 @@ export function PublicMenuNavigation({
     compact: "rounded-none border-x-0 border-b-0 border-t border-stone-200 bg-white shadow-[0_-8px_24px_-18px_rgba(15,23,42,.4)]",
     bistro: "rounded-2xl border border-stone-700 bg-[#26231f] text-white shadow-[0_16px_36px_-16px_rgba(0,0,0,.55)]",
     minimal: "rounded-xl border border-stone-200/80 bg-[#faf9f7]/95 shadow-sm backdrop-blur-xl",
+    "softmenu-test3": "rounded-2xl border border-emerald-950/10 bg-[#fffefa]/95 text-stone-800 shadow-[0_12px_36px_-16px_rgba(15,23,42,.36)] backdrop-blur-xl",
+    "softmenu-test": "rounded-2xl border border-violet-950/15 bg-[#332344]/95 text-white shadow-[0_16px_40px_-18px_rgba(30,20,45,.5)] backdrop-blur-xl",
+    captainm: "rounded-2xl border border-indigo-200/20 bg-[#101a32]/95 text-white shadow-[0_16px_36px_-16px_rgba(8,12,32,.7)] backdrop-blur-xl",
+    haftkhan: "rounded-2xl border border-rose-950/15 bg-[#fffafa]/95 text-[#641c27] shadow-[0_12px_36px_-16px_rgba(100,28,39,.25)] backdrop-blur-xl",
   } satisfies Record<Template, string>;
   const labels = navLabels[language] ?? navLabels.fa;
   const tabs = [
@@ -165,8 +169,8 @@ export function PublicMenuNavigation({
   return <>
     <nav aria-label="ناوبری منوی مشتری" className={cn("fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl px-3 pb-[max(.5rem,env(safe-area-inset-bottom))]", template === "compact" && "max-w-none px-0 pb-0")}>
       <div className={cn("grid grid-cols-4 p-1.5", navShell[template], template === "editorial" && "mx-2 rounded-full p-1", template === "compact" && "p-1")}>
-        {tabs.map((tab) => <button key={tab.key} type="button" onClick={tab.action} aria-label={tab.key === "cart" && cartCount ? `${tab.label}، ${toFa(cartCount)} قلم، ${formatPrice(subtotal)}` : tab.label} className={cn("relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-semibold transition active:scale-95 sm:min-h-14 sm:text-[11px]", template === "editorial" && "rounded-full", template === "bistro" && "text-white/70", template === "minimal" && "rounded-lg", template === "compact" && "min-h-11")}>
-          <span className={cn("relative flex size-7 items-center justify-center rounded-full transition sm:size-8", template === "classic" && "bg-stone-100", template === "editorial" && "size-8", template === "compact" && "size-6", template === "bistro" && "size-8", template === "minimal" && "size-7")} style={{ color: tab.key === "menu" ? accent : undefined, backgroundColor: tab.key === "menu" && template !== "bistro" ? `${accent}18` : undefined }}>
+        {tabs.map((tab) => <button key={tab.key} type="button" onClick={tab.action} aria-label={tab.key === "cart" && cartCount ? `${tab.label}، ${toFa(cartCount)} قلم، ${formatPrice(subtotal)}` : tab.label} className={cn("relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-semibold transition active:scale-95 sm:min-h-14 sm:text-[11px]", template === "editorial" && "rounded-full", (template === "bistro" || template === "softmenu-test" || template === "captainm") && "text-white/75", template === "haftkhan" && "text-[#641c27]", template === "minimal" && "rounded-lg", template === "compact" && "min-h-11")}>
+          <span className={cn("relative flex size-7 items-center justify-center rounded-full transition sm:size-8", template === "classic" && "bg-stone-100", template === "editorial" && "size-8", template === "compact" && "size-6", (template === "bistro" || template === "captainm") && "size-8", template === "minimal" && "size-7", template === "haftkhan" && "bg-rose-50")} style={{ color: tab.key === "menu" ? accent : undefined, backgroundColor: tab.key === "menu" && template !== "bistro" && template !== "softmenu-test" && template !== "captainm" ? `${accent}18` : undefined }}>
             <Icon name={tab.icon} className="size-[17px] sm:size-[18px]" />
             {tab.badge && <span className="absolute -end-2 -top-1 flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-extrabold text-white" style={{ backgroundColor: accent }}>{tab.badge}</span>}
           </span>

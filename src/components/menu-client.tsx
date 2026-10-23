@@ -43,6 +43,15 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const compact = biz.menuTemplate === "compact";
   const bistro = biz.menuTemplate === "bistro";
   const minimal = biz.menuTemplate === "minimal";
+  const softmenuTest3 = biz.menuTemplate === "softmenu-test3";
+  const softmenuTest = biz.menuTemplate === "softmenu-test";
+  const captainm = biz.menuTemplate === "captainm";
+  const haftkhan = biz.menuTemplate === "haftkhan";
+  const photoCards = editorial || bistro || softmenuTest || captainm || haftkhan;
+  const horizontalPhotoCards = softmenuTest3;
+  const wideMenu = editorial || bistro || softmenuTest3 || softmenuTest || captainm || haftkhan;
+  const menuBackground = haftkhan ? "#fcf5f5" : captainm ? "#090d20" : softmenuTest3 ? "#f4f2ed" : softmenuTest ? "#f8f7fb" : "#f6f5f3";
+  const headerBackground = softmenuTest3 ? "linear-gradient(135deg,#183b35,#28574f)" : softmenuTest ? "linear-gradient(135deg,#211a38,#70468f)" : captainm ? "radial-gradient(1px 1px at 18px 24px,#ffffff 99%,transparent),radial-gradient(1px 1px at 76px 64px,rgba(186,230,253,.9) 99%,transparent),radial-gradient(1.5px 1.5px at 142px 37px,rgba(255,255,255,.85) 99%,transparent),radial-gradient(circle at 82% 30%,rgba(34,211,238,.3),transparent 20%),radial-gradient(circle at 18% 18%,rgba(129,140,248,.32),transparent 28%),linear-gradient(145deg,#090d20 8%,#17133d 55%,#071526)" : haftkhan ? "linear-gradient(135deg,#641c27,#91333b)" : `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}cc 60%, #1c1917)`;
   const toast = useToast();
   const [lang, setLang] = useState("fa");
   const t = (k: string) => (DICT[lang] ?? DICT.en)[k] ?? DICT.en[k];
@@ -207,21 +216,21 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
     const qty = cartProductQuantity(cart, p.id);
     const off = p.oldPrice && p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
     return (
-      <div className={cn("flex gap-3", editorial ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : bistro ? "flex-col gap-0 overflow-hidden rounded-[1.5rem] bg-white p-0 shadow-md ring-1 ring-stone-200/70" : minimal ? "gap-3 rounded-none border-b border-stone-200/80 bg-transparent p-2" : compact ? "rounded-2xl bg-white p-2 shadow-sm ring-1 ring-stone-200/70" : "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-stone-200/70", !p.isAvailable && "opacity-60")}>
-        <div className={cn("relative shrink-0", (editorial || bistro) && "w-full")}>
-          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn(editorial ? "h-44 w-full rounded-none" : bistro ? "h-36 w-full rounded-none" : compact ? "size-16 rounded-lg" : minimal ? "size-16 rounded-xl" : "size-24 rounded-xl sm:size-28")} />
+      <div className={cn("flex gap-3", editorial ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : bistro ? "flex-col gap-0 overflow-hidden rounded-[1.5rem] bg-white p-0 shadow-md ring-1 ring-stone-200/70" : photoCards ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : minimal ? "gap-3 rounded-none border-b border-stone-200/80 bg-transparent p-2" : compact ? "rounded-2xl bg-white p-2 shadow-sm ring-1 ring-stone-200/70" : "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-stone-200/70", captainm && "bg-[#101a32] ring-indigo-200/15", horizontalPhotoCards && "min-h-36 flex-row overflow-hidden rounded-2xl bg-[#fffefa] p-0 ring-1 ring-stone-200/80", !p.isAvailable && "opacity-60")}>
+        <div className={cn("relative shrink-0", photoCards && !horizontalPhotoCards && "w-full", horizontalPhotoCards && "w-28 sm:w-36")}>
+          <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn(editorial ? "h-44 w-full rounded-none" : bistro ? "h-36 w-full rounded-none" : horizontalPhotoCards ? "h-full min-h-36 w-full rounded-none" : photoCards ? (haftkhan ? "h-36 w-full rounded-none sm:h-44" : "h-36 w-full rounded-none") : compact ? "size-16 rounded-lg" : minimal ? "size-16 rounded-xl" : "size-24 rounded-xl sm:size-28")} />
           {off > 0 && <span className="absolute start-1 top-1 rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{toFa(off)}٪</span>}
           <IconText>{caps.ar && p.arModelUrl && <button onClick={() => setAr(p)} className="absolute inset-x-1 bottom-1 rounded-lg bg-stone-900/80 py-0.5 text-[10px] font-bold text-white backdrop-blur" aria-label={t("ar")}>{<EmojiIcon emoji="" />} AR</button>}</IconText>
         </div>
-        <div className={cn("flex min-w-0 flex-1 flex-col", editorial && "p-4", bistro && "p-3.5", (compact || minimal) && "py-1")}>
-          <h3 className="font-bold leading-6">{nameOf("product", p.id, p.name)}</h3>
-          <p className="line-clamp-2 flex-1 text-xs leading-5 text-stone-500">{descOf(p)}</p>
+        <div className={cn("flex min-w-0 flex-1 flex-col", editorial && "p-4", (bistro || photoCards) && "p-3.5", horizontalPhotoCards && "py-3 pe-3 ps-0", (compact || minimal) && "py-1")}>
+          <h3 className={cn("font-bold leading-6", captainm && "text-slate-50")}>{nameOf("product", p.id, p.name)}</h3>
+          <p className={cn("line-clamp-2 flex-1 text-xs leading-5 text-stone-500", captainm && "text-slate-300/70")}>{descOf(p)}</p>
           {(p.dietaryTags?.length || p.allergenTags?.length) && <div className="mt-1 flex flex-wrap gap-1">{(p.dietaryTags ?? []).map((id) => DIETARY_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800">{label} اعلام‌شده</span>)}{(p.allergenTags ?? []).map((id) => ALLERGEN_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-900">آلرژن ثبت‌شده: {label}</span>)}</div>}
           {!p.allergenTags?.length ? <span className="mt-1 text-[10px] text-stone-400">اطلاعات آلرژن ثبت نشده</span> : <span className="mt-1 text-[10px] leading-4 text-stone-400">بر اساس اطلاعات کسب‌وکار؛ برای حساسیت غذایی با رستوران هماهنگ کنید.</span>}
           <div className="mt-2 flex items-end justify-between gap-2">
             <div>
               {p.oldPrice && p.oldPrice > p.price && <p className="text-[11px] text-stone-400 line-through">{formatPrice(p.oldPrice)}</p>}
-              <p className="text-sm font-extrabold">{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className="ms-1 text-[10px] font-medium text-stone-500">/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className="ms-1 text-[10px] font-medium text-stone-500">از</span>}</p>
+              <p className={cn("text-sm font-extrabold", captainm && "text-cyan-100")}>{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>از</span>}</p>
             </div>
             {!p.isAvailable ? (
               <span className="rounded-lg bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-500">{t("sold")}</span>
@@ -251,8 +260,9 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   ];
 
   return (
-    <div dir={dir} style={accent} className={cn("mx-auto min-h-dvh bg-[#f6f5f3] pb-28 shadow-xl", (editorial || bistro) ? "max-w-5xl" : "max-w-2xl")}>
-      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8")} style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}cc 60%, #1c1917)` }}>
+    <div dir={dir} style={{ ...accent, backgroundColor: menuBackground }} className={cn("mx-auto min-h-dvh pb-28 shadow-xl", wideMenu ? "max-w-7xl" : "max-w-2xl")}>
+      {softmenuTest3 && <div className="px-4 py-2 text-center text-[11px] font-bold text-white" style={{ backgroundColor: biz.accentColor }}>{biz.isOpen ? "منوی دیجیتال · آمادهٔ پذیرایی" : "اکنون بسته است · می‌توانید منو را مرور کنید"}</div>}
+      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8", (softmenuTest || captainm || haftkhan) && "px-5 pb-8 pt-8 text-center")} style={{ background: headerBackground }}>
         <div className="pointer-events-none absolute -end-10 -top-10 size-48 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute -bottom-16 start-10 size-40 rounded-full bg-white/10" />
         {languages.length > 1 && (
@@ -260,12 +270,12 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             {languages.map((l) => <button key={l} onClick={() => setLang(l)} className={cn("rounded-full px-3 py-1 text-xs font-bold backdrop-blur transition", lang === l ? "bg-white text-stone-900" : "bg-white/15 text-white")}>{LANGS[l]?.name ?? l}</button>)}
           </div>
         )}
-        <div className={cn("relative flex items-center gap-4", editorial && "flex-col gap-3", bistro && "gap-3")}>
-          <span className="flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-white text-3xl shadow-lg"><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
+        <div className={cn("relative flex items-center gap-4", (editorial || softmenuTest || captainm || haftkhan) && "flex-col items-center gap-3", bistro && "gap-3")}>
+          <span className={cn("flex size-16 items-center justify-center overflow-hidden bg-white text-3xl shadow-lg", (captainm || haftkhan) ? "rounded-full" : "rounded-2xl")}><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
           <div><h1 className="text-xl font-extrabold">{biz.name}</h1><p className="mt-1 text-xs text-white/80">{t("menu")}</p></div>
         </div>
         {biz.description && lang === "fa" && <p className="relative mt-4 text-sm leading-7 text-white/90">{biz.description}</p>}
-        <div className={cn("relative mt-4 flex flex-wrap gap-2 text-xs", (editorial || bistro) && "justify-center")}>
+        <div className={cn("relative mt-4 flex flex-wrap gap-2 text-xs", (editorial || bistro || softmenuTest || captainm || haftkhan) && "justify-center")}>
           {biz.phone && <a href={`tel:${biz.phone}`} className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="phone" className="size-3.5" />{biz.phone}</a>}
           {biz.address && lang === "fa" && <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="pin" className="size-3.5" />{biz.address}</span>}
           {biz.instagram && <a href={`https://instagram.com/${biz.instagram}`} target="_blank" className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur" dir="ltr">@{biz.instagram}</a>}
@@ -280,12 +290,12 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         )}</IconText>
       </header>
 
-      <div className="sticky top-0 z-20 -mt-4 rounded-t-3xl bg-[#f6f5f3]/95 pb-2 pt-4 backdrop-blur">
-        <div className="grid gap-2 px-4 sm:grid-cols-[1fr_auto]"><div className="relative"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} /></div><Select aria-label="فیلتر ویژگی تغذیه‌ای" value={dietFilter} onChange={(e) => setDietFilter(e.target.value)} className="sm:w-48"><option value="">همه ویژگی‌ها</option>{DIETARY_TAGS.map((tag) => <option key={tag.id} value={tag.id}>{tag.label}</option>)}</Select></div>
+      <div className="sticky top-0 z-20 -mt-4 rounded-t-3xl pb-2 pt-4 backdrop-blur" style={{ backgroundColor: `${menuBackground}f2` }}>
+        <div className="grid gap-2 px-4 sm:grid-cols-[1fr_auto]"><div className="relative"><Icon name="search" className={cn("pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400", captainm && "text-cyan-200/70")} /><Input className={cn("ps-9", captainm && "border-indigo-200/15 bg-[#101a32] text-white placeholder:text-slate-400")} placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} /></div><Select aria-label="فیلتر ویژگی تغذیه‌ای" value={dietFilter} onChange={(e) => setDietFilter(e.target.value)} className={cn("sm:w-48", captainm && "border-indigo-200/15 bg-[#101a32] text-white")}><option value="">همه ویژگی‌ها</option>{DIETARY_TAGS.map((tag) => <option key={tag.id} value={tag.id}>{tag.label}</option>)}</Select></div>
         {initialTable && initialTable.operationalStatus !== "available" && <div role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{initialTable.operationalStatus === "cleaning" ? "این میز در حال نظافت است و فعلاً سفارش نمی‌پذیرد." : "این میز موقتاً خارج از سرویس است. از کارکنان رستوران کمک بگیرید."}</div>}
-        {!term && (
+        {!term && !softmenuTest && !captainm && !haftkhan && (
           <div className={cn("no-scrollbar mt-3 flex gap-2 overflow-x-auto px-4", editorial && "justify-center")}>
-            {grouped.map((s) => <button key={s.key} onClick={() => jump(s.id)} style={active === s.id ? { background: biz.accentColor } : undefined} className={cn("shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition", active === s.id ? "text-white shadow-md" : "bg-white text-stone-600 ring-1 ring-stone-200")}>{s.title}</button>)}
+            {grouped.map((s) => <button key={s.key} onClick={() => jump(s.id)} style={active === s.id ? { background: biz.accentColor } : undefined} className={cn("shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition", softmenuTest3 && "border border-emerald-950/10", active === s.id ? "text-white shadow-md" : "bg-white text-stone-600 ring-1 ring-stone-200")}>{s.title}</button>)}
           </div>
         )}
       </div>
@@ -299,6 +309,16 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             </div>;
             return banner.href ? <a key={banner.id} href={banner.href} target={banner.href.startsWith("https:") ? "_blank" : undefined} rel={banner.href.startsWith("https:") ? "noreferrer" : undefined}>{image}</a> : <div key={banner.id}>{image}</div>;
           })}
+        </section>}
+        {!term && (softmenuTest || haftkhan) && <section aria-label="دسته‌بندی‌های منو" className={cn("rounded-2xl p-3 sm:p-4", softmenuTest && "bg-white/75 ring-1 ring-violet-950/10", haftkhan && "bg-[#f4e7e8]")}>
+          <div className="mb-3 flex items-end justify-between gap-3"><div><span className={cn("text-[10px] font-bold", softmenuTest ? "text-violet-800" : "text-rose-900/60")}>انتخاب از منو</span><h2 className={cn("mt-1 text-base font-extrabold", haftkhan && "text-[#641c27]")}>دسته‌بندی‌ها</h2></div><span className="text-[10px] text-stone-500">{toFa(grouped.length)} دسته</span></div>
+          <div className={cn("grid gap-2", softmenuTest ? "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6" : "grid-cols-3 sm:grid-cols-5 lg:grid-cols-8")}>
+            {grouped.map((section, index) => <button key={section.key} type="button" aria-pressed={active === section.id} onClick={() => jump(section.id)} className={cn("flex min-h-16 flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-center transition", softmenuTest ? active === section.id ? "border-violet-800 bg-violet-800 text-white" : "border-violet-950/10 bg-white text-violet-950 hover:bg-violet-50" : active === section.id ? "border-[#641c27] bg-[#641c27] text-white" : "border-rose-950/10 bg-white text-[#641c27] hover:bg-rose-50")}>
+              {haftkhan && <Icon name={["utensils", "coffee", "pizza", "leaf", "star", "pin", "book", "clock"][index % 8]} className="size-4" />}
+              <span className="line-clamp-1 text-[10px] font-bold">{section.title}</span>
+              <span className="text-[9px] opacity-65">{toFa(section.items.length)} انتخاب</span>
+            </button>)}
+          </div>
         </section>}
         {!term && featured.length > 0 && (
           <section>
@@ -314,16 +334,27 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             </div>
           </section>
         )}
-        <IconText>{grouped.length === 0 ? (
-          <div className="py-16 text-center text-stone-500"><div className="text-5xl">{products.length ? "" : ""}</div><p className="mt-3 font-semibold">{t("empty")}</p></div>
-        ) : grouped.map((s) => (
-          <section key={s.key} data-cat={s.id} ref={(el) => { sectionRefs.current[s.key] = el; }} className="scroll-mt-32">
-            <h2 className="mb-3 text-base font-extrabold">{s.title}</h2>
-            <div className={cn("space-y-3", editorial && "grid gap-4 space-y-0 sm:grid-cols-2", bistro && "grid grid-cols-2 gap-3 space-y-0 sm:grid-cols-3", compact && "space-y-2", minimal && "space-y-0")}>{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
-          </section>
-        ))}</IconText>
+        <div className={cn(captainm && "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_230px]")}>
+          {captainm && !term && <aside className="rounded-2xl border border-indigo-200/15 bg-[#101a32] p-3 text-slate-100 shadow-[0_14px_38px_-24px_rgba(34,211,238,.45)] lg:sticky lg:top-28">
+            <h2 className="mb-2 px-2 text-xs font-extrabold text-cyan-100/70">دسته‌های کهکشانی</h2>
+            <nav className="no-scrollbar flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+              {grouped.map((section) => <button key={section.key} type="button" aria-pressed={active === section.id} onClick={() => jump(section.id)} className={cn("min-h-9 shrink-0 rounded-lg px-3 text-start text-xs font-bold transition lg:w-full", active === section.id ? "bg-cyan-300 text-slate-950 shadow-[0_0_18px_rgba(103,232,249,.2)]" : "bg-indigo-100/5 text-slate-200 hover:bg-indigo-100/10")}>{section.title}<span className="ms-2 text-[10px] opacity-65">{toFa(section.items.length)}</span></button>)}
+            </nav>
+          </aside>}
+          <div className="space-y-6">
+            <IconText>{grouped.length === 0 ? (
+              <div className="py-16 text-center text-stone-500"><div className="text-5xl">{products.length ? "" : ""}</div><p className="mt-3 font-semibold">{t("empty")}</p></div>
+            ) : grouped.map((s) => (
+              <section key={s.key} data-cat={s.id} ref={(el) => { sectionRefs.current[s.key] = el; }} className="scroll-mt-32">
+                <h2 className={cn("mb-3 text-base font-extrabold", softmenuTest && "text-[#352743]", captainm && "text-cyan-100", haftkhan && "text-[#641c27]")}>{s.title}</h2>
+                <div className={cn("space-y-3", editorial && "grid gap-4 space-y-0 sm:grid-cols-2", bistro && "grid grid-cols-2 gap-3 space-y-0 sm:grid-cols-3", (softmenuTest || captainm) && "grid grid-cols-2 gap-3 space-y-0 xl:grid-cols-3", haftkhan && "grid grid-cols-2 gap-2.5 space-y-0 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5", compact && "space-y-2", minimal && "space-y-0")}>{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
+              </section>
+            ))}</IconText>
+          </div>
+        </div>
         <footer className="pb-4 pt-6 text-center text-[11px] text-stone-400">Powered by <b>منوی دیجیتال</b></footer>
       </main>
+
 
       <Modal open={sheet} onClose={() => setSheet(false)} title="" footer={<Button size="lg" className="w-full !bg-[var(--accent)]" loading={busy} onClick={submit} disabled={!lines.length}>{t("submit")} · {formatPrice(total)}</Button>}>
         <div className="space-y-4" dir={dir}>

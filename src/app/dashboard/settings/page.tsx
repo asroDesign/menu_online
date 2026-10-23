@@ -16,6 +16,7 @@ import { BrandColorPicker } from "@/components/brand-color-picker";
 import { ImageUpload } from "@/components/image-upload";
 import { SettingsCenter } from "@/components/settings-center";
 import { AccountSecuritySettings } from "@/components/account-security-settings";
+import { MENU_TEMPLATE_OPTIONS, type MenuTemplateId } from "@/lib/menu-templates";
 import { AmountInput, Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 type Biz = {
@@ -41,15 +42,7 @@ const getServerOrigin = () => "";
 
 const LOGOS = ["", "", "", ""];
 const TYPES: Record<string, string> = { cafe: "کافه", restaurant: "رستوران", fastfood: "فست‌فود", bakery: "نان و شیرینی", shop: "فروشگاه / کاتالوگ" };
-const MENU_TEMPLATES: { id: NonNullable<Settings["menuTemplate"]>; title: string; subtitle: string }[] = [
-  { id: "classic", title: "کلاسیک", subtitle: "فهرست تصویری و آشنا" },
-  { id: "editorial", title: "مجله‌ای", subtitle: "تصویرهای بزرگ و چیدمان داستانی" },
-  { id: "compact", title: "فشرده", subtitle: "نمایش تعداد بیشتری از کالاها" },
-  { id: "bistro", title: "بیسترو", subtitle: "کارت‌های تصویری با حس کافه‌ای" },
-  { id: "minimal", title: "مینیمال", subtitle: "فهرست خلوت با تمرکز روی قیمت" },
-];
-
-function MenuTemplatePreview({ template, accent }: { template: NonNullable<Settings["menuTemplate"]>; accent: string }) {
+function MenuTemplatePreview({ template, accent }: { template: MenuTemplateId; accent: string }) {
   const photo = "bg-gradient-to-br from-amber-200 via-orange-300 to-rose-400";
   const line = "h-1.5 rounded-full bg-stone-200";
   return <div className="overflow-hidden rounded-xl border border-stone-200 bg-white p-2 shadow-sm" aria-hidden="true">
@@ -58,6 +51,10 @@ function MenuTemplatePreview({ template, accent }: { template: NonNullable<Setti
       : template === "compact" ? <div className="space-y-1">{[0, 1, 2].map((i) => <div key={i} className="flex items-center gap-1.5 rounded-md bg-stone-50 p-1"><span className={`size-7 shrink-0 rounded ${photo}`} /><div className="flex-1 space-y-1"><div className={`${line} w-1/2`} /><div className={`${line} w-2/3 opacity-60`} /></div><span className="h-1.5 w-7 rounded-full bg-emerald-100" /></div>)}</div>
       : template === "bistro" ? <div className="grid grid-cols-2 gap-1.5">{[0, 1].map((i) => <div key={i} className="overflow-hidden rounded-xl bg-[#f8f3ec]"><div className={`h-14 ${photo}`} /><div className="space-y-1 p-1.5"><div className={`${line} w-3/4`} /><div className="flex items-center justify-between"><div className="h-1.5 w-8 rounded-full bg-stone-400" /><span className="flex size-4 items-center justify-center rounded-full text-[8px] text-white" style={{ backgroundColor: accent }}>+</span></div></div></div>)}</div>
       : template === "minimal" ? <div className="space-y-1.5 px-1 py-1">{[0, 1, 2].map((i) => <div key={i} className="flex items-center gap-2 border-b border-stone-100 pb-1.5"><div className="min-w-0 flex-1 space-y-1"><div className={`${line} w-1/3`} /><div className={`${line} w-2/3 opacity-50`} /></div><div className="h-1.5 w-9 rounded-full" style={{ backgroundColor: `${accent}55` }} /></div>)}</div>
+      : template === "softmenu-test3" ? <div className="space-y-1.5"><div className="h-12 rounded-lg bg-gradient-to-br from-teal-900 to-emerald-700"/><div className="flex gap-1 overflow-hidden">{[0, 1, 2, 3].map((i) => <span key={i} className="h-3 w-10 shrink-0 rounded-full" style={{ backgroundColor: i === 0 ? accent : "#e7e5e4" }}/>)}</div><div className="grid grid-cols-2 gap-1"><span className={`h-7 rounded-md ${photo}`}/><span className={`h-7 rounded-md ${photo}`}/></div></div>
+      : template === "softmenu-test" ? <div className="space-y-1.5 rounded-lg bg-[#332344] p-2"><div className="mx-auto h-3 w-1/2 rounded-full bg-white/60"/><div className="grid grid-cols-3 gap-1">{[0, 1, 2, 3, 4, 5].map((i) => <span key={i} className="h-8 rounded-lg border border-white/20 bg-white/10"/>)}</div></div>
+      : template === "captainm" ? <div className="relative isolate space-y-1.5 overflow-hidden rounded-lg bg-[#090d20] p-2"><span className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_18%_18%,rgba(167,139,250,.55),transparent_27%),radial-gradient(circle_at_82%_30%,rgba(34,211,238,.4),transparent_22%)]"/><div className="mx-auto h-5 w-2/3 rounded-full border border-cyan-200/20 bg-indigo-100/15 shadow-[0_0_14px_rgba(103,232,249,.22)]"/><div className="grid grid-cols-3 gap-1">{[0, 1, 2, 3, 4, 5].map((i) => <span key={i} className="h-6 rounded-md border border-indigo-100/15 bg-indigo-100/10"/>)}</div><div className="h-2 rounded-full bg-cyan-200/30"/></div>
+      : template === "haftkhan" ? <div className="space-y-1.5 rounded-lg bg-[#fcf2f3] p-2"><div className="mx-auto h-3 w-1/3 rounded-full bg-rose-950/20"/><div className="grid grid-cols-4 gap-1">{[0, 1, 2, 3, 4, 5, 6, 7].map((i) => <span key={i} className="grid h-7 place-items-center rounded-full" style={{ backgroundColor: i === 0 ? accent : "#fff", border: "1px solid #eadcdd" }}><span className="size-2 rounded-full bg-rose-900/30"/></span>)}</div><div className="grid grid-cols-3 gap-1"><span className={`h-8 rounded-md ${photo}`}/><span className={`h-8 rounded-md ${photo}`}/><span className={`h-8 rounded-md ${photo}`}/></div></div>
       : <div className="space-y-1.5">{[0, 1].map((i) => <div key={i} className="flex items-center gap-2 rounded-lg bg-stone-50 p-1.5"><span className={`size-9 shrink-0 rounded-md ${photo}`} /><div className="flex-1 space-y-1.5"><div className={`${line} w-1/2`} /><div className={`${line} w-3/4 opacity-60`} /></div><span className="size-4 rounded-md" style={{ backgroundColor: `${accent}50` }} /></div>)}</div>}
     <div className="mt-2 flex items-center justify-around rounded-lg border border-stone-100 bg-white px-2 py-1"><span className="h-1 w-4 rounded-full" style={{ backgroundColor: accent }} /><span className="h-1 w-4 rounded-full bg-stone-200" /><span className="h-1 w-4 rounded-full bg-stone-200" /><span className="h-1 w-4 rounded-full bg-stone-200" /></div>
   </div>;
@@ -196,7 +193,7 @@ export default function SettingsPage() {
               <div>
                 <Field label="قالب منوی مشتری" hint="هر قالب، چیدمان محصولات و نوار ناوبری منو را تغییر می‌دهد. انتخاب پس از ذخیره روی منوی عمومی اعمال می‌شود.">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {MENU_TEMPLATES.map((template) => {
+                    {MENU_TEMPLATE_OPTIONS.map((template) => {
                       const selected = (biz.settings.menuTemplate ?? "classic") === template.id;
                       return <button key={template.id} type="button" aria-pressed={selected} onClick={() => setSettings({ menuTemplate: template.id })} className={cn("group rounded-2xl border p-2.5 text-start transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500", selected ? "border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20" : "border-stone-200 bg-white hover:border-stone-300")}>
                         <MenuTemplatePreview template={template.id} accent={biz.accentColor} />

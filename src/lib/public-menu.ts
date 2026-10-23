@@ -6,6 +6,7 @@ import { hasAny, type Settings } from "@/lib/plans";
 import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
 import { visibleMenuPromoBanners } from "@/lib/menu-banners";
 import { activeTransferCards } from "@/lib/card-transfer";
+import { isMenuTemplate } from "@/lib/menu-templates";
 
 export async function getPublicMenu(slug: string) {
   const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
@@ -43,7 +44,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   return {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
-      menuTemplate: ["classic", "editorial", "compact", "bistro", "minimal"].includes(String(st.menuTemplate)) ? st.menuTemplate : "classic",
+      menuTemplate: isMenuTemplate(st.menuTemplate) ? st.menuTemplate : "classic",
       promotionalBanners: visibleMenuPromoBanners(st.promoBanners),
       instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, logoUrl: biz.logoUrl, acceptOrders: biz.acceptOrders,
       taxPercent: biz.taxPercent, servicePercent: biz.servicePercent,

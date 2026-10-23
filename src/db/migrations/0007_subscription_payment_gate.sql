@@ -8,7 +8,7 @@ SET plan = 'pending'
 FROM users u
 WHERE b.user_id = u.id
   AND u.role = 'owner'
-  AND u.email LIKE 'phone+%@phone.menudigital.ir'
+  AND u.email LIKE 'phone+%@phone.menupeak.ir'
   AND b.plan IN ('basic', 'premium', 'premium_plus')
   AND b.subscription_ends_at IS NULL
   AND NOT EXISTS (

@@ -2,7 +2,7 @@
 const value = (process.env.DEMO_MODE ?? process.env.NEXT_PUBLIC_DEMO_MODE ?? "false").trim().toLowerCase();
 export const DEMO_ENABLED = ["true", "1", "on", "enabled", "yes"].includes(value);
 
-/** Reserved sample tenant slug. Its public surfaces are read-only. */
+/** Reserved sample tenant slug. Checkout and reservations are blocked; waiter requests remain available for demonstration. */
 export const DEMO_SLUG = "niloofar";
 
 export function isReadOnlyDemoSlug(slug: string) {
@@ -11,8 +11,8 @@ export function isReadOnlyDemoSlug(slug: string) {
 
 /** Emails reserved for the seeded accounts shown in the demo sign-in panel. */
 export const DEMO_LOGIN_EMAILS = new Set([
-  "demo@menudigital.ir", "basic@menudigital.ir", "premium@menudigital.ir",
-  "admin@menudigital.ir", "support@menudigital.ir", "finance@menudigital.ir",
-  "courier@menudigital.ir", "waiter@menudigital.ir", "cashier@menudigital.ir",
-  "kitchen@menudigital.ir", "warehouse@menudigital.ir", "accountant@menudigital.ir",
+  "demo@menupeak.ir", "basic@menupeak.ir", "premium@menupeak.ir",
+  "admin@menupeak.ir", "support@menupeak.ir", "finance@menupeak.ir",
+  "courier@menupeak.ir", "waiter@menupeak.ir", "cashier@menupeak.ir",
+  "kitchen@menupeak.ir", "warehouse@menupeak.ir", "accountant@menupeak.ir",
 ]);

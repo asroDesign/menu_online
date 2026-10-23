@@ -10,13 +10,14 @@ import { useState } from "react";
 
 const artIcons = { coffee: Coffee, food: UtensilsCrossed, dessert: Sparkles, cold: CupSoda, pizza: Pizza, fish: Fish, salad: Salad, breakfast: EggFried, burger: Sandwich, drink: CupSoda } as const;
 
-export function FoodArt({ product, className = "", variant = "warm" }: { product: DemoMenuProduct; className?: string; variant?: "warm" | "violet" | "sea" | "heritage" }) {
+export function FoodArt({ product, className = "", variant = "warm" }: { product: DemoMenuProduct; className?: string; variant?: "warm" | "violet" | "sea" | "space" | "heritage" }) {
   const Icon = artIcons[product.mark];
   const source = product.mark === "coffee" ? "/images/cashier/beverage.webp" : product.mark === "dessert" ? "/images/cashier/dessert.webp" : product.mark === "cold" || product.mark === "drink" ? "/images/cashier/cold-drink.webp" : "/images/cashier/meal.webp";
   const styles = {
     warm: "from-orange-100 via-amber-50 to-rose-100 text-orange-700",
     violet: "from-violet-200 via-fuchsia-100 to-amber-100 text-violet-800",
     sea: "from-cyan-200 via-sky-100 to-blue-200 text-sky-900",
+    space: "from-indigo-300 via-violet-200 to-cyan-200 text-indigo-950",
     heritage: "from-amber-200 via-orange-100 to-yellow-50 text-amber-950",
   };
   return <div aria-hidden="true" className={`relative grid overflow-hidden place-items-center bg-gradient-to-br ${styles[variant]} ${className}`}>
@@ -32,7 +33,7 @@ export function DemoNotice({ state, dark = false }: { state: DemoMenuState; dark
   return <div role="status" className={`mx-4 my-3 flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-xs leading-6 ${dark ? "border-white/15 bg-white/10 text-white" : "border-primary/20 bg-primary/5 text-base-content"}`}><span>{state.notice}</span><button type="button" className="grid size-7 shrink-0 place-items-center rounded-lg hover:bg-black/5" aria-label="بستن پیام" onClick={() => state.setNotice("")}><X size={15}/></button></div>;
 }
 
-export function DemoProductDialog({ state, variant = "warm" }: { state: DemoMenuState; variant?: "warm" | "violet" | "sea" | "heritage" }) {
+export function DemoProductDialog({ state, variant = "warm" }: { state: DemoMenuState; variant?: "warm" | "violet" | "sea" | "space" | "heritage" }) {
   const product = state.selected;
   const [activeTab, setActiveTab] = useState<"description" | "reviews">("description");
   const [review, setReview] = useState("");
@@ -88,8 +89,8 @@ export function DemoItemActions({ state, product, onDetails }: { state: DemoMenu
   </div>;
 }
 
-export function DemoBrandMark({ style = "amber" }: { style?: "amber" | "violet" | "sea" | "red" }) {
-  const classes = { amber: "bg-amber-500 text-white", violet: "bg-violet-700 text-white", sea: "bg-cyan-600 text-white", red: "bg-red-950 text-amber-100" };
+export function DemoBrandMark({ style = "amber" }: { style?: "amber" | "violet" | "sea" | "space" | "red" }) {
+  const classes = { amber: "bg-amber-500 text-white", violet: "bg-violet-700 text-white", sea: "bg-cyan-600 text-white", space: "bg-gradient-to-br from-indigo-400 to-cyan-400 text-slate-950 shadow-cyan-300/20", red: "bg-red-950 text-amber-100" };
   return <span className={`grid size-11 shrink-0 place-items-center rounded-2xl shadow-md ${classes[style]}`}><Utensils size={21}/></span>;
 }
 

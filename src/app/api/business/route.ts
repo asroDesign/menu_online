@@ -10,6 +10,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { isManagerRole } from "@/lib/roles";
 import { cleanMenuPromoBanners } from "@/lib/menu-banners";
 import { normalizePrinterSettings, validatePrinterSelection } from "@/lib/printer-policy";
+import { isMenuTemplate } from "@/lib/menu-templates";
 
 function publicBiz<T extends { settings: unknown }>(b: T): T {
   const st = { ...((b.settings ?? {}) as Record<string, unknown>) };
@@ -75,7 +76,7 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
   switch (key) {
     case "menuTemplate":
-      return ["classic", "editorial", "compact", "bistro", "minimal"].includes(String(v)) ? v : "classic";
+      return isMenuTemplate(v) ? v : "classic";
     case "promoBanners":
       return cleanMenuPromoBanners(v);
     case "miniSite": {

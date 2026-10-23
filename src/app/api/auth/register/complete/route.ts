@@ -53,7 +53,7 @@ export async function POST(req: Request) {
       const [user] = await tx.insert(users).values({
         name,
         phone: challenge.phone,
-        email: `phone+${challenge.phone}@phone.menudigital.ir`,
+        email: `phone+${challenge.phone}@phone.menupeak.ir`,
         passwordHash: hashPassword(randomBytes(32).toString("hex")),
       }).onConflictDoNothing({ target: users.phone }).returning();
       if (!user) throw new HttpError(409, "این شماره در همین زمان ثبت‌نام شده است؛ وارد شوید");

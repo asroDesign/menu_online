@@ -1,4 +1,5 @@
 // Pure (client-safe) plan & feature definitions.
+import type { MenuTemplateId } from "@/lib/menu-templates";
 
 export type PlanKey = "basic" | "premium" | "premium_plus";
 export type Level = "yes" | "no" | "custom";
@@ -143,7 +144,7 @@ export type TransferCard = {
 };
 
 export type Settings = {
-  menuTemplate?: "classic" | "editorial" | "compact" | "bistro" | "minimal";
+  menuTemplate?: MenuTemplateId;
   promoBanners?: MenuPromoBanner[];
   miniSite?: MiniSite;
   languages?: string[];
