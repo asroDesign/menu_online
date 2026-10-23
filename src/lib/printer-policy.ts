@@ -12,6 +12,7 @@ export type PrinterSettings = {
   receiptFooter: string;
   rules: Record<PrintMoment, PrintRule>;
 };
+export type PrintCopyPreset = { key: string; customer: number; kitchen: number; cafe: number };
 
 const rule = (customerCopies = 0, kitchenCopies = 0, cafeCopies = 0): PrintRule => ({
   customerCopies, kitchenCopies, cafeCopies, customerPrinterId: null, kitchenPrinterIds: [], cafePrinterId: null,
@@ -56,6 +57,30 @@ export function normalizePrinterSettings(value: unknown): PrinterSettings {
     receiptHeader: typeof raw.receiptHeader === "string" ? raw.receiptHeader.trim().slice(0, 500) : "",
     receiptFooter: typeof raw.receiptFooter === "string" ? raw.receiptFooter.trim().slice(0, 500) : "",
     rules,
+  };
+}
+
+/** Keep rules with explicit device routing in the custom editor, even when copy counts match a preset. */
+export function printerRulePresetKey(value: PrintRule, presets: PrintCopyPreset[]): string {
+  const hasExplicitPrinterRouting = value.customerPrinterId !== null
+    || value.kitchenPrinterIds.length > 0
+    || value.cafePrinterId !== null;
+  if (hasExplicitPrinterRouting) return "custom";
+  return presets.find((item) => item.customer === value.customerCopies
+    && item.kitchen === value.kitchenCopies
+    && item.cafe === value.cafeCopies)?.key ?? "custom";
+}
+
+/** Apply a named preset and return its routing to automatic device selection. */
+export function applyPrintCopyPreset(value: PrintRule, preset: PrintCopyPreset): PrintRule {
+  return {
+    ...value,
+    customerCopies: preset.customer,
+    kitchenCopies: preset.kitchen,
+    cafeCopies: preset.cafe,
+    customerPrinterId: null,
+    kitchenPrinterIds: [],
+    cafePrinterId: null,
   };
 }
 

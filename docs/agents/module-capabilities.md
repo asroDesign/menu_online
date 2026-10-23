@@ -73,7 +73,7 @@
 | ماژول و راهنمای بازسازی | مسیر | کاربرد و قابلیت‌های اصلی | Entitlement |
 |---|---|---|---|
 | [تبلت و POS](modules/devices.md) | `/dashboard/devices` | مدیریت دستگاه و پل POS؛ شماره ترمینال، اتصال حساب تسویه، مجازسازی جداگانه برای صندوق/کیوسک، دریافت و پیگیری درخواست پرداخت و نمایشگر آشپزخانه. مهاجرت `0047` لازم است. | `tablet_pos` |
-| [چاپگرها](modules/printers.md) | `/dashboard/settings/printers/*`, `/dashboard/printers` | اتصال چند چاپگر با عامل محلی Windows از TCP/USB/serial؛ سیاست چاپ برای ایجاد، تسویه و تکمیل؛ چاپ مستقیم دستی رسید مشتری/بلیت آشپزخانه بدون preview مرورگر؛ نسخه‌ها، سربرگ/پابرگ، مسیردهی دسته‌ها، صف و retry. | `cloud_printer` |
+| [چاپگرها](modules/printers.md) | `/dashboard/settings/printers/*`, `/dashboard/printers` | اتصال چند چاپگر با عامل محلی Windows از TCP/USB/serial؛ سیاست چاپ برای ایجاد، تسویه و تکمیل؛ چاپ مستقیم دستی رسید مشتری/بلیت آشپزخانه بدون preview مرورگر؛ نسخه‌ها، سربرگ/پابرگ، مسیردهی دسته‌ها، صف و retry؛ انتخاب دستگاه اختصاصی بعد از ذخیره در «چیدمان دلخواه» باقی می‌ماند. | `cloud_printer` |
 | [شناسه تماس](modules/caller-id.md) | `/dashboard/caller-id` | دریافت تماس‌های ورودی از دستگاه و آغاز سفارش با تطبیق مشتری. | `caller_id` |
 | [ترازو](modules/scale.md) | `/dashboard/scale` | اتصال ترازو و ثبت وزن خوانده‌شده برای محصولات وزنی. | `scale` |
 | [اعلام صوتی سفارش](modules/voice-pager.md) | `/dashboard/voice-pager` | اعلام صوتی سفارش آماده و ثبت تحویل آن. | `pager_voice` |

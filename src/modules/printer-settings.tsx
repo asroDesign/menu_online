@@ -6,7 +6,7 @@ import { Badge, Button, Card, EmptyState, Field, Icon, Input, PageHeader, Select
 import { useFeatures } from "@/components/features";
 import { api, useCollection } from "@/lib/api";
 import type { Settings } from "@/lib/plans";
-import { DEFAULT_PRINTER_SETTINGS, normalizePrinterSettings, type PrintMoment, type PrintRule, type PrinterSettings } from "@/lib/printer-policy";
+import { applyPrintCopyPreset, DEFAULT_PRINTER_SETTINGS, normalizePrinterSettings, printerRulePresetKey, type PrintMoment, type PrintRule, type PrinterSettings } from "@/lib/printer-policy";
 import { PrinterCategoryPanel, PrinterDevicesPanel, printerIsOnline } from "@/modules/hardware";
 
 type Tab = "devices" | "workflows" | "categories";
@@ -52,9 +52,8 @@ const COPY_PRESETS: Record<PrintMoment, { key: string; label: string; customer: 
   ],
 };
 
-const cloneRule = (value: PrintRule): PrintRule => ({ ...value, kitchenPrinterIds: [...value.kitchenPrinterIds] });
 function presetKey(moment: PrintMoment, value: PrintRule) {
-  return COPY_PRESETS[moment].find((item) => item.customer === value.customerCopies && item.kitchen === value.kitchenCopies && item.cafe === value.cafeCopies)?.key ?? "custom";
+  return printerRulePresetKey(value, COPY_PRESETS[moment]);
 }
 
 function RuleEditor({ moment, settings, printers, saving, onSave }: {
@@ -79,7 +78,7 @@ function RuleEditor({ moment, settings, printers, saving, onSave }: {
       {[...COPY_PRESETS[moment.id], { key: "custom", label: "چیدمان دلخواه", customer: -1, kitchen: -1, cafe: -1 }].map((item) => <button key={item.key} type="button" role="radio" aria-checked={selected === item.key} disabled={saving} onClick={() => {
         if (item.key === "custom") { setDraft(settings); setEditing(true); return; }
         setEditing(false); setDraft(null);
-        withRule({ ...cloneRule(rule), customerCopies: item.customer, kitchenCopies: item.kitchen, cafeCopies: item.cafe });
+        withRule(applyPrintCopyPreset(rule, item));
       }} className={cn("flex min-h-12 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-start text-sm font-semibold transition", selected === item.key ? "border-brand-400 bg-brand-50 text-brand-900" : "border-stone-200 bg-white hover:border-brand-300")}>
         <span>{item.label}</span>{selected === item.key && <Icon name="check" className="size-4 text-brand-700" />}
       </button>)}
@@ -99,6 +98,7 @@ function RuleEditor({ moment, settings, printers, saving, onSave }: {
         <p className="mb-2 text-[11px] leading-5 text-stone-500">اگر انتخابی نکنید، دسته‌بندی‌های هر چاپگر تعیین می‌کند کدام قلم به کجا برود. اگر هیچ چاپگری دسته نداشته باشد، اولین چاپگر همهٔ اقلام را می‌گیرد.</p>
         <div className="flex flex-wrap gap-2">{printers.map((printer) => <label key={printer.id} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs ring-1 ring-stone-200"><input type="checkbox" checked={editingRule.kitchenPrinterIds.includes(printer.id)} onChange={() => patchDraft({ kitchenPrinterIds: editingRule.kitchenPrinterIds.includes(printer.id) ? editingRule.kitchenPrinterIds.filter((id) => id !== printer.id) : [...editingRule.kitchenPrinterIds, printer.id] })} />{printer.name}</label>)}</div>
       </div>
+      <p className="text-[11px] leading-5 text-brand-800">با انتخاب پرینتر اختصاصی، تنظیم پس از ذخیره همچنان «چیدمان دلخواه» می‌ماند؛ حتی اگر تعداد نسخه‌ها با یکی از حالت‌های آماده برابر باشد.</p>
       <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={() => { setEditing(false); setDraft(null); }}>انصراف</Button><Button loading={saving} onClick={() => { if (draft) void onSave(draft).then(() => { setEditing(false); setDraft(null); }).catch(() => {}); }}>ذخیرهٔ چیدمان دلخواه</Button></div>
     </div>}
   </Card>;

@@ -44,6 +44,26 @@ test('printer settings are bounded and selections can be checked against tenant-
   assert.equal(validatePrinterSelection(value, new Set([4, 8])), false);
 });
 
+test('explicit printer routes stay in the custom layout after saving, even when copy counts match a preset', () => {
+  const { DEFAULT_PRINTER_SETTINGS, applyPrintCopyPreset, printerRulePresetKey } = loadPolicy();
+  const presets = [
+    { key: 'kitchen', customer: 0, kitchen: 1, cafe: 0 },
+    { key: 'both', customer: 1, kitchen: 1, cafe: 0 },
+  ];
+  const withKitchenPrinter = {
+    ...DEFAULT_PRINTER_SETTINGS.rules.created_with_table,
+    kitchenPrinterIds: [21],
+  };
+  assert.equal(printerRulePresetKey(withKitchenPrinter, presets), 'custom');
+  assert.equal(printerRulePresetKey({ ...withKitchenPrinter, kitchenPrinterIds: [] }, presets), 'both');
+  assert.equal(printerRulePresetKey({ ...withKitchenPrinter, kitchenPrinterIds: [], customerPrinterId: 22 }, presets), 'custom');
+  assert.equal(printerRulePresetKey({ ...withKitchenPrinter, kitchenCopies: 2, kitchenPrinterIds: [] }, presets), 'custom');
+  const selectedPreset = applyPrintCopyPreset(withKitchenPrinter, presets[1]);
+  assert.equal(printerRulePresetKey(selectedPreset, presets), 'both');
+  assert.deepEqual(JSON.parse(JSON.stringify(selectedPreset.kitchenPrinterIds)), []);
+  assert.equal(selectedPreset.customerPrinterId, null);
+});
+
 test('cashier credit checkout and receipt workflows are wired through the server services', () => {
   const cashierRoute = source('src/app/api/orders/route.ts');
   const orderService = source('src/lib/orders.ts');
