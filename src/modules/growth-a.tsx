@@ -12,10 +12,11 @@ import { ResourcePage } from "@/components/resource-page";
 import { SettingCard } from "@/components/setting-card";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
 import { MembershipTierManager } from "@/components/membership-tier-manager";
+import { CustomerAnalytics } from "@/components/customer-analytics";
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, AmountInput, Modal, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
-type Customer = { id: number; name: string; phone: string; note: string; points: number; walletBalance: number; totalSpent: number; ordersCount: number; birthMonth: number | null; birthDay: number | null; smsOptIn: boolean; lastOrderAt: string | null; segment: string };
+type Customer = { id: number; name: string; phone: string; note: string; points: number; walletBalance: number; totalSpent: number; ordersCount: number; birthMonth: number | null; birthDay: number | null; smsOptIn: boolean; lastOrderAt: string | null; segment: string; referredByCustomerId: number | null; isReferred: boolean; referralsCount: number };
 
 function SegmentSettings() {
   const toast = useToast();
@@ -41,6 +42,7 @@ export function Customers() {
   const canSms = f.has("sms") && f.isManager;
   return (
     <>
+      {f.isManager && <CustomerAnalytics />}
       <ResourcePage<Customer>
         title="باشگاه مشتریان"
         subtitle="مشتریان به‌صورت خودکار بر اساس تعداد و مبلغ خرید و زمان آخرین خرید طبقه‌بندی می‌شوند"
@@ -51,7 +53,7 @@ export function Customers() {
         addLabel="مشتری جدید"
         selectable={canSms}
         optimisticExtra={{ points: 0, walletBalance: 0, totalSpent: 0, ordersCount: 0, birthMonth: null, birthDay: null, lastOrderAt: null, segment: "none" }}
-        rowFilter={(r) => seg === "all" || r.segment === seg}
+        rowFilter={(r) => seg === "all" || (seg === "referred" ? r.isReferred : r.segment === seg)}
         fields={[
           { key: "name", label: "نام", required: true },
           { key: "phone", label: "موبایل", required: true, ltr: true, placeholder: "09121234567" },
@@ -70,10 +72,10 @@ export function Customers() {
               <IconText>{[{ key: "all", label: "همه", emoji: "" }, ...SEGMENTS].map((s) => {
                 const n = s.key === "all" ? items.length : items.filter((c) => c.segment === s.key).length;
                 return <button key={s.key} onClick={() => setSeg(s.key)} title={"desc" in s ? s.desc : undefined} className={cn("flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition", seg === s.key ? "bg-stone-900 text-white shadow" : "bg-white ring-1 ring-stone-200 hover:bg-stone-50")}><span>{<EmojiIcon emoji={s.emoji} /> }</span>{s.label}<span className={cn("rounded-md px-1.5 text-[11px]", seg === s.key ? "bg-white/20" : "bg-stone-100 text-stone-500")}>{toFa(n)}</span></button>;
-              })}</IconText>
+              })}<button onClick={() => setSeg("referred")} className={cn("flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition", seg === "referred" ? "bg-stone-900 text-white shadow" : "bg-white ring-1 ring-stone-200 hover:bg-stone-50")}><Icon name="users" className="size-4" /> معرفی‌شده<span className={cn("rounded-md px-1.5 text-[11px]", seg === "referred" ? "bg-white/20" : "bg-stone-100 text-stone-500")}>{toFa(items.filter((c) => c.isReferred).length)}</span></button></IconText>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
-              <span>{seg !== "all" ? segMeta(seg).desc : "برای فیلتر، یک گروه را انتخاب کنید"}</span>
+              <span>{seg === "referred" ? "مشتریانی که با کد دعوت عضو همین رستوران شده‌اند" : seg !== "all" ? segMeta(seg).desc : "برای فیلتر، یک گروه را انتخاب کنید"}</span>
               {f.isManager && f.has("loyalty") && <SegmentSettings />}
             </div>
           </div>
@@ -81,13 +83,14 @@ export function Customers() {
         renderBar={({ filtered, selected, clear }) => canSms && (filtered.length > 0) ? (
           <div className="no-print mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-50 p-3 ring-1 ring-brand-200">
             <span className="text-sm font-semibold text-brand-900"><IconText>{<EmojiIcon emoji="" />}</IconText> ارسال پیامک:</span>
-            {seg !== "all" && seg !== "none" && <Button size="sm" onClick={() => setSms({ audience: `seg:${seg}`, count: filtered.filter((c) => c.smsOptIn).length, title: `گروه ${segMeta(seg).label}` })}>به کل گروه «{segMeta(seg).label}» ({toFa(filtered.filter((c) => c.smsOptIn).length)})</Button>}
+            {seg !== "all" && seg !== "none" && <Button size="sm" onClick={() => setSms({ audience: `seg:${seg}`, count: filtered.filter((c) => c.smsOptIn).length, title: `گروه ${seg === "referred" ? "معرفی‌شده" : segMeta(seg).label}` })}>به کل گروه «{seg === "referred" ? "معرفی‌شده" : segMeta(seg).label}» ({toFa(filtered.filter((c) => c.smsOptIn).length)})</Button>}
             <Button size="sm" variant="secondary" disabled={selected.length === 0} onClick={() => setSms({ audience: "manual", numbers: selected.filter((c) => c.smsOptIn).map((c) => c.phone).join(","), count: selected.filter((c) => c.smsOptIn).length, title: "مشتریان انتخاب‌شده" })}>به انتخاب‌شده‌ها ({toFa(selected.length)})</Button>
             {selected.length > 0 && <button className="text-xs text-stone-500 underline" onClick={clear}>لغو انتخاب</button>}
           </div>
         ) : null}
         columns={[
           { label: "مشتری", render: (r) => <div><p className="font-bold">{r.name}</p><p className="text-xs text-stone-400" dir="ltr">{r.phone}</p></div> },
+          { label: "دعوت و معرفی", render: (r) => <div className="space-y-1">{r.isReferred ? <Badge color="emerald">معرفی‌شده</Badge> : <span className="text-xs text-stone-400">مستقیم / بدون کد</span>}<p className="text-[11px] text-stone-500">{toFa(r.referralsCount)} نفر دعوت‌شده</p></div> },
           { label: "طبقه", render: (r) => <Badge color={segMeta(r.segment).color}><EmojiIcon emoji={segMeta(r.segment).emoji} /> {segMeta(r.segment).label}</Badge> },
           { label: "تعداد خرید", render: (r) => toFa(r.ordersCount) },
           { label: "مجموع خرید", render: (r) => formatPrice(r.totalSpent) },

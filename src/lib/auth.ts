@@ -176,6 +176,7 @@ export function errorResponse(e: unknown) {
   let cause: unknown = e;
   let isStaffScheduleSchemaError = false;
   let isWaiterServiceRequestSchemaError = false;
+  let isCustomerReferralSchemaError = false;
   for (let depth = 0; depth < 4 && cause; depth++) {
     const current = cause as { code?: unknown; message?: unknown; cause?: unknown };
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /staff_(?:schedules|leave_requests|shift_templates|shift_swap_requests|attendance)/i.test(String(current.message ?? ""))) {
@@ -184,6 +185,10 @@ export function errorResponse(e: unknown) {
     }
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /waiter_service_requests/i.test(String(current.message ?? ""))) {
       isWaiterServiceRequestSchemaError = true;
+      break;
+    }
+    if (["42P01", "42703"].includes(String(current.code ?? "")) && /referral_code|referred_by_customer_id|orders_customer_paid_analytics_idx/i.test(String(current.message ?? ""))) {
+      isCustomerReferralSchemaError = true;
       break;
     }
     cause = current.cause;
@@ -195,6 +200,10 @@ export function errorResponse(e: unknown) {
   if (isWaiterServiceRequestSchemaError) {
     logError("api.waiter_service_requests_migration_required", e);
     return Response.json({ error: "ساختار درخواست گارسون به‌روز نیست؛ migration 0042 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
+  }
+  if (isCustomerReferralSchemaError) {
+    logError("api.customer_referrals_migration_required", e);
+    return Response.json({ error: "ساختار باشگاه مشتریان به‌روز نیست؛ migration 0043 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
   }
   logError("api.unhandled_error", e);
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });

@@ -46,7 +46,7 @@
 | `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق و اعلان مشترک درخواست میز؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
 | `/dashboard/tables` | [modules/tables.md](modules/tables.md) — مدیریت میزها |
 | `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارکنان |
-| `/dashboard/customers` | [modules/customers.md](modules/customers.md) — مشتریان |
+| `/dashboard/customers` | [modules/customers.md](modules/customers.md) — CRM و باشگاه مشتریان، تحلیل خرید اول/مجدد، ثبت معرفی مشتری و کمپین رضایت‌محور |
 | `/dashboard/cashback` | [modules/cashback.md](modules/cashback.md) — اعتبار وفاداری |
 | `/dashboard/discounts` | [modules/discounts.md](modules/discounts.md) — کدهای تخفیف |
 | `/dashboard/reservations` | [modules/reservations.md](modules/reservations.md) — رزرو میز |

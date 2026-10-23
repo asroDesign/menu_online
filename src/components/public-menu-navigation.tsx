@@ -13,6 +13,7 @@ type CustomerProfile = {
   name: string;
   phone: string;
   points: number;
+  referralCode: string;
   recentOrders: { number: number; status: string; paymentStatus: string; deliveryStatus: string; total: number; type: string; createdAt: string }[];
 };
 
@@ -66,6 +67,8 @@ export function PublicMenuNavigation({
   const [recent, setRecent] = useState<TrackedMenuOrder[]>([]);
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+  const [referralCode, setReferralCode] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("ref")?.slice(0, 32) ?? "");
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [code, setCode] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [expiresAt, setExpiresAt] = useState(0);
@@ -125,7 +128,7 @@ export function PublicMenuNavigation({
     setBusy(true);
     setError("");
     try {
-      const result = await customerRequest<{ profile: CustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/otp/verify`, "POST", { challengeId, code, name });
+      const result = await customerRequest<{ profile: CustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/otp/verify`, "POST", { challengeId, code, name, referralCode });
       setProfile(result.profile);
       setPhone(result.profile.phone);
       setName(result.profile.name);
@@ -140,6 +143,7 @@ export function PublicMenuNavigation({
     setProfile(null);
     setChallengeId("");
     setCode("");
+    setInviteCopied(false);
   }
 
   async function openOrders() {
@@ -199,17 +203,23 @@ export function PublicMenuNavigation({
       {readOnly ? <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">پروفایل در پیش‌نمایش منو فعال نیست.</div> : profile ? <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-2xl bg-stone-50 p-4"><span className="flex size-12 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: accent }}><Icon name="users" /></span><div className="min-w-0"><p className="truncate font-extrabold">{profile.name}</p><p className="mt-1 text-sm text-stone-500" dir="ltr">{profile.phone}</p></div></div>
         <div className="grid grid-cols-2 gap-2"><div className="rounded-xl border border-stone-200 p-3"><p className="text-[11px] text-stone-500">سفارش‌های قبلی</p><p className="mt-1 font-extrabold">{toFa(profile.recentOrders.length)}{profile.recentOrders.length === 20 ? "+" : ""}</p></div><div className="rounded-xl border border-stone-200 p-3"><p className="text-[11px] text-stone-500">امتیاز باشگاه</p><p className="mt-1 font-extrabold">{toFa(profile.points)}</p></div></div>
+        <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4">
+          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-blue-900">دعوت از دوستان</p><p className="mt-1 text-[11px] leading-5 text-blue-800/70">با لینک خودتان، معرفی مشتری در باشگاه ثبت می‌شود.</p></div><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-blue-700 shadow-sm"><Icon name="users" className="size-5" /></span></div>
+          <div className="mt-3 flex items-center gap-2"><code dir="ltr" className="min-w-0 flex-1 truncate rounded-xl bg-white px-3 py-2.5 text-center text-sm font-extrabold tracking-widest text-blue-950 ring-1 ring-blue-100">{profile.referralCode}</code><Button type="button" size="sm" variant="secondary" onClick={async () => { const inviteUrl = `${window.location.origin}/m/${encodeURIComponent(slug)}?ref=${encodeURIComponent(profile.referralCode)}`; try { await navigator.clipboard.writeText(inviteUrl); setInviteCopied(true); window.setTimeout(() => setInviteCopied(false), 2200); } catch { setInviteCopied(false); } }}>{inviteCopied ? "کپی شد" : "کپی لینک"}</Button></div>
+        </div>
         <Button type="button" variant="secondary" className="w-full" onClick={() => { void signOut(); }}>خروج از پروفایل</Button>
       </div> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void (challengeId ? verifyCode() : requestCode()); }}>
         {!challengeId ? <>
           <div className="rounded-2xl bg-blue-50 p-3.5 text-xs leading-6 text-blue-900">با تأیید شماره موبایل، سفارش‌های ثبت‌شده و امتیازهای همین رستوران را می‌بینید. اگر نخستین بار است، حساب مشتری پس از تأیید ساخته می‌شود.</div>
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">شماره موبایل<Input autoComplete="tel" inputMode="tel" dir="ltr" className="text-left" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="09۱۲۳۴۵۶۷۸۹" required /></label>
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">نام نمایشی (اختیاری)<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="نام شما" maxLength={80} /></label>
+          <label className="block space-y-1.5 text-xs font-semibold text-stone-600">کد معرفی (اختیاری)<Input dir="ltr" className="text-left uppercase" autoComplete="off" value={referralCode} onChange={(event) => setReferralCode(event.target.value.slice(0, 32))} placeholder="کد دوست شما" maxLength={32} /><span className="block text-[10px] font-normal leading-5 text-stone-400">برای حساب تازه؛ ثبت کد بعد از تأیید شماره انجام می‌شود.</span></label>
           <Button type="submit" className="w-full" loading={busy} disabled={!phone.trim()}>ارسال کد ورود</Button>
         </> : <>
           <div className="text-center"><span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Icon name="mobile" /></span><p className="mt-3 text-sm font-bold">کد ورود برای {phone} ارسال شد</p><p className="mt-1 text-xs text-stone-500">کد تا {toFa(Math.floor(seconds / 60))}:{toFa(String(seconds % 60).padStart(2, "0"))} اعتبار دارد.</p></div>
           <OtpCodeInput value={code} onChange={setCode} ariaLabel="کد ورود شش‌رقمی" required disabled={busy} />
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">نام نمایشی (برای حساب تازه)<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="نام شما" maxLength={80} /></label>
+          <label className="block space-y-1.5 text-xs font-semibold text-stone-600">کد معرفی (اختیاری)<Input dir="ltr" className="text-left uppercase" autoComplete="off" value={referralCode} onChange={(event) => setReferralCode(event.target.value.slice(0, 32))} placeholder="کد دوست شما" maxLength={32} /></label>
           <Button type="submit" className="w-full" loading={busy} disabled={code.length !== 6 || seconds === 0}>تأیید و ورود</Button>
           <div className="flex items-center justify-between gap-2 text-xs"><button type="button" onClick={() => { setChallengeId(""); setCode(""); setError(""); }} className="font-semibold text-stone-500">تغییر شماره</button><button type="button" disabled={retrySeconds > 0 || busy} onClick={() => { void requestCode(); }} className="font-bold text-blue-700 disabled:text-stone-400">{retrySeconds ? `ارسال دوباره تا ${toFa(retrySeconds)} ثانیه` : "ارسال دوباره کد"}</button></div>
         </>}

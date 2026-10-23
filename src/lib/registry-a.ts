@@ -120,7 +120,15 @@ export const registryA: Record<string, any> = {
     decorate: async (rows, biz) => {
       const cfg = mergeSeg((biz.settings as Settings | null)?.segments);
       const now = Date.now();
-      return rows.map((r) => ({ ...r, segment: segmentOf(r, cfg, now) }));
+      const ids = rows.map((row) => row.id);
+      const counts = ids.length ? await db.select({ referrerId: customers.referredByCustomerId, count: sql<number>`count(*)::int` })
+        .from(customers).where(eq(customers.businessId, biz.id)).groupBy(customers.referredByCustomerId) : [];
+      return rows.map(({ referralCode: _referralCode, ...r }) => ({
+        ...r,
+        segment: segmentOf(r, cfg, now),
+        isReferred: r.referredByCustomerId !== null,
+        referralsCount: counts.find((entry) => entry.referrerId === r.id)?.count ?? 0,
+      }));
     },
     spec: { name: str(80, true), phone: str(20, true), note: str(300), points: int(10_000_000), birthMonth: { type: "nullableInt", min: 1 }, birthDay: { type: "nullableInt", min: 1 }, smsOptIn: { type: "bool" } },
     validate: async (_b, data) => {

@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { customers, orders } from "@/db/schema";
 
 export async function publicCustomerData(businessId: number, customerId: number) {
-  const [customer] = await db.select({ id: customers.id, name: customers.name, phone: customers.phone, points: customers.points })
+  const [customer] = await db.select({ id: customers.id, name: customers.name, phone: customers.phone, points: customers.points, referralCode: customers.referralCode })
     .from(customers).where(and(eq(customers.id, customerId), eq(customers.businessId, businessId))).limit(1);
   if (!customer) return null;
   const recentOrders = await db.select({

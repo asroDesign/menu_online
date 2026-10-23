@@ -343,6 +343,7 @@ export const orders = pgTable(
   },
   (t) => [
     index("orders_business_idx").on(t.businessId, t.createdAt),
+    index("orders_customer_paid_analytics_idx").on(t.businessId, t.customerId, t.createdAt).where(sql`${t.status} = 'paid' AND ${t.paymentStatus} = 'paid' AND ${t.deletedAt} IS NULL AND ${t.customerId} IS NOT NULL`),
     uniqueIndex("orders_tracking_token_hash_idx").on(t.trackingTokenHash),
     uniqueIndex("orders_business_number_idx").on(t.businessId, t.number),
   ],
@@ -448,6 +449,8 @@ export const customers = pgTable(
     note: text("note").notNull().default(""),
     points: integer("points").notNull().default(0),
     walletBalance: integer("wallet_balance").notNull().default(0),
+    referralCode: text("referral_code").notNull().default(sql`upper(substr(md5(random()::text || clock_timestamp()::text), 1, 10))`),
+    referredByCustomerId: integer("referred_by_customer_id").references((): AnyPgColumn => customers.id, { onDelete: "set null" }),
     birthMonth: integer("birth_month"),
     birthDay: integer("birth_day"),
     smsOptIn: boolean("sms_opt_in").notNull().default(true),
@@ -456,7 +459,11 @@ export const customers = pgTable(
     ordersCount: integer("orders_count").notNull().default(0),
     createdAt: created(),
   },
-  (t) => [uniqueIndex("customers_biz_phone_idx").on(t.businessId, t.phone)],
+  (t) => [
+    uniqueIndex("customers_biz_phone_idx").on(t.businessId, t.phone),
+    uniqueIndex("customers_business_referral_code_idx").on(t.businessId, t.referralCode),
+    index("customers_business_referrer_idx").on(t.businessId, t.referredByCustomerId).where(sql`${t.referredByCustomerId} IS NOT NULL`),
+  ],
 );
 
 /** Debtor accounts are tenant-scoped and may optionally link to a verified customer record. */

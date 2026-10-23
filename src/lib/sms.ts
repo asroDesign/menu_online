@@ -50,6 +50,11 @@ export async function audience(biz: Biz, kind: string, numbers = ""): Promise<Cu
   }
   if (kind.startsWith("seg:")) {
     const key = kind.slice(4);
+    if (key === "referred") {
+      const rows = await db.select({ id: customers.id, name: customers.name, phone: customers.phone })
+        .from(customers).where(and(eq(customers.businessId, biz.id), eq(customers.smsOptIn, true), sql`${customers.referredByCustomerId} IS NOT NULL`)).limit(5000);
+      return rows;
+    }
     const cfg = mergeSeg(((biz.settings ?? {}) as Settings).segments);
     const rows = await db.select({ id: customers.id, name: customers.name, phone: customers.phone, ordersCount: customers.ordersCount, totalSpent: customers.totalSpent, lastOrderAt: customers.lastOrderAt }).from(customers).where(and(eq(customers.businessId, biz.id), eq(customers.smsOptIn, true))).limit(5000);
     return rows.filter((r) => segmentOf(r, cfg) === key).map(({ id, name, phone }) => ({ id, name, phone }));

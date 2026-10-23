@@ -332,11 +332,11 @@ test('session cookies set Secure in production and remain non-Secure in developm
 test('interactive preview is local-only, uses fabricated data, and never submits orders', () => {
   const preview = source('src/components/marketing/demo-preview.tsx');
   const page = source('src/app/preview/page.tsx');
-  assert.match(preview, /Local-only sample UI/);
+  assert.match(preview, /Local-only menu samples/);
   assert.match(preview, /disabled className="btn btn-disabled/);
-  assert.match(preview, /هیچ سفارش، پرداخت، پیامک یا تغییر داده‌ای انجام نمی‌شود/);
+  assert.match(preview, /هیچ سفارش، پرداخت، پیامک یا تغییری در داده‌ها انجام نمی‌شود/);
   assert.doesNotMatch(preview, /\/api\/|\bfetch\s*\(|\bapi\s*\(/);
-  assert.match(page, /<DemoPreview\s*\/>/);
+  assert.match(page, /<DemoPreview initialMenuId=\{menu\}\/\>/);
 });
 
 test('shared demo identities cannot sign in and demo checkout/reservation actions are rejected', () => {
@@ -451,8 +451,11 @@ test('menu templates are whitelisted and the real-menu preview cannot order or r
   const business = source('src/app/api/business/route.ts');
   const page = source('src/app/m/[slug]/page.tsx');
   const menu = source('src/components/menu-client.tsx');
+  const templates = source('src/lib/menu-templates.ts');
   assert.match(business, /case "menuTemplate"/);
-  assert.match(business, /classic.*editorial.*compact/);
+  assert.match(business, /isMenuTemplate\(v\) \? v : "classic"/);
+  for (const template of ['"classic"', '"editorial"', '"compact"', '"bistro"', '"minimal"', '"softmenu-test3"', '"softmenu-test"', '"captainm"', '"haftkhan"'])
+    assert.ok(templates.includes(`id: ${template}`), `menu template ${template} remains whitelisted`);
   assert.match(page, /readOnlyPreview=\{!!validTemplate && slug !== DEMO_SLUG\}/);
   assert.match(menu, /!readOnlyPreview && biz\.acceptOrders/);
   assert.match(menu, /caps\.reservations && !readOnlyDemo && !readOnlyPreview/);
