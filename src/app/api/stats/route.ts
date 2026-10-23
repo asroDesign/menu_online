@@ -1,9 +1,10 @@
 import { iconGlyph } from "@/components/ui";
 import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { diningTables, orderItems, orders, products } from "@/db/schema";
+import { diningTables, menuEvents, orderItems, orders, products } from "@/db/schema";
 import { withAuth } from "@/lib/auth";
 import { listOrders } from "@/lib/orders";
+import { buildMenuViewsSeries } from "@/lib/menu-views-core";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,18 @@ export const GET = withAuth(async (_req, { business }) => {
   const sum = (a: typeof days, f: "revenue" | "orders") => a.reduce((s, d) => s + d[f], 0);
   const last7 = days.slice(7);
   const prev7 = days.slice(0, 7);
+
+  const menuViewDate = sql<string>`to_char(${menuEvents.createdAt} AT TIME ZONE 'Asia/Tehran', 'YYYY-MM-DD')`;
+  const menuViewRows = await db
+    .select({ date: menuViewDate, views: sql<number>`count(*)::int` })
+    .from(menuEvents)
+    .where(and(
+      eq(menuEvents.businessId, business.id),
+      eq(menuEvents.eventName, "menu_view"),
+      gte(menuEvents.createdAt, since),
+    ))
+    .groupBy(menuViewDate);
+  const menuViewsSeries = buildMenuViewsSeries(days, menuViewRows);
 
   const todayKey = today.key;
   const todayRows = rows.filter((r) => dayKey(r.createdAt) === todayKey);
@@ -91,6 +104,7 @@ export const GET = withAuth(async (_req, { business }) => {
         : null,
     },
     series: last7.map(({ date, revenue, orders }) => ({ date, revenue, orders })),
+    menuViews: menuViewsSeries,
     top,
     statusCounts,
     activeCount: activeOrders.length,

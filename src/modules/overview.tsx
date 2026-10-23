@@ -6,13 +6,14 @@ import { api } from "@/lib/api";
 import { useFeatures } from "@/components/features";
 import { Button, Card, EmptyState, ErrorState, Icon, PageHeader, Skeleton, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
-import { formatCompact, formatNumber, formatPrice, formatTime, formatWeekday, ORDER_STATUSES, timeAgo, toFa } from "@/lib/format";
+import { formatCompact, formatNumber, formatPrice, formatShortDate, formatTime, formatWeekday, ORDER_STATUSES, timeAgo, toFa } from "@/lib/format";
 import type { Order } from "@/lib/types";
 
 type Stats = {
   today: { revenue: number; orders: number; avgTicket: number; revenueDelta: number | null };
   week: { revenue: number; orders: number; revenueDelta: number | null };
   series: { date: string; revenue: number; orders: number }[];
+  menuViews: { date: string; views: number }[];
   top: { name: string; emoji: string; qty: number; revenue: number }[];
   statusCounts: Record<string, number>;
   activeCount: number;
@@ -87,6 +88,8 @@ export default function Overview() {
 
   const maxRev = Math.max(1, ...stats.series.map((s) => s.revenue));
   const maxQty = Math.max(1, ...stats.top.map((t) => t.qty));
+  const maxMenuViews = Math.max(0, ...stats.menuViews.map((day) => day.views));
+  const menuViewsTotal = stats.menuViews.reduce((total, day) => total + day.views, 0);
   const hasData = stats.productCount > 0;
 
   return (
@@ -186,6 +189,41 @@ export default function Overview() {
           )}
         </Card>
       </div>
+
+      <Card className="mt-4 min-w-0 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 id="menu-views-title" className="font-bold">بازدید منو</h3>
+            <p className="mt-1 text-xs text-stone-500">روند روزانه در ۱۴ روز گذشته؛ هر بار بازشدن منو یک بازدید محسوب می‌شود.</p>
+          </div>
+          <div className="text-end">
+            <p className="text-2xl font-extrabold tracking-tight text-brand-700">{formatNumber(menuViewsTotal)}</p>
+            <p className="text-xs text-stone-500">بازدید در این بازه</p>
+          </div>
+        </div>
+
+        {menuViewsTotal === 0 && <p className="mt-4 text-center text-sm text-stone-400">هنوز بازدیدی برای منو ثبت نشده است.</p>}
+        <div role="img" aria-label={`نمودار بازدید منو در ۱۴ روز گذشته؛ مجموع ${formatNumber(menuViewsTotal)} بازدید`} className="mt-5 flex h-40 items-end gap-1 border-b border-stone-200 px-1 sm:gap-2">
+          {stats.menuViews.map((day, index) => {
+            const height = maxMenuViews ? (day.views / maxMenuViews) * 100 : 0;
+            const today = index === stats.menuViews.length - 1;
+            return (
+              <div key={day.date} className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end" title={`${formatShortDate(day.date)} · ${formatNumber(day.views)} بازدید`} aria-label={`${formatShortDate(day.date)}، ${formatNumber(day.views)} بازدید`}>
+                <div className={`w-full max-w-10 rounded-t-md transition-colors ${today ? "bg-brand-500" : "bg-brand-200 group-hover:bg-brand-400"}`} style={{ height: `${height}%` }} />
+                {index % 2 === 0 && <span className="absolute -bottom-5 text-[9px] text-stone-400">{formatShortDate(day.date).split(" ")[0]}</span>}
+              </div>
+            );
+          })}
+        </div>
+        <ol className="sr-only" aria-label="داده‌های روزانهٔ بازدید منو">
+          {stats.menuViews.map((day) => <li key={day.date}>{formatShortDate(day.date)}: {formatNumber(day.views)} بازدید</li>)}
+        </ol>
+        <div className="mt-7 flex items-center justify-between text-[10px] text-stone-400">
+          <span>{stats.menuViews[0] ? formatShortDate(stats.menuViews[0].date) : ""}</span>
+          <span>تاریخ‌ها شمسی هستند</span>
+          <span>امروز</span>
+        </div>
+      </Card>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="overflow-hidden lg:col-span-2">

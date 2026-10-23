@@ -87,7 +87,7 @@
 | `/dashboard/scale` | [modules/scale.md](modules/scale.md) — ترازو |
 | `/dashboard/voice-pager` | [modules/voice-pager.md](modules/voice-pager.md) — اعلام صوتی سفارش |
 | `/dashboard/food-court-pager` | [modules/food-court-pager.md](modules/food-court-pager.md) — پیجر فودکورت |
-| `/dashboard` | [modules/dashboard-overview.md](modules/dashboard-overview.md) — داشبورد اصلی |
+| `/dashboard` | [modules/dashboard-overview.md](modules/dashboard-overview.md) — داشبورد اصلی، نمودار فروش و روند روزانه بازدید منو |
 | `/dashboard/products` | [modules/products.md](modules/products.md) — فهرست محصولات؛ دکمهٔ ویرایش به فرم کامل مشترک create/edit می‌رود |
 | `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، تصویر/ویدیوی محصول، recipe و آنالیز مواد؛ منوی مشتری جزئیات و نظرهای تأییدشده را نشان می‌دهد |
 | `/dashboard/categories` | [modules/categories.md](modules/categories.md) — جدول دسته‌ها، جستجو، ایجاد گروهی، تصویر/والد/توضیحات و ترتیب نمایش |
