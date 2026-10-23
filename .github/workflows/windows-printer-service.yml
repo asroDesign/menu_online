@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "windows-service-bridge/**"
+      - "windows-bridge/ReceiptRenderer.cs"
       - ".github/workflows/windows-printer-service.yml"
       - "src/modules/hardware.tsx"
       - "tests/windows-printer-service-bridge.test.cjs"
@@ -17,6 +18,17 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test graphical receipt renderer
+        shell: powershell
+        run: ./windows-bridge/test-receipt-renderer.ps1
+
+      - name: Upload receipt previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: receipt-previews
+          path: windows-bridge/receipt-preview-*.png
+
 
       - uses: actions/setup-dotnet@v4
         with:

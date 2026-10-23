@@ -159,8 +159,7 @@ internal sealed class PrinterWorker : BackgroundService
             return;
         }
 
-        var encoding = Encoding.GetEncoding(device.Encoding ?? "CP1256", EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
-        var bytes = new byte[] { 0x1b, 0x40 }.Concat(encoding.GetBytes(content)).Concat(new byte[] { 10, 10, 10, 10, 0x1d, 0x56, 0x42, 0 }).ToArray();
+        var bytes = MenuPeakReceiptRenderer.Raster(content);
         if (device.Transport == "tcp")
         {
             using var client = new TcpClient();
@@ -177,30 +176,7 @@ internal sealed class PrinterWorker : BackgroundService
 
     private static void PrintWithWindowsDriver(string printerName, string content)
     {
-        using var document = new PrintDocument();
-        document.PrinterSettings.PrinterName = printerName;
-        if (!document.PrinterSettings.IsValid) throw new InvalidOperationException($"صف چاپگر «{printerName}» معتبر نیست.");
-        document.DocumentName = "MenuPeak receipt";
-        document.DefaultPageSettings.Margins = new Margins(5, 5, 5, 5);
-        var lines = content.Replace("\r", "").Split('\n');
-        var index = 0;
-        using var font = new Font("Tahoma", 9);
-        document.PrintPage += (_, args) =>
-        {
-            using var format = new StringFormat { Alignment = StringAlignment.Far, FormatFlags = StringFormatFlags.DirectionRightToLeft };
-            var bounds = args.MarginBounds;
-            var y = (float)bounds.Top;
-            while (index < lines.Length)
-            {
-                var size = args.Graphics.MeasureString(lines[index], font, bounds.Width, format);
-                var height = Math.Max(font.GetHeight(args.Graphics), size.Height) + 2;
-                if (y + height > bounds.Bottom && y > bounds.Top) { args.HasMorePages = true; return; }
-                args.Graphics.DrawString(lines[index++], font, Brushes.Black, new RectangleF(bounds.Left, y, bounds.Width, height), format);
-                y += height;
-            }
-            args.HasMorePages = false;
-        };
-        document.Print();
+        MenuPeakReceiptRenderer.Print(printerName, content);
     }
 
     private static void Log(string message)

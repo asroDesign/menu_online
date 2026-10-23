@@ -135,9 +135,9 @@ test('USB Windows printers can use the installed driver for Persian text while r
   assert.match(bridge, /pub print_mode: Option<String>/);
   assert.match(bridge, /device\.print_mode\.as_deref\(\) != Some\("raw"\)[\s\S]*?print_windows_driver\(name, content\)/);
   assert.match(bridge, /"usb" => \{[\s\S]*?print_windows_queue\(name, &bytes\)/);
-  assert.match(bridge, /System\.Drawing\.Printing\.PrintDocument/);
+  assert.match(bridge, /MenuPeakReceiptRenderer/);
   assert.match(bridge, /OpenStandardInput\(\)/);
-  assert.match(bridge, /DirectionRightToLeft/);
+  assert.match(source("windows-bridge/ReceiptRenderer.cs"), /DirectionRightToLeft/);
   assert.match(hardware, /printMode: "driver"/);
   assert.match(hardware, /printMode: c\.printMode/);
   assert.match(hardware, /value="raw">RAW \/ ESC-POS/);

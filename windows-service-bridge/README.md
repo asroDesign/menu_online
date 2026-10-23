@@ -41,3 +41,7 @@ iscc /DSourceDir="$PWD\service-publish" windows-service-bridge/installer.iss
 ```
 
 چاپ فیزیکی و شروع واقعی Windows Service باید روی Windows با دسترسی مدیر، صف چاپگر نصب‌شده و دستگاه واقعی پذیرش شود؛ این بخش در macOS قابل تأیید نیست.
+
+
+### چاپ گرافیکی فیش
+نسخه جدید از موتور مشترک `windows-bridge/ReceiptRenderer.cs` استفاده می‌کند: خطوط واقعی، جدول RTL و چاپ raster در RAW/شبکه. نصب عامل جدید برای رفع جدول متنی ضروری است. RAW نیازمند پشتیبانی ESC/POS GS v 0 است و عرض ۳۸۴ نقطه دارد؛ برای عرض کامل و مدل‌های ناسازگار از درایور Windows استفاده کنید. [جزئیات](../docs/updates/2026-10-24-graphical-receipt-renderer.md).

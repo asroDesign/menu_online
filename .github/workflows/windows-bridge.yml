@@ -16,6 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test graphical receipt renderer
+        shell: powershell
+        run: ./windows-bridge/test-receipt-renderer.ps1
+
+      - name: Upload receipt previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: receipt-previews
+          path: windows-bridge/receipt-preview-*.png
+
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

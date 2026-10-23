@@ -307,9 +307,16 @@ fn print_job(device: &DeviceConfig, content: &str) -> Result<(), String> {
             .ok_or_else(|| "نام پرینتر نصب‌شده در Windows را در تنظیمات وارد کنید".to_string())?;
         return print_windows_driver(name, content);
     }
-    let mut bytes = vec![0x1b, 0x40];
-    bytes.extend(encode_text(content, device.encoding.as_deref().unwrap_or("CP1256")));
-    bytes.extend([0x0a, 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00]);
+    #[cfg(windows)]
+    let bytes: Vec<u8> = serde_json::from_str(&render_windows_receipt("", content, true)?)
+        .map_err(|e| format!("Invalid receipt raster: {e}"))?;
+    #[cfg(not(windows))]
+    let bytes = {
+        let mut bytes = vec![0x1b, 0x40];
+        bytes.extend(encode_text(content, device.encoding.as_deref().unwrap_or("CP1256")));
+        bytes.extend([10, 10, 10, 29, 86, 66, 0]);
+        bytes
+    };
     match device.transport.as_str() {
         "tcp" | "serial" => send_wire(device, &bytes),
         "usb" => {
@@ -568,6 +575,11 @@ fn print_windows_queue(name: &str, data: &[u8]) -> Result<(), String> {
 
 #[cfg(windows)]
 fn print_windows_driver(name: &str, content: &str) -> Result<(), String> {
+    render_windows_receipt(name, content, false).map(|_| ())
+}
+
+#[cfg(windows)]
+fn render_windows_receipt(name: &str, content: &str, raster: bool) -> Result<String, String> {
     use std::{io::Write, os::windows::process::CommandExt, process::{Command, Stdio}};
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
@@ -575,44 +587,20 @@ Add-Type -AssemblyName System.Drawing
 $inputStream = [Console]::OpenStandardInput()
 $inputBuffer = New-Object System.IO.MemoryStream
 $inputStream.CopyTo($inputBuffer)
-$payloadJson = [System.Text.Encoding]::UTF8.GetString($inputBuffer.ToArray())
-$payload = $payloadJson | ConvertFrom-Json
-$document = New-Object System.Drawing.Printing.PrintDocument
-$document.PrinterSettings.PrinterName = [string]$payload.printerName
-if (-not $document.PrinterSettings.IsValid) { throw "صف چاپگر نصب‌شده معتبر نیست: $($payload.printerName)" }
-$document.DocumentName = 'MenuPeak receipt'
-$document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(5, 5, 5, 5)
-$script:receiptLines = [string]$payload.content -split "`r?`n"
-$script:receiptLine = 0
-$script:receiptFont = New-Object System.Drawing.Font('Tahoma', 9)
-$document.add_PrintPage({
-    param($sender, $eventArgs)
-    $format = New-Object System.Drawing.StringFormat
-    $format.Alignment = [System.Drawing.StringAlignment]::Far
-    $format.FormatFlags = [System.Drawing.StringFormatFlags]::DirectionRightToLeft
-    $x = [single]$eventArgs.MarginBounds.Left
-    $y = [single]$eventArgs.MarginBounds.Top
-    $width = [int]$eventArgs.MarginBounds.Width
-    while ($script:receiptLine -lt $script:receiptLines.Count -and $y -lt $eventArgs.MarginBounds.Bottom) {
-        $line = [string]$script:receiptLines[$script:receiptLine]
-        $size = $eventArgs.Graphics.MeasureString($line, $script:receiptFont, $width, $format)
-        $height = [Math]::Max($script:receiptFont.GetHeight($eventArgs.Graphics), $size.Height) + 2
-        if (($y + $height) -gt $eventArgs.MarginBounds.Bottom -and $y -gt $eventArgs.MarginBounds.Top) { break }
-        $rectangle = New-Object System.Drawing.RectangleF($x, $y, [single]$width, [single]$height)
-        $eventArgs.Graphics.DrawString($line, $script:receiptFont, [System.Drawing.Brushes]::Black, $rectangle, $format)
-        $y += $height
-        $script:receiptLine++
-    }
-    $eventArgs.HasMorePages = $script:receiptLine -lt $script:receiptLines.Count
-})
-$document.Print()
-$script:receiptFont.Dispose()
-$document.Dispose()
-Write-Output 'داده به درایور Windows تحویل شد'
+$payload = [System.Text.Encoding]::UTF8.GetString($inputBuffer.ToArray()) | ConvertFrom-Json
+Add-Type -TypeDefinition ([string]$payload.renderer) -ReferencedAssemblies System.Drawing
+if ($payload.raster) {
+    $bytes = [MenuPeakReceiptRenderer]::Raster([string]$payload.content)
+    Write-Output ('[' + ($bytes -join ',') + ']')
+} else {
+    [MenuPeakReceiptRenderer]::Print([string]$payload.printerName, [string]$payload.content)
+}
 "#;
+    let input = serde_json::to_vec(&json!({
+        "printerName": name, "content": content, "raster": raster,
+        "renderer": include_str!("../../ReceiptRenderer.cs")
+    })).map_err(|error| format!("Receipt encoding failed: {error}"))?;
 
-    let input = serde_json::to_vec(&json!({ "printerName": name, "content": content }))
-        .map_err(|error| format!("آماده‌سازی رسید برای چاپ ناموفق بود: {error}"))?;
     let mut child = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SCRIPT])
         .creation_flags(0x08000000)
@@ -629,7 +617,7 @@ Write-Output 'داده به درایور Windows تحویل شد'
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(format!("چاپ از مسیر درایور Windows ناموفق بود: {}", if detail.is_empty() { format!("کد خروج {}", output.status) } else { detail }));
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 #[cfg(not(windows))]

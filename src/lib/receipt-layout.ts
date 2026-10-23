@@ -1,4 +1,4 @@
-export const RECEIPT_TEXT_WIDTH = 32;
+export const RECEIPT_TEXT_WIDTH = 48;
 
 export type ReceiptLayoutItem = {
   name: string;
@@ -33,7 +33,7 @@ function fitLine(value: string, width: number) {
 
 export function wrapReceiptText(value: string, width: number) {
   const result: string[] = [];
-  for (const paragraph of value.replace(/\r/g, "").split("\n")) {
+  for (const paragraph of value.replace(/\r/g, "").replace(/\|/g, "¦").split("\n")) {
     const words = paragraph.trim().split(/\s+/).filter(Boolean);
     if (!words.length) {
       result.push("");
@@ -70,7 +70,7 @@ export function formatReceiptText(input: ReceiptLayoutInput) {
   const innerWidth = width - 4;
   const border = `+${"-".repeat(width - 2)}+`;
   const boxLine = (value: string) => `| ${fitLine(value, innerWidth)} |`;
-  const tableRow = (index: string, value: string) => `| ${fitLine(index, 5)} | ${fitLine(value, 20)} |`;
+  const tableRow = (name: string, quantity: string, amount: string) => `| ${fitLine(name, 22)} | ${fitLine(quantity, 4)} | ${fitLine(amount, 12)} |`;
   const lines: string[] = [];
   const addFrame = (values: string[]) => {
     if (!values.length) return;
@@ -89,17 +89,14 @@ export function formatReceiptText(input: ReceiptLayoutInput) {
     ...(input.address ? [`نشانی: ${input.address}`] : []),
   ]);
 
-  lines.push(border, tableRow("ردیف", input.includeTotal === false ? "شرح قلم / تعداد" : "شرح قلم / تعداد / مبلغ"), border);
-  input.items.forEach((item, itemIndex) => {
+  lines.push(border, tableRow("شرح کالا", "تعداد", input.includeTotal === false ? "" : "تومان"), border);
+  input.items.forEach((item) => {
     const name = item.weight ? `${item.name} · وزن خالص ${item.weight} گرم` : item.name;
-    const nameLines = wrapReceiptText(name, 20);
-    nameLines.forEach((part, lineIndex) => lines.push(tableRow(lineIndex === 0 ? (itemIndex + 1).toLocaleString("fa-IR") : "", part)));
-    lines.push(tableRow("", `تعداد: ${item.quantity}`));
-    for (const option of item.options ?? []) {
-      for (const part of wrapReceiptText(`انتخاب: ${option}`, 20)) lines.push(tableRow("", part));
-    }
-    if (input.includeTotal !== false && item.amount) {
-      for (const part of wrapReceiptText(`مبلغ: ${item.amount} تومان`, 20)) lines.push(tableRow("", part));
+    const nameLines = wrapReceiptText([name, ...(item.options ?? []).map(option => `انتخاب: ${option}`)].join("\n"), 22);
+    const quantities = wrapReceiptText(item.quantity, 4);
+    const amounts = wrapReceiptText(input.includeTotal === false ? "" : item.amount ?? "", 12);
+    for (let i = 0; i < Math.max(nameLines.length, quantities.length, amounts.length); i++) {
+      lines.push(tableRow(nameLines[i] ?? "", quantities[i] ?? "", amounts[i] ?? ""));
     }
     lines.push(border);
   });

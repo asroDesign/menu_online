@@ -19,10 +19,10 @@ test('thermal receipt uses a fixed-width framed header, metadata, and item table
   });
   const lines = receipt.split('\n');
   assert.ok(lines.every(line => Array.from(line).length === RECEIPT_TEXT_WIDTH));
-  assert.ok(receipt.includes('| ردیف'));
+  assert.ok(receipt.includes('| شرح کالا'));
   assert.ok(receipt.includes('چیزبرگر دوبل'));
-  assert.ok(receipt.includes('تعداد: ۲'));
-  assert.ok(receipt.includes('مبلغ: ۲۲۲٬۲۰۰ تومان'));
+  assert.ok(/\| ۲\s+\|/.test(receipt));
+  assert.ok(receipt.includes('۲۲۲٬۲۰۰'));
   assert.ok(receipt.includes('این فیش'));
   assert.ok(receipt.includes('نگه'));
   assert.ok(receipt.includes('دارید'));
@@ -37,7 +37,7 @@ test('kitchen slips retain item, quantity, options, and preparation banner witho
   assert.ok(receipt.startsWith('+'));
   assert.ok(receipt.includes('بلیت آماده‌سازی'));
   assert.ok(receipt.includes('پیتزا مخصوص'));
-  assert.ok(receipt.includes('تعداد: ۱'));
+  assert.ok(/\| ۱\s+\|/.test(receipt));
   assert.ok(receipt.includes('بدون قارچ'));
   assert.ok(!receipt.includes('۴۵۰٬۰۰۰'));
   assert.ok(!receipt.includes('مبلغ نهایی'));
@@ -59,4 +59,14 @@ test('browser receipt keeps semantic table columns and boxed header/footer', () 
   assert.match(page, /<table className="receipt-items/);
   assert.match(page, /<th className="text-start">شرح کالا<\/th><th>تعداد<\/th><th>مبلغ<\/th>/);
   assert.match(page, /<footer className="receipt-frame/);
+});
+
+
+test('user text cannot create extra table cells and amounts stay intact', () => {
+  const receipt = formatReceiptText({ businessName: 'کافه | یک', orderNumber: '۱', typeLabel: 'سالن',
+    items: [{ name: 'برگر | پنیر', quantity: '۱۲', amount: '۱۲۳٬۴۵۶٬۷۸۹' }] });
+  const rows = receipt.split('\n').filter(line => line.includes('۱۲۳٬۴۵۶٬۷۸۹'));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].split('|').length, 5);
+  assert.ok(receipt.includes('برگر ¦ پنیر'));
 });
