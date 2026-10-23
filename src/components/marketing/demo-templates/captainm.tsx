@@ -2,14 +2,23 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowUpLeft, Bell, CheckCircle2, ChevronLeft, Compass, MapPin, Orbit, Search, ShoppingCart, Sparkles, Star } from "lucide-react";
+import {
+  ArrowLeft, ArrowUpLeft, Bell, CheckCircle2, ChevronLeft, Clock3, Coffee,
+  Compass, Flame, MapPin, Orbit, Pizza, Salad, Sandwich, Search,
+  ShoppingCart, Sparkles, Star, UtensilsCrossed, Wine,
+} from "lucide-react";
 import { formatPrice, toFa } from "@/lib/format";
 import { useDemoMenuState } from "./demo-menu-state";
-import { DemoBrandMark, DemoCart, DemoHoursAddress, DemoItemActions, DemoNotice, DemoPrice, DemoProductDialog, FoodArt } from "./demo-template-parts";
+import {
+  DemoBrandMark, DemoCart, DemoHoursAddress, DemoItemActions, DemoNotice,
+  DemoPrice, DemoProductDialog, FoodArt,
+} from "./demo-template-parts";
+import styles from "@/components/captainm-theme.module.css";
 
 type CaptainView = "home" | "products";
 type CaptainState = ReturnType<typeof useDemoMenuState>;
 
+const CATEGORY_ICONS = [Salad, Sandwich, Pizza, Sandwich, UtensilsCrossed, Flame, Sandwich, Sandwich, Star, Coffee, Wine, Wine, Wine, Coffee, Coffee, Sparkles, Sparkles, Coffee, Compass, Flame, Sparkles];
 const ENGLISH_CATEGORIES: Record<string, string> = {
   "پیش غذا": "Appetizers", "برگر": "Burgers", "پیتزا": "Pizza", "برگر مرغ": "Chicken Burger",
   "پاستا": "Pasta", "بیبی برگر": "Baby Burger", "استیک": "Steak", "پنینی": "Panini",
@@ -26,68 +35,113 @@ export function CaptainMDemo({ view = "home", initialCategory }: { view?: Captai
   const isHome = view === "home";
   const filteredProducts = state.visible.filter((product) => !search || `${product.name} ${product.description} ${product.category}`.includes(search));
 
-  return <div dir="rtl" className="min-h-screen bg-[#090d20] text-slate-100">
-    <header className="relative overflow-hidden text-white" style={{ backgroundImage: "radial-gradient(1px 1px at 18px 24px,rgba(255,255,255,.9) 99%,transparent),radial-gradient(1px 1px at 76px 64px,rgba(186,230,253,.85) 99%,transparent),radial-gradient(1.5px 1.5px at 142px 37px,rgba(255,255,255,.8) 99%,transparent),radial-gradient(circle at 82% 30%,rgba(34,211,238,.3),transparent 20%),radial-gradient(circle at 18% 18%,rgba(129,140,248,.35),transparent 28%),linear-gradient(145deg,#090d20 8%,#17133d 55%,#071526)", backgroundSize: "180px 120px,220px 140px,280px 180px,auto,auto,auto" }}>
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(129,140,248,.16),transparent_55%)]" aria-hidden="true"/>
-      <div className="relative mx-auto max-w-7xl px-3 sm:px-6">
-        <div className="flex items-center justify-between gap-3 py-3">
-          <button type="button" className="btn btn-ghost btn-sm gap-2 text-white hover:bg-white/10" onClick={() => state.setNotice("درخواست گارسون در این پیش‌نمایش به سامانه ارسال نمی‌شود.")}><Bell size={15}/> <span className="hidden sm:inline">صدا کردن گارسون</span></button>
-          <Link href="/preview" className="flex min-w-0 items-center gap-2 text-white"><DemoBrandMark style="space"/><span className="truncate text-xs font-bold">منوی آنلاین کاپیتان ام</span></Link>
-          <button type="button" aria-label="اطلاعات مجموعه" className="btn btn-ghost btn-sm btn-square text-white hover:bg-white/10" onClick={() => state.setNotice("اطلاعات ورود در نسخهٔ نمایشی فقط برای معرفی ساختار منو است.")}><Compass size={17}/></button>
+  return <div dir="rtl" className={styles.demoRoot}>
+    <header className={styles.demoHeader}>
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
+        <div className={`${styles.demoTopbar} flex items-center justify-between gap-3 py-3`}>
+          <Link href="/preview" className="flex min-w-0 items-center gap-2 text-white" aria-label="بازگشت به دموهای منو">
+            <DemoBrandMark style="space"/><span className="truncate text-xs font-bold sm:text-sm">منوی کاپیتان ام</span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white/75 sm:inline-flex"><span className="size-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,.8)]"/>منوی نمایشی</span>
+            <button type="button" className="btn btn-ghost btn-sm gap-2 text-white hover:bg-white/10" onClick={() => state.setNotice("درخواست گارسون در این پیش‌نمایش به سامانه ارسال نمی‌شود.")}><Bell size={15}/><span className="hidden sm:inline">صدا کردن گارسون</span></button>
+          </div>
         </div>
-        <div className="mx-auto max-w-3xl py-8 text-center sm:py-12">
-          <div className="mx-auto grid size-16 place-items-center rounded-2xl border border-indigo-100/25 bg-indigo-100/10 shadow-[0_0_35px_rgba(129,140,248,.2)]"><Orbit size={30} className="text-cyan-200"/></div>
-          <p className="mt-4 text-xs font-bold tracking-wide text-cyan-100/75">CAPTAIN M · COSMIC MENU</p>
-          <h1 className="mt-2 text-3xl font-black sm:text-5xl">کافه رستوران کاپیتان ام</h1>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-white/70">منویی در دل کهکشان؛ دستهٔ دلخواهتان را انتخاب کنید و انتخاب‌های کاپیتان ام را ببینید.</p>
-          <div className="mt-5 flex flex-wrap justify-center gap-2"><Link href="/preview/captainm/products" className="btn min-h-11 border-0 bg-cyan-400 px-5 font-bold text-slate-950 hover:bg-cyan-300">مشاهدهٔ منو <ArrowUpLeft size={16}/></Link><button type="button" className="btn min-h-11 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={() => state.setNotice("این صفحهٔ اطلاعاتی در دموی محلی مقصد بیرونی باز نمی‌کند.")}><MapPin size={15}/>مسیریابی</button></div>
-          <div className="mt-6 inline-flex rounded-2xl border border-indigo-100/15 bg-slate-950/35 px-4 py-2 text-xs text-white/75"><DemoHoursAddress address={state.menu.address} hours={state.menu.hours} light/></div>
+        <div className={styles.demoHero}>
+          <div className={styles.heroContent}>
+            <span className={styles.demoKicker}><Orbit size={14}/> CAPTAIN M <span className="opacity-40">/</span> GALACTIC DINING</span>
+            <h1 className="mt-4 text-3xl font-black leading-tight text-white sm:text-5xl sm:leading-[1.2]">کافه‌رستوران<br className="hidden sm:block"/> کاپیتان ام</h1>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-slate-200/75 sm:text-base">یک سفر خوش‌طعم میان ستاره‌ها؛ منو را بگردید، انتخابتان را بسازید و ترکیبات هر غذا را ببینید.</p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Link href="/preview/captainm/products" className="btn min-h-12 border-0 bg-cyan-300 px-5 font-extrabold text-slate-950 shadow-[0_8px_28px_rgba(34,211,238,.16)] hover:bg-cyan-200">شروع گشت در منو <ArrowLeft size={16}/></Link>
+              <button type="button" className="btn min-h-12 border border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => state.setNotice("مسیریابی در پیش‌نمایش محلی مقصد بیرونی باز نمی‌کند.")}><MapPin size={15}/>مسیریابی</button>
+            </div>
+            <div className="mt-6 flex flex-wrap gap-2 text-xs">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/35 px-3 py-2 text-slate-200/80"><Clock3 size={14} className="text-cyan-200"/>{state.menu.hours}</span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/35 px-3 py-2 text-slate-200/80"><MapPin size={14} className="text-cyan-200"/>{state.menu.address}</span>
+            </div>
+          </div>
+          <div className={styles.planetStage} aria-hidden="true"><span className={styles.planet}/><span className="absolute end-[17%] top-[17%] size-2 rounded-full bg-cyan-100 shadow-[0_0_16px_5px_rgba(124,236,255,.35)]"/><span className="absolute bottom-[17%] start-[18%] size-1.5 rounded-full bg-violet-200 shadow-[0_0_12px_4px_rgba(167,139,250,.35)]"/></div>
         </div>
       </div>
     </header>
 
-    <main className="mx-auto max-w-7xl px-3 pb-12 sm:px-6">
+    <main className="relative mx-auto max-w-6xl space-y-6 px-4 pb-12 pt-6 sm:space-y-8 sm:px-6 sm:pt-8">
       <DemoNotice state={state} dark/>
       {isHome ? <CaptainLanding state={state}/> : <CaptainMenu state={state} search={search} searchOpen={searchOpen} onSearchChange={setSearch} onToggleSearch={() => setSearchOpen((open) => !open)} products={filteredProducts}/>}
       <CaptainInformation state={state}/>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-indigo-100/10 py-5 text-[10px] text-slate-400"><span>پیش‌نمایش محلی کاپیتان ام · قیمت‌ها و اطلاعات نمایشی هستند</span><Link href="/preview" className="inline-flex items-center gap-1 font-bold text-cyan-200">دموهای دیگر <ArrowUpLeft size={14}/></Link></footer>
+      <footer className={`${styles.demoFooter} flex flex-wrap items-center justify-between gap-3 border-t py-5 text-[10px]`}><span>پیش‌نمایش محلی کاپیتان ام · قیمت‌ها و اطلاعات نمایشی هستند</span><Link href="/preview" className="inline-flex items-center gap-1 font-bold text-cyan-200">دموهای دیگر <ArrowUpLeft size={14}/></Link></footer>
     </main>
-    {!isHome && state.count > 0 && <button type="button" className="btn btn-primary fixed bottom-4 end-4 z-40 bg-cyan-700 text-white shadow-xl hover:bg-cyan-800 sm:hidden" onClick={() => document.getElementById("captain-cart")?.scrollIntoView({ behavior: "smooth" })}><ShoppingCart size={17}/>{toFa(state.count)} قلم · {formatPrice(state.total)}</button>}
+    {!isHome && state.count > 0 && <button type="button" className="btn btn-primary fixed bottom-4 end-4 z-40 border-0 bg-cyan-700 text-white shadow-xl hover:bg-cyan-800 sm:hidden" onClick={() => document.getElementById("captain-cart")?.scrollIntoView({ behavior: "smooth" })}><ShoppingCart size={17}/>{toFa(state.count)} قلم · {formatPrice(state.total)}</button>}
     <DemoProductDialog state={state} variant="space"/>
   </div>;
 }
 
 function CaptainLanding({ state }: { state: CaptainState }) {
   const categories = state.menu.categories.slice(1);
+  const featured = state.menu.products.slice(0, 4);
   return <>
-    <section className="-mt-5 rounded-3xl border border-indigo-100/15 bg-[#101a32] p-3 shadow-[0_24px_70px_-38px_rgba(129,140,248,.5)] sm:-mt-7 sm:p-5">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-        {categories.map((category, index) => <Link key={category} href={`/preview/captainm/category/${index}`} className="group flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-indigo-100/10 bg-gradient-to-br from-[#172244] to-[#11182c] px-2 py-3 text-center transition hover:-translate-y-0.5 hover:border-cyan-200/50 hover:shadow-[0_0_25px_rgba(34,211,238,.12)]">
-          <span className="grid size-9 place-items-center rounded-full bg-indigo-300/10 text-cyan-200 shadow-[0_0_18px_rgba(103,232,249,.12)]">{index % 4 === 0 ? <Orbit size={16}/> : index % 4 === 1 ? <Compass size={16}/> : index % 4 === 2 ? <Star size={16}/> : <Sparkles size={16}/>}</span>
-          <span className="text-xs font-black text-slate-100">{category}</span><span dir="ltr" className="text-[9px] font-semibold tracking-wide text-slate-400">{ENGLISH_CATEGORIES[category] ?? "Captain M Menu"}</span>
-        </Link>)}
+    <section className={`${styles.demoSection} p-4 sm:p-6`} aria-labelledby="captain-categories-title">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div><span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold tracking-wide text-cyan-200"><Compass size={13}/> مقصد بعدی را انتخاب کنید</span><h2 id="captain-categories-title" className={`${styles.demoSectionTitle} mt-1 text-xl font-black sm:text-2xl`}>از کدام منظومه شروع کنیم؟</h2></div>
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] text-slate-300">{toFa(categories.length)} دستهٔ منو</span>
       </div>
-      <Link href="/preview/captainm/products" className="btn mt-3 min-h-11 w-full border-0 bg-cyan-300 text-slate-950 hover:bg-cyan-200">مشاهدهٔ منو <ArrowUpLeft size={15}/></Link>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
+        {categories.slice(0, 8).map((category, index) => {
+          const CategoryIcon = CATEGORY_ICONS[index % CATEGORY_ICONS.length];
+          const itemCount = state.menu.products.filter((product) => product.category === category).length;
+          return <Link key={category} href={`/preview/captainm/category/${index}`} className={`${styles.demoCategory} flex min-h-[5.25rem] min-w-0 items-center gap-3 rounded-xl px-3 py-3 sm:min-h-20 sm:px-4`}>
+            <span className={`${styles.demoCategoryIcon} grid size-10 shrink-0 place-items-center rounded-xl`}><CategoryIcon size={18}/></span>
+            <span className="min-w-0"><span className="block truncate text-xs font-extrabold sm:text-sm">{category}</span><span className="mt-1 block truncate text-[9px] font-medium text-slate-400 sm:text-[10px]">{toFa(itemCount)} انتخاب · {ENGLISH_CATEGORIES[category] ?? "Captain M"}</span></span>
+          </Link>;
+        })}
+      </div>
+      <Link href="/preview/captainm/products" className="mt-4 flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-cyan-300/10 px-4 text-xs font-extrabold text-cyan-100 transition hover:bg-cyan-300/15">دیدن همهٔ دسته‌ها و محصولات <ArrowUpLeft size={15}/></Link>
     </section>
-    <section className="mt-6 grid gap-3 md:grid-cols-[1fr_auto] md:items-center"><div className="rounded-2xl border border-indigo-100/10 bg-[#101a32] p-4"><h2 className="font-black text-cyan-100">یک منو برای هر سلیقه</h2><p className="mt-1 text-xs leading-6 text-slate-300/70">از پیش‌غذا و برگر تا استیک، قهوه و دسر؛ دسته‌ها را باز کنید تا محصولات و جزئیات هر انتخاب را ببینید.</p></div><button type="button" className="btn min-h-11 border-cyan-200/20 bg-cyan-300/10 text-cyan-100" onClick={() => state.setNotice("درخواست میز در دمو فقط برای نمایش چیدمان است.")}><Compass size={15}/>درخواست میز</button></section>
+
+    <section aria-labelledby="captain-featured-title">
+      <div className="mb-3 flex items-end justify-between gap-3"><div><span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-cyan-200"><Flame size={13}/> انتخاب‌های کاپیتان</span><h2 id="captain-featured-title" className={`${styles.demoSectionTitle} mt-1 text-lg font-black sm:text-xl`}>پیشنهاد برای شروع</h2></div><Link href="/preview/captainm/products" className="text-xs font-bold text-cyan-200">کل منو <ChevronLeft size={14} className="inline"/></Link></div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {featured.map((product) => <article key={product.id} className={`${styles.demoProductCard} overflow-hidden rounded-2xl`}>
+          <button type="button" className="block w-full text-start" onClick={() => state.openProduct(product)} aria-label={`جزئیات ${product.name}`}><FoodArt product={product} variant="space" className="h-32 sm:h-36"/></button>
+          <div className="p-3"><span className="text-[10px] font-bold text-cyan-200/80">{product.category}</span><h3 className="mt-1 truncate text-sm font-black">{product.name}</h3><p className="mt-1 line-clamp-2 min-h-9 text-[10px] leading-5 text-slate-300/65">{product.description}</p><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><DemoPrice product={product}/><DemoItemActions state={state} product={product}/></div></div>
+        </article>)}
+      </div>
+    </section>
   </>;
 }
 
 function CaptainMenu({ state, search, searchOpen, onSearchChange, onToggleSearch, products }: { state: CaptainState; search: string; searchOpen: boolean; onSearchChange: (value: string) => void; onToggleSearch: () => void; products: CaptainState["visible"] }) {
   const categories = state.menu.categories;
-  return <section className="pt-6" aria-label="محصولات کاپیتان ام">
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><span className="text-xs font-bold text-cyan-200">منوی کاپیتان</span><h2 className="mt-1 text-2xl font-black sm:text-3xl">{state.category === "همه" ? "همهٔ انتخاب‌ها" : state.category}</h2><p className="mt-1 text-xs text-slate-400">{toFa(products.length)} محصول · برای دیدن ترکیبات روی محصول بزنید</p></div><div className="flex gap-2"><button type="button" className="btn btn-outline btn-sm border-cyan-200/30 text-cyan-100" aria-expanded={searchOpen} onClick={onToggleSearch}><Search size={15}/>جست‌وجو</button><Link href="/preview/captainm" className="btn btn-ghost btn-sm text-slate-200">خانهٔ منو <ChevronLeft size={15}/></Link></div></div>
-    {searchOpen && <label className="input input-bordered mb-4 flex h-11 items-center gap-2 border-indigo-100/15 bg-[#101a32] text-white"><Search size={16} className="text-cyan-200"/><input autoFocus value={search} onChange={(event) => onSearchChange(event.target.value)} className="grow text-sm" placeholder="جست‌وجو در غذاها و نوشیدنی‌ها"/><button type="button" className="btn btn-ghost btn-xs text-slate-300" onClick={() => onSearchChange("")}>پاک‌کردن</button></label>}
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_230px]">
-      <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-3">{products.map((product) => <article key={product.id} className="overflow-hidden rounded-2xl border border-indigo-100/10 bg-[#101a32] shadow-sm transition hover:border-cyan-200/40 hover:shadow-[0_0_25px_rgba(34,211,238,.1)]"><button type="button" className="block w-full text-start" onClick={() => state.openProduct(product)} aria-label={`جزئیات ${product.name}`}><FoodArt product={product} variant="space" className="h-36"/></button><div className="p-3.5"><div className="flex items-start justify-between gap-2"><h3 className="font-black leading-6 text-slate-50">{product.name}</h3><span className="badge badge-outline badge-xs border-cyan-200/30 text-cyan-100">{product.category}</span></div><p className="mt-1 line-clamp-2 min-h-10 text-[11px] leading-5 text-slate-300/70">{product.description}</p><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><DemoPrice product={product}/><DemoItemActions state={state} product={product}/></div></div></article>)}{products.length === 0 && <p className="col-span-full rounded-xl bg-[#101a32] p-6 text-center text-sm text-slate-200">چیزی پیدا نشد.</p>}</div>
-      <aside className="order-first rounded-2xl border border-indigo-100/10 bg-[#101a32] p-3 shadow-sm lg:sticky lg:top-4 lg:order-last"><h3 className="mb-2 px-2 text-xs font-black text-cyan-100/70">دسته‌های کهکشانی</h3><nav className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{categories.map((category, index) => <Link key={category} href={index === 0 ? "/preview/captainm/products" : `/preview/captainm/category/${index - 1}`} aria-current={state.category === category ? "page" : undefined} className={`btn btn-sm h-9 shrink-0 justify-start rounded-lg lg:w-full ${state.category === category ? "border-cyan-300 bg-cyan-300 text-slate-950" : "border-transparent bg-indigo-100/5 text-slate-200 hover:bg-indigo-100/10"}`}>{category}</Link>)}</nav><div id="captain-cart" className="mt-3 scroll-mt-4"><DemoCart state={state} title="سبد سفارش" className="!border-indigo-100/15 !bg-[#0b1228] !text-slate-100"/></div><div className="mt-3 rounded-xl border border-indigo-100/10 bg-indigo-300/5 p-3 text-white"><h3 className="flex items-center gap-2 text-sm font-black"><Bell size={15} className="text-cyan-300"/>کمک می‌خواهید؟</h3><p className="mt-1 text-[10px] leading-5 text-white/65">درخواست گارسون در پیش‌نمایش ارسال نمی‌شود.</p><button type="button" className="btn btn-sm mt-2 w-full border-white/15 bg-white/10 text-white" onClick={() => state.setNotice("درخواست گارسون در منوی نمونه ارسال نمی‌شود.")}><Bell size={14}/>صدا کردن گارسون</button></div></aside>
+  return <section className="pt-1" aria-label="محصولات کاپیتان ام">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div><span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-cyan-200"><Orbit size={13}/> منوی کاپیتان</span><h2 className="mt-1 text-2xl font-black text-white sm:text-3xl">{state.category === "همه" ? "همهٔ انتخاب‌ها" : state.category}</h2><p className="mt-1 text-xs text-slate-400">{toFa(products.length)} محصول · برای دیدن ترکیبات، محصول را انتخاب کنید</p></div>
+      <div className="flex gap-2"><button type="button" className="btn btn-outline btn-sm border-cyan-200/30 bg-white/5 text-cyan-100 hover:bg-white/10" aria-expanded={searchOpen} onClick={onToggleSearch}><Search size={15}/>جست‌وجو</button><Link href="/preview/captainm" className="btn btn-ghost btn-sm text-slate-200">خانهٔ منو <ChevronLeft size={15}/></Link></div>
+    </div>
+    {searchOpen && <label className={`${styles.demoToolbar} input input-bordered mb-4 flex h-11 items-center gap-2 rounded-xl`}><Search size={16} className="text-cyan-200"/><input autoFocus value={search} onChange={(event) => onSearchChange(event.target.value)} className="grow bg-transparent text-sm outline-none" placeholder="جست‌وجو در غذاها و نوشیدنی‌ها"/><button type="button" className="btn btn-ghost btn-xs text-slate-300" onClick={() => onSearchChange("")}>پاک‌کردن</button></label>}
+    {!search && <nav aria-label="دسته‌بندی منو" className={`${styles.demoSection} mb-4 flex gap-2 overflow-x-auto p-2.5`}>
+      {categories.map((category, index) => <Link key={category} href={index === 0 ? "/preview/captainm/products" : `/preview/captainm/category/${index - 1}`} aria-current={state.category === category ? "page" : undefined} className={`flex min-h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[11px] font-bold transition ${state.category === category ? "border-cyan-200/40 bg-cyan-300 text-slate-950" : "border-white/5 bg-white/[.035] text-slate-200 hover:border-cyan-100/20 hover:bg-white/[.08]"}`}>{category}<span className="text-[9px] opacity-65">{toFa(state.menu.products.filter((product) => product.category === category).length)}</span></Link>)}
+    </nav>}
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_270px]">
+      <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {products.map((product) => <article key={product.id} className={`${styles.demoProductCard} overflow-hidden rounded-2xl transition hover:border-cyan-100/30`}>
+          <button type="button" className="block w-full text-start" onClick={() => state.openProduct(product)} aria-label={`جزئیات ${product.name}`}><FoodArt product={product} variant="space" className="h-36"/></button>
+          <div className="p-3.5"><div className="flex items-start justify-between gap-2"><h3 className="font-black leading-6 text-slate-50">{product.name}</h3><span className="shrink-0 rounded-full border border-cyan-100/15 bg-cyan-100/5 px-2 py-1 text-[9px] font-bold text-cyan-100">{product.category}</span></div><p className="mt-1 line-clamp-2 min-h-10 text-[11px] leading-5 text-slate-300/70">{product.description}</p><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><DemoPrice product={product}/><DemoItemActions state={state} product={product}/></div></div>
+        </article>)}
+        {products.length === 0 && <p className={`${styles.demoSection} col-span-full p-6 text-center text-sm text-slate-200`}>چیزی پیدا نشد.</p>}
+      </div>
+      <aside className={`order-last rounded-2xl p-3.5 lg:sticky lg:top-4 ${styles.demoSection}`}>
+        <h3 className="mb-3 flex items-center gap-2 px-1 text-xs font-black text-cyan-100"><ShoppingCart size={15}/>سفارش شما</h3>
+        <div id="captain-cart" className="scroll-mt-4"><DemoCart state={state} title="سبد نمایشی" className="!border-white/10 !bg-[#0b1228] !text-slate-100"/></div>
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-white/8 bg-white/[.035] p-3 text-white"><Bell size={15} className="mt-0.5 shrink-0 text-cyan-300"/><p className="text-[10px] leading-5 text-slate-300/70">این پیش‌نمایش سفارشی به کارکنان ارسال نمی‌کند.</p></div>
+      </aside>
     </div>
   </section>;
 }
 
 function CaptainInformation({ state }: { state: CaptainState }) {
-  return <section className="mt-7 grid gap-4 border-t border-indigo-100/10 py-7 md:grid-cols-2">
-    <div className="rounded-2xl border border-indigo-100/10 bg-[#101a32] p-5"><h2 className="flex items-center gap-2 font-black"><MapPin size={17} className="text-cyan-200"/>مسیریابی و راه‌های ارتباطی</h2><p className="mt-2 text-xs leading-6 text-slate-300/70">نشانی و ساعت کاری برای نمونه‌سازی منوی کاپیتان ام نمایش داده شده است. دکمه‌های تماس و مسیر در محیط دمو مقصد بیرونی باز نمی‌کنند.</p><div className="mt-3"><DemoHoursAddress address={state.menu.address} hours={state.menu.hours}/></div><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{["نشان", "بلد", "ویز", "گوگل‌مپ"].map((label) => <button key={label} type="button" className="btn btn-outline btn-xs min-h-9 border-indigo-100/15 text-slate-200" onClick={() => state.setNotice(`مسیریابی ${label} در دموی محلی باز نمی‌شود.`)}><MapPin size={13}/>{label}</button>)}</div><div className="mt-2 flex flex-wrap gap-2">{["تماس یک", "تماس دو", "تماس سه", "تماس چهار"].map((label) => <button key={label} type="button" className="btn btn-ghost btn-xs text-slate-300" onClick={() => state.setNotice("تماس تلفنی از دمو برقرار نمی‌شود.")}>{label}</button>)}</div><div className="mt-3 flex flex-wrap gap-2">{["Instagram", "Telegram", "WhatsApp", "Bale"].map((label) => <button key={label} type="button" className="btn btn-ghost btn-xs text-slate-300" onClick={() => state.setNotice(`پیوند ${label} در دموی محلی غیرفعال است.`)}>{label}</button>)}</div></div>
-    <div className="rounded-2xl border border-indigo-100/10 bg-[#101a32] p-5"><span className="badge border-cyan-200/15 bg-white/10 text-cyan-100">نظرسنجی</span><h3 className="mt-3 text-xl font-black">به بهتر شدن تجربه کمک کنید</h3><p className="mt-2 text-xs leading-6 text-slate-300/70">در این نمونه، فرم نظرسنجی فقط برای نمایش جایگاه این امکان است و پاسخی ارسال نمی‌شود.</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" className="btn btn-sm bg-cyan-300 text-slate-950" onClick={() => state.setNotice("نظرسنجی در نسخهٔ نمایشی ارسال نمی‌شود.")}>شروع نظرسنجی <CheckCircle2 size={14}/></button><Link href="/preview/captainm" className="btn btn-sm border-white/15 bg-white/10 text-white">بازگشت به منو</Link></div></div>
+  return <section className={`${styles.demoSection} grid gap-4 p-4 sm:grid-cols-2 sm:p-5`} aria-label="اطلاعات مجموعه">
+    <div><span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-cyan-200"><MapPin size={13}/> اطلاعات مجموعه</span><h2 className="mt-1 text-sm font-black text-white">پیدا کردن ایستگاه کاپیتان ام</h2><div className="mt-3"><DemoHoursAddress address={state.menu.address} hours={state.menu.hours} light/></div></div>
+    <div className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[.035] p-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl border border-cyan-100/15 bg-cyan-200/10 text-cyan-200"><CheckCircle2 size={18}/></span><p className="text-[11px] leading-6 text-slate-300/70">این پیش‌نمایش برای نمایش قالب و گردش منو است؛ اطلاعات و قیمت‌ها نمونه هستند.</p></div>
   </section>;
 }

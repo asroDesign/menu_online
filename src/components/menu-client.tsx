@@ -18,6 +18,7 @@ import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant
 import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
 import { trackMenuEvent } from "@/lib/menu-analytics";
 import { rememberTrackedMenuOrder } from "@/lib/public-menu-orders";
+import captainmStyles from "@/components/captainm-theme.module.css";
 
 type Prod = PublicMenu["products"][number];
 type OType = "dine_in" | "takeaway" | "delivery";
@@ -243,27 +244,27 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
     setSheet(true);
   }
 
-  const accent = { "--accent": biz.accentColor } as React.CSSProperties;
+  const accent = { "--accent": captainm ? "#0e7490" : biz.accentColor } as React.CSSProperties;
 
   const renderCard = (p: Prod) => {
     const qty = cartProductQuantity(cart, p.id);
     const off = p.oldPrice && p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
     return (
-      <div className={cn("flex gap-3", editorial ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : bistro ? "flex-col gap-0 overflow-hidden rounded-[1.5rem] bg-white p-0 shadow-md ring-1 ring-stone-200/70" : photoCards ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : minimal ? "gap-3 rounded-none border-b border-stone-200/80 bg-transparent p-2" : compact ? "rounded-2xl bg-white p-2 shadow-sm ring-1 ring-stone-200/70" : "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-stone-200/70", captainm && "bg-[#101a32] ring-indigo-200/15", horizontalPhotoCards && "min-h-36 flex-row overflow-hidden rounded-2xl bg-[#fffefa] p-0 ring-1 ring-stone-200/80", !p.isAvailable && "opacity-60")}>
-        <div className={cn("relative shrink-0", photoCards && !horizontalPhotoCards && "w-full", horizontalPhotoCards && "w-28 sm:w-36")}>
+      <div className={cn("flex gap-3", editorial ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : bistro ? "flex-col gap-0 overflow-hidden rounded-[1.5rem] bg-white p-0 shadow-md ring-1 ring-stone-200/70" : photoCards ? "flex-col overflow-hidden rounded-2xl bg-white p-0 shadow-sm ring-1 ring-stone-200/70" : minimal ? "gap-3 rounded-none border-b border-stone-200/80 bg-transparent p-2" : compact ? "rounded-2xl bg-white p-2 shadow-sm ring-1 ring-stone-200/70" : "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-stone-200/70", captainm && captainmStyles.productCard, horizontalPhotoCards && "min-h-36 flex-row overflow-hidden rounded-2xl bg-[#fffefa] p-0 ring-1 ring-stone-200/80", !p.isAvailable && "opacity-60")}>
+        <div className={cn("relative shrink-0", captainm && captainmStyles.productImage, photoCards && !horizontalPhotoCards && "w-full", horizontalPhotoCards && "w-28 sm:w-36")}>
           <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className={cn(editorial ? "h-44 w-full rounded-none" : bistro ? "h-36 w-full rounded-none" : horizontalPhotoCards ? "h-full min-h-36 w-full rounded-none" : photoCards ? (haftkhan ? "h-36 w-full rounded-none sm:h-44" : "h-36 w-full rounded-none") : compact ? "size-16 rounded-lg" : minimal ? "size-16 rounded-xl" : "size-24 rounded-xl sm:size-28")} />
           {off > 0 && <span className="absolute start-1 top-1 rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{toFa(off)}٪</span>}
           <IconText>{caps.ar && p.arModelUrl && <button onClick={() => setAr(p)} className="absolute inset-x-1 bottom-1 rounded-lg bg-stone-900/80 py-0.5 text-[10px] font-bold text-white backdrop-blur" aria-label={t("ar")}>{<EmojiIcon emoji="" />} AR</button>}</IconText>
         </div>
-        <div className={cn("flex min-w-0 flex-1 flex-col", editorial && "p-4", (bistro || photoCards) && "p-3.5", horizontalPhotoCards && "py-3 pe-3 ps-0", (compact || minimal) && "py-1")}>
-          <h3 className={cn("font-bold leading-6", captainm && "text-slate-50")}>{nameOf("product", p.id, p.name)}</h3>
-          <p className={cn("line-clamp-2 flex-1 text-xs leading-5 text-stone-500", captainm && "text-slate-300/70")}>{descOf(p)}</p>
-          {(p.dietaryTags?.length || p.allergenTags?.length) && <div className="mt-1 flex flex-wrap gap-1">{(p.dietaryTags ?? []).map((id) => DIETARY_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800">{label} اعلام‌شده</span>)}{(p.allergenTags ?? []).map((id) => ALLERGEN_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-900">آلرژن ثبت‌شده: {label}</span>)}</div>}
+        <div className={cn("flex min-w-0 flex-1 flex-col", captainm && captainmStyles.productBody, editorial && "p-4", (bistro || photoCards) && "p-3.5", horizontalPhotoCards && "py-3 pe-3 ps-0", (compact || minimal) && "py-1")}>
+          <h3 className={cn("font-bold leading-6", captainm && captainmStyles.productTitle)}>{nameOf("product", p.id, p.name)}</h3>
+          <p className={cn("line-clamp-2 flex-1 text-xs leading-5 text-stone-500", captainm && captainmStyles.productDescription)}>{descOf(p)}</p>
+          {(p.dietaryTags?.length || p.allergenTags?.length) && <div className="mt-1 flex flex-wrap gap-1">{(p.dietaryTags ?? []).map((id) => DIETARY_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className={cn("rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800", captainm && captainmStyles.productTag)}>{label} اعلام‌شده</span>)}{(p.allergenTags ?? []).map((id) => ALLERGEN_TAGS.find((tag) => tag.id === id)?.label).filter(Boolean).map((label) => <span key={label} className={cn("rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-900", captainm && captainmStyles.productTag)}>{label}</span>)}</div>}
           {!p.allergenTags?.length ? <span className="mt-1 text-[10px] text-stone-400">اطلاعات آلرژن ثبت نشده</span> : <span className="mt-1 text-[10px] leading-4 text-stone-400">بر اساس اطلاعات کسب‌وکار؛ برای حساسیت غذایی با رستوران هماهنگ کنید.</span>}
           <div className="mt-2 flex items-end justify-between gap-2">
             <div>
               {p.oldPrice && p.oldPrice > p.price && <p className="text-[11px] text-stone-400 line-through">{formatPrice(p.oldPrice)}</p>}
-              <p className={cn("text-sm font-extrabold", captainm && "text-cyan-100")}>{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>از</span>}</p>
+              <p className={cn("text-sm font-extrabold", captainm && captainmStyles.productPrice)}>{formatPrice(p.price)}{p.sellingMode === "weight" ? <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>/کیلو</span> : p.modifierGroups?.some((group) => group.active) && <span className={cn("ms-1 text-[10px] font-medium text-stone-500", captainm && "text-cyan-100/60")}>از</span>}</p>
             </div>
             {!p.isAvailable ? (
               <span className="rounded-lg bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-500">{t("sold")}</span>
@@ -293,38 +294,39 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   ];
 
   return (
-    <div dir={dir} style={{ ...accent, backgroundColor: menuBackground }} className={cn("mx-auto min-h-dvh pb-28 shadow-xl", wideMenu ? "max-w-7xl" : "max-w-2xl")}>
+    <div dir={dir} style={{ ...accent, backgroundColor: menuBackground }} className={cn("mx-auto min-h-dvh pb-28 shadow-xl", wideMenu ? "max-w-7xl" : "max-w-2xl", captainm && captainmStyles.menuShell)}>
       {softmenuTest3 && <div className="px-4 py-2 text-center text-[11px] font-bold text-white" style={{ backgroundColor: biz.accentColor }}>{biz.isOpen ? "منوی دیجیتال · آمادهٔ پذیرایی" : "اکنون بسته است · می‌توانید منو را مرور کنید"}</div>}
-      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8", (softmenuTest || captainm || haftkhan) && "px-5 pb-8 pt-8 text-center")} style={{ background: headerBackground }}>
-        <div className="pointer-events-none absolute -end-10 -top-10 size-48 rounded-full bg-white/10" />
-        <div className="pointer-events-none absolute -bottom-16 start-10 size-40 rounded-full bg-white/10" />
+      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8", (softmenuTest || captainm || haftkhan) && "px-5 pb-8 pt-8 text-center", captainm && captainmStyles.hero)} style={{ background: captainm ? undefined : headerBackground }}>
+        <div className={cn("pointer-events-none absolute -end-10 -top-10 size-48 rounded-full bg-white/10", captainm && "hidden")} />
+        <div className={cn("pointer-events-none absolute -bottom-16 start-10 size-40 rounded-full bg-white/10", captainm && "hidden")} />
+        {captainm && <div className="relative mx-auto mb-5 flex max-w-5xl justify-center"><span className={captainmStyles.heroKicker}><Icon name="sparkles" className="size-3.5" /> CAPTAIN M <span className="opacity-45">·</span> COSMIC MENU</span></div>}
         {languages.length > 1 && (
           <div className="relative mb-4 flex flex-wrap gap-1.5" dir="ltr">
             {languages.map((l) => <button key={l} onClick={() => setLang(l)} className={cn("rounded-full px-3 py-1 text-xs font-bold backdrop-blur transition", lang === l ? "bg-white text-stone-900" : "bg-white/15 text-white")}>{LANGS[l]?.name ?? l}</button>)}
           </div>
         )}
         <div className={cn("relative flex items-center gap-4", (editorial || softmenuTest || captainm || haftkhan) && "flex-col items-center gap-3", bistro && "gap-3")}>
-          <span className={cn("flex size-16 items-center justify-center overflow-hidden bg-white text-3xl shadow-lg", (captainm || haftkhan) ? "rounded-full" : "rounded-2xl")}><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
-          <div><h1 className="text-xl font-extrabold">{biz.name}</h1><p className="mt-1 text-xs text-white/80">{t("menu")}</p></div>
+          <span className={cn("flex size-16 items-center justify-center overflow-hidden bg-white text-3xl shadow-lg", (captainm || haftkhan) ? "rounded-full" : "rounded-2xl", captainm && captainmStyles.heroMark)}><BrandLogo url={biz.logoUrl} alt={biz.name} className="size-full object-contain p-2" fallback={<EmojiIcon emoji={biz.logoEmoji} />} /></span>
+          <div><h1 className={cn("text-xl font-extrabold", captainm && captainmStyles.heroTitle)}>{biz.name}</h1><p className="mt-1 text-xs text-white/80">{t("menu")}</p></div>
         </div>
         {biz.description && lang === "fa" && <p className="relative mt-4 text-sm leading-7 text-white/90">{biz.description}</p>}
         <div className={cn("relative mt-4 flex flex-wrap gap-2 text-xs", (editorial || bistro || softmenuTest || captainm || haftkhan) && "justify-center")}>
-          {biz.phone && <a href={`tel:${biz.phone}`} className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="phone" className="size-3.5" />{biz.phone}</a>}
-          {biz.address && lang === "fa" && <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur"><Icon name="pin" className="size-3.5" />{biz.address}</span>}
-          {biz.instagram && <a href={`https://instagram.com/${biz.instagram}`} target="_blank" className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur" dir="ltr">@{biz.instagram}</a>}
-          <span className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur">{biz.isOpen ? "اکنون باز است" : "اکنون بسته است"}</span>
+          {biz.phone && <a href={`tel:${biz.phone}`} className={cn("flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)}><Icon name="phone" className="size-3.5" />{biz.phone}</a>}
+          {biz.address && lang === "fa" && <span className={cn("flex max-w-full items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)}><Icon name="pin" className="size-3.5 shrink-0" /><span className="truncate">{biz.address}</span></span>}
+          {biz.instagram && <a href={`https://instagram.com/${biz.instagram}`} target="_blank" className={cn("rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)} dir="ltr">@{biz.instagram}</a>}
+          <span className={cn("rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)}>{biz.isOpen ? "اکنون باز است" : "اکنون بسته است"}</span>
           {caps.reservations && !readOnlyDemo && !readOnlyPreview && <Link href={`/m/${biz.slug}/reserve`} className="rounded-full bg-white px-3 py-1.5 font-bold text-stone-900 shadow-sm">رزرو میز</Link>}
           <IconText>{caps.miniSite && <a href={`/s/${biz.slug}`} className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur">{<EmojiIcon emoji="" />} وب‌سایت ما</a>}</IconText>
         </div>
-        {readOnlyDemo && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این منو نمایشی است؛ ثبت سفارش و رزرو میز فعال نیست، اما می‌توانید درخواست گارسون را آزمایش کنید.</p>}
-        {readOnlyPreview && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این پیش‌نمایش فقط برای بررسی قالب است؛ ثبت سفارش و رزرو از این صفحه انجام نمی‌شود.</p>}
+        {readOnlyDemo && <p className={cn("relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6", captainm && captainmStyles.notice)}>این منو نمایشی است؛ ثبت سفارش و رزرو میز فعال نیست، اما می‌توانید درخواست گارسون را آزمایش کنید.</p>}
+        {readOnlyPreview && <p className={cn("relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6", captainm && captainmStyles.notice)}>این پیش‌نمایش فقط برای بررسی قالب است؛ ثبت سفارش و رزرو از این صفحه انجام نمی‌شود.</p>}
         <IconText>{initialTableId && caps.selfOrder && tables.find((x) => x.id === initialTableId) && canOrder && (
           <div className="relative mt-5 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm font-semibold text-stone-800">{<EmojiIcon emoji="" />} {tables.find((x) => x.id === initialTableId)!.name}</div>
         )}</IconText>
       </header>
 
-      <div className="sticky top-0 z-20 -mt-4 rounded-t-3xl pb-2 pt-4 backdrop-blur" style={{ backgroundColor: `${menuBackground}f2` }}>
-        <div className="grid gap-2 px-4 sm:grid-cols-[1fr_auto]"><div className="relative"><Icon name="search" className={cn("pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400", captainm && "text-cyan-200/70")} /><Input className={cn("ps-9", captainm && "border-indigo-200/15 bg-[#101a32] text-white placeholder:text-slate-400")} placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} /></div><Select aria-label="فیلتر ویژگی تغذیه‌ای" value={dietFilter} onChange={(e) => setDietFilter(e.target.value)} className={cn("sm:w-48", captainm && "border-indigo-200/15 bg-[#101a32] text-white")}><option value="">همه ویژگی‌ها</option>{DIETARY_TAGS.map((tag) => <option key={tag.id} value={tag.id}>{tag.label}</option>)}</Select></div>
+      <div className={cn("sticky top-0 z-20 -mt-4 rounded-t-3xl pb-2 pt-4 backdrop-blur", captainm && captainmStyles.toolbar)} style={{ backgroundColor: captainm ? undefined : `${menuBackground}f2` }}>
+        <div className="grid gap-2 px-4 sm:grid-cols-[1fr_auto]"><div className="relative"><Icon name="search" className={cn("pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400", captainm && "text-cyan-200/70")} /><Input className={cn("ps-9", captainm && captainmStyles.searchInput)} placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} /></div><Select aria-label="فیلتر ویژگی تغذیه‌ای" value={dietFilter} onChange={(e) => setDietFilter(e.target.value)} className={cn("sm:w-48", captainm && captainmStyles.filterInput)}><option value="">همه ویژگی‌ها</option>{DIETARY_TAGS.map((tag) => <option key={tag.id} value={tag.id}>{tag.label}</option>)}</Select></div>
         {initialTable && initialTable.operationalStatus !== "available" && <div role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{initialTable.operationalStatus === "cleaning" ? "این میز در حال نظافت است و فعلاً سفارش نمی‌پذیرد." : "این میز موقتاً خارج از سرویس است. از کارکنان رستوران کمک بگیرید."}</div>}
         {!term && !softmenuTest && !captainm && !haftkhan && (
           <div className={cn("no-scrollbar mt-3 flex gap-2 overflow-x-auto px-4", editorial && "justify-center")}>
@@ -333,7 +335,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         )}
       </div>
 
-      <main className={cn("space-y-8 px-4 pt-4", editorial && "px-5 sm:px-8")}>
+      <main className={cn("space-y-8 px-4 pt-4", editorial && "px-5 sm:px-8", captainm && "space-y-6")}>
         {!term && biz.promotionalBanners.length > 0 && <section aria-label="بنرهای تبلیغاتی" className="grid gap-3 sm:grid-cols-2">
           {biz.promotionalBanners.map((banner) => {
             const image = <div className="relative aspect-[2.8/1] overflow-hidden rounded-2xl bg-stone-100 shadow-sm ring-1 ring-stone-200/70">
@@ -355,10 +357,10 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         </section>}
         {!term && featured.length > 0 && (
           <section>
-            <h2 className="mb-3 text-base font-extrabold"><IconText>{t("featured")}</IconText></h2>
+            <h2 className={cn("mb-3 text-base font-extrabold", captainm && captainmStyles.sectionHeading)}><IconText>{t("featured")}</IconText></h2>
             <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4">
               {featured.map((p) => (
-                <div key={p.id} className="w-44 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone-200/70">
+                <div key={p.id} className={cn("w-44 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone-200/70", captainm && captainmStyles.featuredCard)}>
                   <ProductThumb imageUrl={p.imageUrl} emoji={iconGlyph(p.emoji)} className="h-28 w-full" />
                   <div className="p-3"><p className="truncate text-sm font-bold">{nameOf("product", p.id, p.name)}</p>
                     <div className="mt-2 flex items-center justify-between"><span className="text-xs font-extrabold">{formatPrice(p.price)}{p.sellingMode === "weight" ? "/کیلو" : ""}</span>{canOrder && <button onClick={() => add(p)} aria-label="افزودن" className="flex size-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white active:scale-90"><Icon name="plus" className="size-4" /></button>}</div></div>
@@ -367,11 +369,11 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
             </div>
           </section>
         )}
-        <div className={cn(captainm && "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_230px]")}>
-          {captainm && !term && <aside className="rounded-2xl border border-indigo-200/15 bg-[#101a32] p-3 text-slate-100 shadow-[0_14px_38px_-24px_rgba(34,211,238,.45)] lg:sticky lg:top-28">
-            <h2 className="mb-2 px-2 text-xs font-extrabold text-cyan-100/70">دسته‌های کهکشانی</h2>
-            <nav className="no-scrollbar flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-              {grouped.map((section) => <button key={section.key} type="button" aria-pressed={active === section.id} onClick={() => jump(section.id)} className={cn("min-h-9 shrink-0 rounded-lg px-3 text-start text-xs font-bold transition lg:w-full", active === section.id ? "bg-cyan-300 text-slate-950 shadow-[0_0_18px_rgba(103,232,249,.2)]" : "bg-indigo-100/5 text-slate-200 hover:bg-indigo-100/10")}>{section.title}<span className="ms-2 text-[10px] opacity-65">{toFa(section.items.length)}</span></button>)}
+        <div className={cn(captainm && !term && "grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)]")}>
+          {captainm && !term && <aside className={cn("rounded-2xl border border-indigo-200/15 bg-[#101a32] p-3 text-slate-100 shadow-[0_14px_38px_-24px_rgba(34,211,238,.45)] lg:sticky lg:top-28", captainmStyles.sidebar)}>
+            <h2 className="mb-3 flex items-center gap-2 px-2 text-xs font-extrabold text-cyan-100/85"><Icon name="sparkle" className="size-4"/>دسته‌های کهکشانی</h2>
+            <nav className="no-scrollbar flex gap-2 overflow-x-auto pb-1 lg:max-h-[min(70dvh,44rem)] lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden lg:pe-1">
+              {grouped.map((section) => <button key={section.key} type="button" aria-pressed={active === section.id} onClick={() => jump(section.id)} className={cn("min-h-9 shrink-0 rounded-lg px-3 text-start text-xs font-bold transition lg:w-full", captainmStyles.categoryButton, active === section.id && captainmStyles.categoryActive)}>{section.title}<span className="ms-2 text-[10px] opacity-65">{toFa(section.items.length)}</span></button>)}
             </nav>
           </aside>}
           <div className="space-y-6">
@@ -379,13 +381,13 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
               <div className="py-16 text-center text-stone-500"><div className="text-5xl">{products.length ? "" : ""}</div><p className="mt-3 font-semibold">{t("empty")}</p></div>
             ) : grouped.map((s) => (
               <section key={s.key} data-cat={s.id} ref={(el) => { sectionRefs.current[s.key] = el; }} className="scroll-mt-32">
-                <h2 className={cn("mb-3 text-base font-extrabold", softmenuTest && "text-[#352743]", captainm && "text-cyan-100", haftkhan && "text-[#641c27]")}>{s.title}</h2>
+                <h2 className={cn("mb-3 text-base font-extrabold", softmenuTest && "text-[#352743]", captainm && captainmStyles.sectionHeading, haftkhan && "text-[#641c27]")}>{s.title}</h2>
                 <div className={cn("space-y-3", editorial && "grid gap-4 space-y-0 sm:grid-cols-2", bistro && "grid grid-cols-2 gap-3 space-y-0 sm:grid-cols-3", (softmenuTest || captainm) && "grid grid-cols-2 gap-3 space-y-0 xl:grid-cols-3", haftkhan && "grid grid-cols-2 gap-2.5 space-y-0 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5", compact && "space-y-2", minimal && "space-y-0")}>{s.items.map((p) => <div key={p.id}>{renderCard(p)}</div>)}</div>
               </section>
             ))}</IconText>
           </div>
         </div>
-        <footer className="pb-4 pt-6 text-center text-[11px] text-stone-400">Powered by <b>منوی دیجیتال</b></footer>
+        <footer className={cn("pb-4 pt-6 text-center text-[11px] text-stone-400", captainm && captainmStyles.footer)}>Powered by <b>منوی دیجیتال</b></footer>
       </main>
 
       <Modal
@@ -511,8 +513,8 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
 
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
       {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) { trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); } }} />}
-      {caps.waiterCall && !readOnlyPreview && tables.some((table) => table.operationalStatus === "available") && <div dir="ltr" className={cn("pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl justify-end px-4", (editorial || bistro) && "max-w-5xl")} style={{ bottom: "calc(5.75rem + env(safe-area-inset-bottom))" }}>
-        <button type="button" dir="rtl" aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام" onClick={openServiceRequest} style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}dd)` }} className="group pointer-events-auto inline-flex min-h-[3.75rem] items-center gap-3 rounded-2xl border border-white/30 px-4 py-2.5 text-start text-white shadow-[0_12px_32px_-10px_rgba(15,23,42,.55)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,.5)] active:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/70">
+      {caps.waiterCall && !readOnlyPreview && tables.some((table) => table.operationalStatus === "available") && <div dir="ltr" className={cn("pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl justify-end px-4", (editorial || bistro) && "max-w-5xl", captainm && "max-w-7xl")} style={{ bottom: "calc(5.75rem + env(safe-area-inset-bottom))" }}>
+        <button type="button" dir="rtl" aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام" onClick={openServiceRequest} style={{ background: captainm ? "linear-gradient(135deg, #0e7490, #3730a3)" : `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}dd)` }} className="group pointer-events-auto inline-flex min-h-[3.75rem] items-center gap-3 rounded-2xl border border-white/30 px-4 py-2.5 text-start text-white shadow-[0_12px_32px_-10px_rgba(15,23,42,.55)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,.5)] active:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/70">
           <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/15 ring-1 ring-inset ring-white/20"><span className="absolute -end-1 -top-1 size-4 rounded-full bg-white/20 blur-sm" /><Icon name="bell" className="size-5 transition-transform duration-200 group-hover:-rotate-12" /></span>
           <span className="grid gap-0.5"><span className="text-sm font-extrabold leading-5">درخواست از گارسون</span><span className="text-[10px] font-medium text-white/80">صدا بزنید یا پیام بفرستید</span></span>
           <span aria-hidden="true" className="ms-1 size-1.5 shrink-0 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,.85)]" />

@@ -67,12 +67,13 @@ test('the four reference demos have independent page templates and direct routes
   const captainCategoryRoute = source('src/app/preview/captainm/category/[categoryId]/page.tsx');
   const captainProductsRoute = source('src/app/preview/captainm/products/page.tsx');
   const captain = source('src/components/marketing/demo-templates/captainm.tsx');
+  const captainStyles = source('src/components/captainm-theme.module.css');
   const haftkhan = source('src/components/marketing/demo-templates/haftkhan.tsx');
   const softmenu = source('src/components/marketing/demo-templates/softmenu-test.tsx');
   for (const [id, file, marker] of [
     ['softmenu-test3', 'src/components/marketing/demo-templates/softmenu-test3.tsx', 'باغ‌کافه آبان'],
     ['softmenu-test', 'src/components/marketing/demo-templates/softmenu-test.tsx', 'هر دیدار، یک امتیاز تازه'],
-    ['captainm', 'src/components/marketing/demo-templates/captainm.tsx', 'منویی در دل کهکشان'],
+    ['captainm', 'src/components/marketing/demo-templates/captainm.tsx', 'GALACTIC DINING'],
     ['haftkhan', 'src/components/marketing/demo-templates/haftkhan.tsx', 'سفرهٔ هفت‌خوان'],
   ]) {
     assert.ok(route.includes(id), `${id} is routed directly`);
@@ -83,8 +84,9 @@ test('the four reference demos have independent page templates and direct routes
   assert.match(categoryRoute, /generateStaticParams/);
   assert.match(categoryRoute, /<SoftMenuTest initialCategory=\{category\}/);
   assert.match(captain, /ENGLISH_CATEGORIES/);
-  assert.match(captain, /COSMIC MENU/);
-  assert.match(captain, /radial-gradient/);
+  assert.match(captain, /captainm-theme\.module\.css/);
+  assert.match(captainStyles, /\.demoHero/);
+  assert.match(captainStyles, /radial-gradient/);
   assert.match(captain, /href="\/preview\/captainm\/products"/);
   assert.match(captain, /href=\{`\/preview\/captainm\/category\/\$\{index\}`\}/);
   assert.match(captainCategoryRoute, /generateStaticParams/);

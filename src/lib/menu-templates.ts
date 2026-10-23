@@ -6,7 +6,7 @@ export const MENU_TEMPLATE_OPTIONS = [
   { id: "minimal", title: "مینیمال", subtitle: "فهرست خلوت با تمرکز روی قیمت" },
   { id: "softmenu-test3", title: "باغ‌کافه", subtitle: "دسته‌های افقی و منوی تصویری" },
   { id: "softmenu-test", title: "کاشی دسته‌ها", subtitle: "صفحهٔ شروع با دسته‌های بزرگ" },
-  { id: "captainm", title: "کاپیتان ام", subtitle: "تم فضایی با دسته‌بندی کناری" },
+  { id: "captainm", title: "کاپیتان ام", subtitle: "هویت کیهانی با دسته‌های پیمایش‌پذیر و کارت‌های تیره" },
   { id: "haftkhan", title: "هفت‌خوان", subtitle: "دسته‌های آیکنی و شبکهٔ غذاها" },
 ] as const;
 
