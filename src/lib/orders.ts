@@ -920,7 +920,7 @@ export async function queuePrintJobs(biz: Biz, orderId: number, features: Featur
   const jobs: { businessId: number; orderId: number; deviceId: number; content: string }[] = [];
   for (const output of outputs) {
     const targetPrinters = output.kind === "kitchen"
-      ? output.printerIds.length ? printers.filter((printer) => output.printerIds.includes(printer.id)) : categoryPrinters.length ? categoryPrinters : firstPrinter ? [firstPrinter] : []
+      ? output.printerIds.length ? printers.filter((printer) => output.printerIds.includes(printer.id)) : categoryPrinters.length ? categoryPrinters : manualKind === "kitchen" ? [] : firstPrinter ? [firstPrinter] : []
       : [printers.find((printer) => printer.id === output.printerId) ?? firstPrinter].filter((printer): printer is (typeof printers)[number] => !!printer);
     for (const printer of targetPrinters) {
       const assigned = output.kind === "kitchen" && Array.isArray(printer.printerCategoryIds) ? printer.printerCategoryIds : [];

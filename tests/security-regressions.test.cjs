@@ -1095,7 +1095,7 @@ test('sales report dashboard and export share paid-order date filters and bounde
   assert.match(ui, /window\.print\(\)/);
 });
 
-test('receipt archive is tenant-scoped and paginated; reprint only reads the stored order snapshot', () => {
+test('receipt archive is tenant-scoped and paginated; reprint queues the stored order snapshot without opening preview', () => {
   const route = source('src/app/api/receipt-archive/route.ts');
   const ui = source('src/modules/orders.tsx');
   const printPage = source('src/app/print/receipt/[id]/page.tsx');
@@ -1107,10 +1107,11 @@ test('receipt archive is tenant-scoped and paginated; reprint only reads the sto
   assert.match(route, /nextCursor/);
   assert.doesNotMatch(route, /\.update\(|\.insert\(|settleOrder/);
   assert.match(ui, /\/api\/receipt-archive/);
-  assert.match(ui, /receipt\/\$\{item\.id\}\?reprint=1/);
-  assert.match(printPage, /نسخهٔ چاپ مجدد/);
+  assert.match(ui, /ManualOrderPrintButton orderId=\{item\.id\} kind="customer" label="چاپ مجدد"/);
+  assert.doesNotMatch(ui, /print\/receipt\/\$\{item\.id\}/);
   assert.match(printPage, /listOrders\(auth\.business\.id, \{ id: chk\.id \}\)/);
   assert.match(orderService, /\.from\(orderItems\)/);
+  assert.match(orderService, /const content = .*receiptText\(biz, \{ \.\.\.o, items \}/);
 });
 
 function loadMembershipCore() {

@@ -61,3 +61,26 @@ test('cashier credit checkout and receipt workflows are wired through the server
   assert.match(businessRoute, /validatePrinterSelection/);
   assert.match(orderStatusRoute, /set\.status === "ready"[\s\S]*queuePrintJobs\(business, oid, auth\.features, false, undefined, tx, "completed"\)/);
 });
+
+test('order receipt and kitchen actions queue directly to their configured printer routes without opening preview', () => {
+  const ordersUi = source('src/modules/orders.tsx');
+  const cashierUi = source('src/components/cashier-order-desk.tsx');
+  const printButton = source('src/components/manual-order-print-button.tsx');
+  const printRoute = source('src/app/api/orders/[id]/print/route.ts');
+  const orderService = source('src/lib/orders.ts');
+
+  assert.match(ordersUi, /ManualOrderPrintButton orderId=\{selected\.id\} kind="customer" label="رسید"/);
+  assert.match(ordersUi, /ManualOrderPrintButton orderId=\{item\.id\} kind="customer" label="چاپ مجدد"/);
+  assert.match(cashierUi, /kind="customer" label="فیش"/);
+  assert.match(cashierUi, /kind="kitchen" label="آشپزخانه"/);
+  assert.match(cashierUi, /\['customer','فیش مشتری'\],\['kitchen','فیش آشپزخانه'\]/);
+  assert.doesNotMatch(ordersUi, /print\/receipt/);
+  assert.doesNotMatch(cashierUi, /print\/receipt|پیش‌نمایش و چاپ مرورگر/);
+  assert.match(printButton, /`\/api\/orders\/\$\{orderId\}\/print`/);
+  assert.match(printButton, /method: "POST", body: \{ kind \}/);
+  assert.doesNotMatch(printButton, /window\.open|window\.print|location\.href/);
+  assert.match(printRoute, /body\.kind as "customer" \| "kitchen" \| "cafe"/);
+  assert.match(orderService, /settings\.rules\.settled\.customerPrinterId/);
+  assert.match(orderService, /settings\.rules\.created_with_table\.kitchenPrinterIds/);
+  assert.match(orderService, /manualKind === "kitchen" \? \[\] : firstPrinter/);
+});

@@ -38,6 +38,7 @@ import { useFeatures } from "@/components/features";
 import { api } from "@/lib/api";
 import { workflowDisplayStageIndex, workflowDisplayStages } from "@/lib/order-workflow-core";
 import type { SettlementInput } from "@/lib/order-settlement-core";
+import { ManualOrderPrintButton } from "@/components/manual-order-print-button";
 
 const TABS = [
   { key: "active", label: "فعال" },
@@ -292,7 +293,7 @@ export default function OrdersPage() {
         </div>}
       </div>
 
-      <IconText>{receiptArchive ? <ReceiptArchivePanel /> : <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]">
+      <IconText>{receiptArchive ? <ReceiptArchivePanel canPrint={feat.has("cloud_printer")} /> : <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]">
       <div className="max-h-[65vh] min-w-0 overflow-y-auto overscroll-contain pe-1 lg:max-h-[calc(100dvh-20rem)]">
       {orders.loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -410,7 +411,7 @@ export default function OrdersPage() {
               {feat.isManager && ["customer", "kiosk"].includes(selected.source) && selected.trackingActive && <Button variant="secondary" onClick={() => setRevokingTracking(selected)}>
                 <Icon name="link" className="size-4" /> ابطال پیوند رهگیری
               </Button>}
-              <a href={`/print/receipt/${selected.id}`} target="_blank"><Button variant="secondary"><IconText>{<EmojiIcon emoji="" />}</IconText> رسید</Button></a>
+              <ManualOrderPrintButton orderId={selected.id} kind="customer" label="رسید" disabled={!feat.has("cloud_printer")} />
               {feat.role !== "waiter" && selected.paymentStatus !== "paid" && selected.status !== "canceled" && !selected.paymentBreakdown && selected.paymentMethod !== "credit" && (
                 <Button onClick={() => openSettlement(selected, selected.status === "served")}><Icon name="wallet" className="size-4" />ثبت پرداخت</Button>
               )}
@@ -625,7 +626,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 type ArchiveReceipt = { id: number; number: number; createdAt: string; status: string; paymentStatus: string; total: number; type: string };
-function ReceiptArchivePanel() {
+function ReceiptArchivePanel({ canPrint }: { canPrint: boolean }) {
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [version, setVersion] = useState(0);
@@ -670,11 +671,11 @@ function ReceiptArchivePanel() {
     {error ? <ErrorState message={error} onRetry={() => { setBusy(true); setVersion((current) => current + 1); }} /> : items.length === 0 && !busy ? <EmptyState icon="receipt" title="رسیدی پیدا نشد" description="عبارت جست‌وجو را تغییر دهید یا شماره سفارش را وارد کنید." /> : <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <Card key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div><p className="font-extrabold">سفارش #{toFa(item.number)}</p><p className="mt-1 text-xs text-stone-500">{formatDate(item.createdAt)} · {formatTime(item.createdAt)} · {statusInfo(item.status).label}</p><p className="mt-1 text-sm font-bold">{formatPrice(item.total)}{item.paymentStatus === "paid" ? " · پرداخت‌شده" : " · تسویه‌نشده"}</p></div>
-        <Link href={`/print/receipt/${item.id}?reprint=1`} target="_blank"><Button size="sm" variant="secondary"><Icon name="printer" className="size-4" /> چاپ مجدد</Button></Link>
+        <ManualOrderPrintButton orderId={item.id} kind="customer" label="چاپ مجدد" disabled={!canPrint} />
       </Card>)}</div>
       {busy && <Skeleton className="h-20 rounded-2xl" />}
       {!busy && nextCursor !== null && <div className="flex justify-center"><Button variant="secondary" onClick={() => { setBusy(true); setCursor(nextCursor); }}>رسیدهای قدیمی‌تر</Button></div>}
     </>}
-    <p className="text-xs leading-6 text-stone-500">رسید از snapshot نام و قیمت ذخیره‌شده در اقلام سفارش ساخته می‌شود؛ بازچاپ وضعیت سفارش/پرداخت را تغییر نمی‌دهد و روی خود رسید به‌عنوان نسخهٔ چاپ مجدد مشخص است.</p>
+    <p className="text-xs leading-6 text-stone-500">رسید از snapshot نام و قیمت ذخیره‌شده در اقلام سفارش چاپ می‌شود؛ بازچاپ وضعیت سفارش/پرداخت را تغییر نمی‌دهد.</p>
   </div>;
 }
