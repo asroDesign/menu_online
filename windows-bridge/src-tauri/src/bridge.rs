@@ -121,9 +121,10 @@ pub fn start(config: BridgeConfig, stop: Arc<AtomicBool>, log: LogSink) {
                     return;
                 }
             };
-            device_log(format!("[{}] آماده‌ی اتصال ({}/{})", device.code, device.kind, device.transport));
+            device_log(format!("[{}] عامل فعال شد؛ بررسی واقعی دستگاه و صف سرور شروع می‌شود ({}/{})", device.code, device.kind, device.transport));
+            let mut last_queue_status_log = None;
             while !device_stop.load(Ordering::SeqCst) {
-                if let Err(error) = poll_device(&client, &server, &device, &device_log) {
+                if let Err(error) = poll_device(&client, &server, &device, &device_log, &mut last_queue_status_log) {
                     device_log(format!("[{}] خطا: {error}", device.code));
                 }
                 for _ in 0..poll {
@@ -131,21 +132,21 @@ pub fn start(config: BridgeConfig, stop: Arc<AtomicBool>, log: LogSink) {
                     thread::sleep(Duration::from_secs(1));
                 }
             }
-            device_log(format!("[{}] اتصال متوقف شد", device.code));
+            device_log(format!("[{}] حلقه‌ی اتصال با دریافت فرمان توقف از پنجره پایان یافت", device.code));
         });
     }
 }
 
-fn poll_device(client: &Client, server: &str, device: &DeviceConfig, log: &LogSink) -> Result<(), String> {
+fn poll_device(client: &Client, server: &str, device: &DeviceConfig, log: &LogSink, last_queue_status_log: &mut Option<Instant>) -> Result<(), String> {
     match device.kind.as_str() {
-        "printer" => poll_printer(client, server, device, log),
+        "printer" => poll_printer(client, server, device, log, last_queue_status_log),
         "scale" => poll_scale(client, server, device, log),
         "pager" => poll_pager(client, server, device, log),
         _ => Ok(()),
     }
 }
 
-fn poll_printer(client: &Client, server: &str, device: &DeviceConfig, log: &LogSink) -> Result<(), String> {
+fn poll_printer(client: &Client, server: &str, device: &DeviceConfig, log: &LogSink, last_queue_status_log: &mut Option<Instant>) -> Result<(), String> {
     if let Err(error) = probe_printer(device) {
         let _ = report_connection(client, server, device, false);
         return Err(error);
@@ -154,6 +155,13 @@ fn poll_printer(client: &Client, server: &str, device: &DeviceConfig, log: &LogS
     let result = api(client, server, device, "jobs", None)?;
     let jobs: Vec<PrintJob> = serde_json::from_value(result.get("jobs").cloned().unwrap_or_else(|| json!([])))
         .map_err(|e| format!("صف چاپ نامعتبر است: {e}"))?;
+    if jobs.is_empty() && last_queue_status_log.as_ref().map_or(true, |last| last.elapsed() >= Duration::from_secs(30)) {
+        log(format!("[{}] اتصال واقعی چاپگر و سرور برقرار است؛ صف چاپ خالی است. برای چاپ، سفارش یا تست چاپ ایجاد کنید.", device.code));
+        *last_queue_status_log = Some(Instant::now());
+    } else if !jobs.is_empty() {
+        log(format!("[{}] {} کار چاپ از صف سرور دریافت شد", device.code, jobs.len()));
+        *last_queue_status_log = Some(Instant::now());
+    }
     for job in jobs {
         match print_job(device, &job.content) {
             Ok(()) => {
@@ -282,6 +290,21 @@ fn print_job(device: &DeviceConfig, content: &str) -> Result<(), String> {
         }
         other => Err(format!("روش چاپ {other} پشتیبانی نمی‌شود")),
     }
+}
+
+/// Sends a local diagnostic receipt directly to the configured printer, without the cloud queue.
+pub fn send_test_print(device: &DeviceConfig) -> Result<(), String> {
+    if device.kind != "printer" {
+        return Err("چاپ آزمایشی فقط برای دستگاه پرینتر است".to_string());
+    }
+    probe_printer(device)?;
+    print_job(device, &local_test_receipt(device.name.as_deref().unwrap_or("Printer"), &device.code))
+}
+
+fn local_test_receipt(name: &str, code: &str) -> String {
+    format!(
+        "MENUPEAK LOCAL PRINTER TEST\nDevice: {name}\nCode: {code}\nIf this page printed, the local printer path works.\n"
+    )
 }
 
 fn encode_text(text: &str, label: &str) -> Vec<u8> {
@@ -521,7 +544,7 @@ fn print_windows_queue(_name: &str, _data: &[u8]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::probe_tcp;
+    use super::{local_test_receipt, probe_tcp};
     use std::{net::TcpListener, thread};
 
     #[test]
@@ -542,5 +565,13 @@ mod tests {
     fn invalid_network_configuration_is_rejected() {
         assert!(probe_tcp("", 9100).is_err());
         assert!(probe_tcp("127.0.0.1", 0).is_err());
+    }
+
+    #[test]
+    fn local_test_receipt_identifies_the_target_printer_without_cloud_data() {
+        let receipt = local_test_receipt("Kitchen Printer", "printer01");
+        assert!(receipt.contains("MENUPEAK LOCAL PRINTER TEST"));
+        assert!(receipt.contains("Device: Kitchen Printer"));
+        assert!(receipt.contains("Code: printer01"));
     }
 }

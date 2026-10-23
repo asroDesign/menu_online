@@ -104,3 +104,21 @@ test('order receipt and kitchen actions queue directly to their configured print
   assert.match(orderService, /settings\.rules\.created_with_table\.kitchenPrinterIds/);
   assert.match(orderService, /manualKind === "kitchen" \? \[\] : firstPrinter/);
 });
+
+test('Windows bridge distinguishes an empty cloud queue from a stopped worker and exposes a direct local printer test', () => {
+  const bridge = source('windows-bridge/src-tauri/src/bridge.rs');
+  const main = source('windows-bridge/src-tauri/src/main.rs');
+  const ui = source('windows-bridge/ui/app.js');
+  const html = source('windows-bridge/ui/index.html');
+
+  assert.match(bridge, /عامل فعال شد؛ بررسی واقعی دستگاه و صف سرور شروع می‌شود/);
+  assert.match(bridge, /اتصال واقعی چاپگر و سرور برقرار است؛ صف چاپ خالی است/);
+  assert.match(bridge, /فرمان توقف از پنجره پایان یافت/);
+  assert.match(bridge, /pub fn send_test_print\(device: &DeviceConfig\)/);
+  assert.match(bridge, /fn local_test_receipt\(name: &str, code: &str\)/);
+  assert.match(main, /fn test_local_printer\(code: String/);
+  assert.match(main, /bridge::send_test_print\(device\)/);
+  assert.match(ui, /invoke\("test_local_printer", \{ code \}\)/);
+  assert.match(ui, /data-test-printer/);
+  assert.match(html, /شروع اتصال فقط صف سرور را بررسی می‌کند/);
+});

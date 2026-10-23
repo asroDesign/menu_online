@@ -146,7 +146,25 @@ fn import_config(content: String, state: State<'_, AppState>) -> Result<Status, 
 #[tauri::command]
 fn start_bridge(state: State<'_, AppState>) -> Result<Status, String> {
     start_inner(&state)?;
+    (state.logger())("دستور شروع اتصال ثبت شد؛ گزارش هر دستگاه نتیجه‌ی بررسی واقعی آن را نشان می‌دهد".to_string());
     Ok(status_of(&state))
+}
+
+#[tauri::command]
+fn test_local_printer(code: String, state: State<'_, AppState>) -> Result<String, String> {
+    let raw = fs::read_to_string(&state.config_path)
+        .map_err(|_| "ابتدا تنظیمات پرینتر را وارد و ذخیره کنید".to_string())?;
+    let config: BridgeConfig = serde_json::from_str(&raw)
+        .map_err(|e| format!("فایل تنظیمات خوانده نشد: {e}"))?;
+    let device = config.devices.iter().find(|device| device.code == code && device.kind == "printer")
+        .ok_or_else(|| "پرینتر در تنظیمات ذخیره‌شده پیدا نشد؛ تنظیمات را دوباره ذخیره کنید".to_string())?;
+    if let Err(error) = bridge::send_test_print(device) {
+        (state.logger())(format!("[{}] چاپ آزمایشی محلی ناموفق بود: {error}", device.code));
+        return Err(error);
+    }
+    let message = format!("[{}] رسید آزمایشی محلی به صف/درگاه چاپ تحویل شد؛ خروج کاغذ را روی چاپگر بررسی کنید", device.code);
+    (state.logger())(message.clone());
+    Ok(message)
 }
 
 #[tauri::command]
@@ -156,7 +174,7 @@ fn stop_bridge(state: State<'_, AppState>) -> Result<Status, String> {
             flag.store(false, std::sync::atomic::Ordering::SeqCst);
         }
     }
-    (state.logger())("اتصال دستگاه‌ها متوقف شد".to_string());
+    (state.logger())("فرمان توقف از پنجره دریافت شد؛ پردازش صف دستگاه‌ها متوقف می‌شود".to_string());
     Ok(status_of(&state))
 }
 
@@ -220,6 +238,7 @@ fn main() {
             installed_printers,
             import_config,
             start_bridge,
+            test_local_printer,
             stop_bridge,
             clear_logs,
             set_autostart

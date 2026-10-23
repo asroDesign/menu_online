@@ -33,7 +33,8 @@ function renderStatus(data) {
   byId("devices").innerHTML = devices.length ? devices.map((device) => {
     const names = { printer: "پرینتر", scale: "ترازو", pager: "پیجر", pos: "کارتخوان" };
     const transport = { tcp: "شبکه", serial: "USB-سریال", usb: "USB مستقیم" };
-    return `<div class="device"><span class="device-icon">${device.kind === "scale" ? "kg" : device.kind === "printer" ? "PR" : "••"}</span><div class="device-copy"><strong>${escapeHtml(device.name || names[device.kind] || device.kind)}</strong><span>${escapeHtml(device.code)} · ${escapeHtml(transport[device.transport] || device.transport || "")}</span></div><i class="device-status"></i></div>`;
+    const testButton = device.kind === "printer" ? `<button class="device-test" type="button" data-test-printer="${escapeHtml(device.code)}">چاپ آزمایشی محلی</button>` : "";
+    return `<div class="device"><span class="device-icon">${device.kind === "scale" ? "kg" : device.kind === "printer" ? "PR" : "••"}</span><div class="device-copy"><strong>${escapeHtml(device.name || names[device.kind] || device.kind)}</strong><span>${escapeHtml(device.code)} · ${escapeHtml(transport[device.transport] || device.transport || "")}</span></div>${testButton}<i class="device-status"></i></div>`;
   }).join("") : "هنوز تنظیماتی وارد نشده است.";
 
   const logs = data.logs || [];
@@ -65,6 +66,23 @@ byId("save").addEventListener("click", async () => {
 byId("start").addEventListener("click", async () => {
   try { await invoke("start_bridge"); toast("اتصال دستگاه‌ها شروع شد"); await refresh(); }
   catch (error) { toast(String(error), true); }
+});
+byId("devices").addEventListener("click", async (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-test-printer]") : null;
+  if (!target) return;
+  const button = target;
+  const code = button.getAttribute("data-test-printer");
+  if (!code || button.disabled) return;
+  button.disabled = true;
+  button.textContent = "در حال ارسال…";
+  try {
+    const message = await invoke("test_local_printer", { code });
+    toast(message);
+    await refresh();
+  } catch (error) {
+    toast(String(error), true);
+    await refresh();
+  }
 });
 byId("stop").addEventListener("click", async () => {
   try { await invoke("stop_bridge"); toast("اتصال متوقف شد"); await refresh(); }
