@@ -1,0 +1,79 @@
+name: Windows printer service bridge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "windows-service-bridge/**"
+      - ".github/workflows/windows-printer-service.yml"
+      - "src/modules/hardware.tsx"
+      - "tests/windows-printer-service-bridge.test.cjs"
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish self-contained Windows service
+        shell: pwsh
+        run: dotnet publish windows-service-bridge/MenuPeak.PrinterService.csproj -c Release -r win-x64 --self-contained true -o "$env:GITHUB_WORKSPACE\service-publish" -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build service installer
+        shell: pwsh
+        run: |
+          $compiler = Get-ChildItem (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup*') -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $compiler) { throw 'ISCC.exe was not found after installing Inno Setup.' }
+          & $compiler.FullName "/DSourceDir=$env:GITHUB_WORKSPACE\service-publish" windows-service-bridge/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Upload Windows service installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: menupeak-printer-service-windows-x64
+          path: windows-service-bridge/dist/MenuPeak-Printer-Service-Setup-x64.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-installer:
+    needs: build-installer
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: menupeak-printer-service-windows-x64
+          path: dist
+
+      - name: Publish direct installer download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          installer=dist/MenuPeak-Printer-Service-Setup-x64.exe
+          test -s "$installer"
+          tag=windows-printer-service-latest
+          if ! gh release view "$tag" --repo "$GH_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "$GH_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "MenuPeak Windows Printer Service" \
+              --notes "Self-starting Windows service installer for the MenuPeak printer agent. The installer imports the printer configuration exported from the restaurant dashboard." \
+              --latest=false
+          fi
+          gh release upload "$tag" "$installer" --repo "$GH_REPOSITORY" --clobber
