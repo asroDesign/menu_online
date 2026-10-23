@@ -42,6 +42,7 @@ export function MenuClient(props: { data: PublicMenu; initialTableId: number | n
 
 function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = false, readOnlyPreview = false }: { data: PublicMenu; initialTableId: number | null; initialRewardToken?: string; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
   const { business: biz, categories, products, tables, zones, caps, languages } = data;
+  const serviceableTables = tables.filter((table) => ["available", "occupied", "reserved"].includes(table.operationalStatus));
   const editorial = biz.menuTemplate === "editorial";
   const compact = biz.menuTemplate === "compact";
   const bistro = biz.menuTemplate === "bistro";
@@ -239,11 +240,10 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   }
 
   function openServiceRequest() {
-    const availableTables = tables.filter((table) => table.operationalStatus === "available");
-    const initialIsAvailable = availableTables.some((table) => table.id === initialTableId);
-    setServiceRequestTableId((current) => current && availableTables.some((table) => String(table.id) === current)
+    const initialIsServiceable = serviceableTables.some((table) => table.id === initialTableId);
+    setServiceRequestTableId((current) => current && serviceableTables.some((table) => String(table.id) === current)
       ? current
-      : initialIsAvailable ? String(initialTableId) : availableTables.length === 1 ? String(availableTables[0].id) : "");
+      : initialIsServiceable ? String(initialTableId) : serviceableTables.length === 1 ? String(serviceableTables[0].id) : "");
     setServiceRequestOpen(true);
   }
 
@@ -468,8 +468,9 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
           <label className="block text-sm font-semibold text-stone-700" htmlFor="service-request-table">میز شما</label>
           <Select id="service-request-table" value={serviceRequestTableId} onChange={(event) => setServiceRequestTableId(event.target.value)} disabled={serviceRequestBusy}>
             <option value="">انتخاب میز</option>
-            {tables.filter((table) => table.operationalStatus === "available").map((table) => <option key={table.id} value={table.id}>{table.name} · {table.zone}</option>)}
+            {serviceableTables.map((table) => <option key={table.id} value={table.id}>{table.name} · {table.zone}{table.operationalStatus !== "available" ? " · در حال استفاده" : ""}</option>)}
           </Select>
+          {serviceableTables.length === 0 && <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">در حال حاضر میزی برای اتصال درخواست وجود ندارد. کارکنان رستوران باید میزها را در پنل ثبت و فعال کنند.</p>}
           <label className="block text-sm font-semibold text-stone-700" htmlFor="service-request-message">درخواست شما <span className="font-normal text-stone-400">(اختیاری)</span></label>
           <Textarea id="service-request-message" rows={4} maxLength={300} value={serviceRequestMessage} onChange={(event) => setServiceRequestMessage(event.target.value)} disabled={serviceRequestBusy} placeholder="مثلاً لطفاً یک منوی دیگر بیاورید…" />
           <p className="text-left text-xs text-stone-400">{toFa(serviceRequestMessage.length)} از ۳۰۰ نویسه</p>
@@ -610,7 +611,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
       <PublicProductDetails key={detailProduct?.id ?? "closed"} product={detailProduct} slug={biz.slug} accent={biz.accentColor} profile={customerProfile} readOnly={readOnlyDemo || readOnlyPreview} onClose={() => setDetailProduct(null)} onProfileRequired={() => setProfileRequest((value) => value + 1)} />
       {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) { trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); } }} />}
-      {caps.waiterCall && !readOnlyPreview && tables.some((table) => table.operationalStatus === "available") && <div dir="ltr" className={cn("pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl justify-end px-4", (editorial || bistro) && "max-w-5xl", captainm && "max-w-7xl")} style={{ bottom: "calc(5.75rem + env(safe-area-inset-bottom))" }}>
+      {caps.waiterCall && !readOnlyPreview && <div dir="ltr" className={cn("pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl justify-end px-4", (editorial || bistro) && "max-w-5xl", captainm && "max-w-7xl")} style={{ bottom: "calc(5.75rem + env(safe-area-inset-bottom))" }}>
         <button type="button" dir="rtl" aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام" onClick={openServiceRequest} style={{ background: captainm ? "linear-gradient(135deg, #0e7490, #3730a3)" : `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}dd)` }} className="group pointer-events-auto inline-flex min-h-[3.75rem] items-center gap-3 rounded-2xl border border-white/30 px-4 py-2.5 text-start text-white shadow-[0_12px_32px_-10px_rgba(15,23,42,.55)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,.5)] active:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/70">
           <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/15 ring-1 ring-inset ring-white/20"><span className="absolute -end-1 -top-1 size-4 rounded-full bg-white/20 blur-sm" /><Icon name="bell" className="size-5 transition-transform duration-200 group-hover:-rotate-12" /></span>
           <span className="grid gap-0.5"><span className="text-sm font-extrabold leading-5">درخواست از گارسون</span><span className="text-[10px] font-medium text-white/80">صدا بزنید یا پیام بفرستید</span></span>

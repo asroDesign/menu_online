@@ -31,3 +31,13 @@ export function workflowDisplayStages(preset: number): WorkflowDisplayStage[] {
 export function workflowDisplayStageIndex(preset: number, status: string) {
   return workflowDisplayStages(preset).findIndex((stage) => stage.statuses.includes(status));
 }
+
+export function orderStatusAfterPayment(
+  currentStatus: string,
+  options: { creditSale?: boolean; reopen?: boolean; markCompleted?: boolean } = {},
+) {
+  if (options.creditSale) return currentStatus;
+  if (["awaiting_payment", "pending", "preparing"].includes(currentStatus)) return "preparing";
+  if (currentStatus === "canceled" && options.reopen) return "preparing";
+  return options.markCompleted ? "paid" : currentStatus;
+}

@@ -81,6 +81,8 @@ test('the signed-in customer sees scanned reward animation and applies server-va
 test('manager interface prints a dedicated QR card and customer profile displays the active reward and expiry', () => {
   const manager = source('src/modules/growth-a.tsx');
   const profile = source('src/components/public-menu-navigation.tsx');
+  assert.match(manager, /api<\{ items: RewardProduct\[\] \}>\("\/api\/products"\)/);
+  assert.doesNotMatch(manager, /"\/api\/r\/products"/);
   assert.match(manager, /QRCodeSVG value=\{url\}/);
   assert.match(manager, /popup\.document\.write/);
   assert.match(manager, /جایزه‌های بارکدی/);

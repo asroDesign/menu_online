@@ -97,7 +97,7 @@ function BarcodeRewardSettings() {
     try {
       const [campaignResult, productResult] = await Promise.all([
         api<{ items: RewardCampaign[]; businessSlug: string }>("/api/loyalty-reward-campaigns"),
-        api<{ items: RewardProduct[] }>("/api/r/products"),
+        api<{ items: RewardProduct[] }>("/api/products"),
       ]);
       setCampaigns(campaignResult.items);
       setBusinessSlug(campaignResult.businessSlug);

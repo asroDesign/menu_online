@@ -43,6 +43,7 @@ import { normalizePrinterSettings, printOutputs, type PrintMoment } from "@/lib/
 import { addCustomerPoints } from "@/lib/customer-points";
 import { normalizeCustomerRewards, referralRewardPoints } from "@/lib/customer-rewards-core";
 import { rewardDiscountAmount, rewardIsExpired } from "@/lib/loyalty-rewards-core";
+import { orderStatusAfterPayment } from "@/lib/order-workflow-core";
 
 type Biz = typeof businesses.$inferSelect;
 type QueryDb = typeof db;
@@ -596,7 +597,7 @@ export async function settleOrder(
     if (!alreadyPaid) {
       const paymentMethod = opts.creditSale ? "credit" : method ?? o.paymentMethod ?? "cash";
       const reopens = o.status === "awaiting_payment" || (opts.reopen && o.status === "canceled");
-      const status = opts.creditSale ? o.status : setStatus ? "paid" : reopens ? "pending" : o.status;
+      const status = orderStatusAfterPayment(o.status, { creditSale: opts.creditSale, reopen: opts.reopen, markCompleted: setStatus });
       await tx.update(orders).set({ paymentStatus: opts.creditSale ? "unpaid" : "paid", paymentMethod, status, updatedAt: new Date() })
         .where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id)));
       if (!opts.creditSale) await recordOrderEvents(tx, biz.id, orderId, { payment: [o.paymentStatus, "paid"], order: [o.status, status] }, opts.actorType ?? "system", opts.actorId ?? null);
@@ -605,7 +606,8 @@ export async function settleOrder(
         await addWalletEntry(biz.id, o.customerId, -o.cashbackUsed, "spend", o.id,
           `استفاده مجدد در سفارش بازگشایی‌شده #${o.number}`, `order:${o.id}:spend:reopen`, tx);
       }
-      if (reopens) await queuePrintJobs(biz, o.id, features, false, undefined, tx);
+      if (reopens || (o.status !== "preparing" && status === "preparing"))
+        await queuePrintJobs(biz, o.id, features, false, undefined, tx);
 
       let activeShiftId: number | null = null;
       if (o.source === "cashier" || o.source === "waiter") {

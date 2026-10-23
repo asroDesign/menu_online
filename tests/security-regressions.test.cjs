@@ -472,7 +472,9 @@ test('demo menu allows the waiter request flow while keeping its order preview r
   const menu = source('src/components/menu-client.tsx');
   const request = source('src/app/api/public/[slug]/service-requests/route.ts');
   assert.match(page, /readOnlyDemo=\{slug === DEMO_SLUG\}/);
-  assert.match(menu, /caps\.waiterCall && !readOnlyPreview && tables\.some/);
+  assert.match(menu, /caps\.waiterCall && !readOnlyPreview && <div/);
+  assert.match(menu, /serviceableTables = tables\.filter/);
+  assert.match(menu, /\["available", "occupied", "reserved"\]/);
   assert.match(menu, /pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl/);
   assert.match(menu, /aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام"/);
   assert.doesNotMatch(menu, /caps\.waiterCall && !readOnlyDemo/);
@@ -480,6 +482,7 @@ test('demo menu allows the waiter request flow while keeping its order preview r
   assert.doesNotMatch(request, /isReadOnlyDemoSlug|منوی نمایشی امکان درخواست گارسون/);
   assert.match(request, /hasAny\(features, "waiter_call"\)/);
   assert.match(request, /eq\(diningTables\.businessId, business\.id\)/);
+  assert.match(request, /inArray\(diningTables\.operationalStatus, \["available", "occupied", "reserved"\]\)/);
 });
 
 test('waiter service request notifications render as an accessible Aura message card below the dashboard header', () => {

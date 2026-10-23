@@ -39,9 +39,26 @@ import { workflowDisplayStageIndex, workflowDisplayStages } from "@/lib/order-wo
 
 const TABS = [
   { key: "active", label: "فعال" },
+  { key: "unpaid", label: "پرداخت‌نشده" },
   { key: "all", label: "همه" },
-  ...ORDER_STATUSES.map((s) => ({ key: s.key, label: s.short })),
+  ...ORDER_STATUSES.filter((s) => s.key !== "awaiting_payment").map((s) => ({ key: s.key, label: s.short })),
 ];
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: "نقدی", pos: "کارتخوان", card: "کارت", card_to_card: "کارت‌به‌کارت",
+  ipg: "آنلاین", cashback: "اعتبار کیف پول", credit: "پرداخت بعداً",
+};
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  unpaid: "پرداخت‌نشده", pending: "در انتظار تأیید", paid: "پرداخت‌شده",
+  failed: "ناموفق", refunded: "بازپرداخت‌شده",
+};
+
+function PaymentStatusBadge({ order }: { order: Order }) {
+  const method = order.paymentMethod ? PAYMENT_METHOD_LABELS[order.paymentMethod] ?? order.paymentMethod : "روش پرداخت ثبت نشده";
+  if (order.paymentStatus === "paid") return <Badge color="emerald"><Icon name="check" className="size-3.5" /> پرداخت‌شده · {method}</Badge>;
+  if (order.paymentStatus === "unpaid") return <Badge color="amber"><Icon name="clock" className="size-3.5" /> پرداخت‌نشده · {method}</Badge>;
+  return <Badge color="stone">{PAYMENT_STATUS_LABELS[order.paymentStatus] ?? "وضعیت پرداخت نامشخص"} · {method}</Badge>;
+}
 
 const stripe: Record<string, string> = {
   pending: "bg-amber-400",
@@ -78,10 +95,11 @@ export default function OrdersPage() {
   const workflowStages = useMemo(() => workflowDisplayStages(workflowPreset), [workflowPreset]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: archiveActive ? 0 : orders.items.length, active: 0, deleted: archiveActive ? orders.items.length : 0, receipts: 0 };
+    const c: Record<string, number> = { all: archiveActive ? 0 : orders.items.filter((o) => !o.deletedAt).length, active: 0, unpaid: 0, deleted: archiveActive ? orders.items.length : 0, receipts: 0 };
     for (const o of orders.items) {
       c[o.status] = (c[o.status] ?? 0) + 1;
       if (ACTIVE_STATUSES.includes(o.status)) c.active++;
+      if (!o.deletedAt && o.status !== "canceled" && o.paymentStatus === "unpaid") c.unpaid++;
     }
     return c;
   }, [orders.items, archiveActive]);
@@ -92,7 +110,14 @@ export default function OrdersPage() {
     if (receiptArchive) return [];
     const term = q.trim();
     return orders.items.filter((o) => {
-      if (tab === "deleted" ? !o.deletedAt : tab === "active" ? !ACTIVE_STATUSES.includes(o.status) : tab !== "all" && o.status !== tab) return false;
+      if (tab === "deleted") {
+        if (!o.deletedAt) return false;
+      } else {
+        if (o.deletedAt) return false;
+        if (tab === "unpaid") {
+          if (o.status === "canceled" || o.paymentStatus !== "unpaid") return false;
+        } else if (tab === "active" ? !ACTIVE_STATUSES.includes(o.status) : tab !== "all" && o.status !== tab) return false;
+      }
       if (!term) return true;
       return (
         String(o.number).includes(term.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))) ||
@@ -103,11 +128,22 @@ export default function OrdersPage() {
   }, [orders.items, tab, q, receiptArchive]);
 
   const selected = orders.items.find((o) => o.id === selectedId) ?? null;
+  const unpaidOrders = useMemo(() => orders.items.filter((o) => !o.deletedAt && o.status !== "canceled" && o.paymentStatus === "unpaid"), [orders.items]);
 
   async function setStatus(o: Order, status: string) {
     try {
       await orders.update(o.id, { status });
       toast(`سفارش #${toFa(o.number)}: ${statusInfo(status).label}`);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
+  async function confirmCardTransfer(o: Order) {
+    try {
+      await api(`/api/orders/${o.id}`, { method: "PATCH", body: { confirmPayment: true } });
+      await orders.reload(true);
+      toast(`پرداخت سفارش #${toFa(o.number)} تأیید شد`);
     } catch (e) {
       toast((e as Error).message, "error");
     }
@@ -183,7 +219,8 @@ export default function OrdersPage() {
         </div>}
       </div>
 
-      <IconText>{receiptArchive ? <ReceiptArchivePanel /> : <div className="max-h-[65vh] overflow-y-auto overscroll-contain pe-1 lg:max-h-[calc(100dvh-20rem)]">
+      <IconText>{receiptArchive ? <ReceiptArchivePanel /> : <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]">
+      <div className="max-h-[65vh] min-w-0 overflow-y-auto overscroll-contain pe-1 lg:max-h-[calc(100dvh-20rem)]">
       {orders.loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -235,8 +272,8 @@ export default function OrdersPage() {
                       {SOURCES[o.source] ?? o.source}
                     </Badge>
                     {o.scheduledFor && <Badge color="violet">{<EmojiIcon emoji="" />} پیش‌سفارش {formatTime(o.scheduledFor)}</Badge>}
-                    {o.paymentStatus === "paid" && <Badge color="emerald">{<EmojiIcon emoji="" />} پرداخت‌شده</Badge>}
-                    {o.paymentMethod === "card_to_card" && o.paymentStatus !== "paid" && <Badge color="amber"><Icon name="bank" className="size-3.5" />کارت‌به‌کارت · نیازمند بررسی</Badge>}
+                    <PaymentStatusBadge order={o} />
+                    {o.paymentMethod === "card_to_card" && o.paymentStatus !== "paid" && <Badge color="amber"><Icon name="bank" className="size-3.5" />نیازمند بررسی رسید</Badge>}
                     {o.type === "delivery" && o.deliveryStatus !== "none" && <Badge color={DELIVERY_STATUS[o.deliveryStatus]?.[1]}>{<EmojiIcon emoji="" />} {DELIVERY_STATUS[o.deliveryStatus]?.[0]}{o.courierName ? ` · ${o.courierName}` : ""}</Badge>}
                     {o.type === "delivery" && o.deliveryStatus === "none" && !["paid", "canceled"].includes(o.status) && <Badge color="amber">{<EmojiIcon emoji="" />} پیک تعیین نشده</Badge>}
                   </div>
@@ -270,7 +307,20 @@ export default function OrdersPage() {
             );
           })}
         </div>
-      )}</div>}</IconText>
+      )}</div>
+      {!archiveActive && tab !== "unpaid" && <aside className="order-first rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-3.5 shadow-sm xl:sticky xl:top-4 xl:order-last">
+        <div className="flex items-start justify-between gap-2"><div><h2 className="flex items-center gap-2 text-sm font-extrabold text-amber-950"><Icon name="clock" className="size-4"/> سفارش‌های پرداخت‌نشده</h2><p className="mt-1 text-xs text-amber-900/70">سفارش‌های باز که هنوز وجهشان ثبت نشده است</p></div><Badge color="amber">{toFa(unpaidOrders.length)}</Badge></div>
+        {orders.loading ? <Skeleton className="mt-3 h-24 rounded-xl"/> : orders.error ? <p className="mt-3 rounded-xl bg-white p-3 text-xs text-rose-700">بارگذاری سفارش‌ها ناموفق بود.</p> : unpaidOrders.length ? <div className="mt-3 max-h-[min(46vh,34rem)] space-y-2 overflow-y-auto pe-1">
+          {unpaidOrders.slice(0, 12).map((order) => <button key={order.id} type="button" onClick={() => setSelectedId(order.id)} className="w-full rounded-xl border border-amber-100 bg-white p-2.5 text-start transition hover:border-amber-300 hover:shadow-sm">
+            <span className="flex items-center justify-between gap-2"><b className="text-xs">#{toFa(order.number)}</b><span className="truncate text-[10px] font-semibold text-amber-800">{order.paymentMethod === "card_to_card" ? "کارت‌به‌کارت" : order.paymentMethod === "credit" ? "پرداخت بعداً" : statusInfo(order.status).short}</span></span>
+            <span className="mt-1 block truncate text-[11px] text-stone-500">{order.tableName || (order.type === "delivery" ? "ارسال" : "بیرون‌بر")} · {order.customerName || "مشتری"}</span>
+            <span className="mt-1 flex items-center justify-between gap-2"><span className="text-[10px] text-stone-400">{formatTime(order.createdAt)}</span><b className="text-xs">{formatPrice(order.total)}</b></span>
+          </button>)}
+          {unpaidOrders.length > 12 && <p className="px-1 text-[11px] text-stone-500">۱۲ سفارش اخیر نشان داده می‌شود.</p>}
+          <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => { setTab("unpaid"); setSelectedId(null); }}>نمایش همهٔ پرداخت‌نشده‌ها</Button>
+        </div> : <div className="mt-3 rounded-xl border border-dashed border-amber-200 bg-white/70 px-3 py-5 text-center text-xs text-stone-500">سفارش پرداخت‌نشده‌ای وجود ندارد.</div>}
+      </aside>}
+      </div>}</IconText>
 
       {/* Detail modal */}
       <Modal
@@ -291,8 +341,8 @@ export default function OrdersPage() {
               <IconText>{feat.has("tablet_pos") && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
                 <Button variant="secondary" onClick={() => api("/api/r/posrequests", { method: "POST", body: { orderId: selected.id } }).then(() => toast("مبلغ برای کارتخوان ارسال شد")).catch((e) => toast(e.message, "error"))}>{<EmojiIcon emoji="" />} کارتخوان</Button>
               )}</IconText>
-              {selected.paymentMethod === "card_to_card" && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
-                <Button onClick={() => setStatus(selected, "paid")}><Icon name="check" className="size-4" />تأیید دریافت کارت‌به‌کارت</Button>
+              {feat.role !== "waiter" && selected.paymentMethod === "card_to_card" && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
+                <Button onClick={() => void confirmCardTransfer(selected)}><Icon name="check" className="size-4" />تأیید دریافت کارت‌به‌کارت</Button>
               )}
               {selected.status !== "canceled" && selected.status !== "paid" && (
                 <Button variant="secondary" onClick={() => setStatus(selected, "canceled")}>
@@ -312,7 +362,7 @@ export default function OrdersPage() {
               <StatusBadge status={selected.status} />
               {selected.deletedAt && <Badge color="rose">حذف‌شده</Badge>}
               <Badge color="brand">{selected.type === "takeaway" ? "بیرون‌بر" : selected.type === "delivery" ? "ارسال" : selected.tableName ?? "بدون میز"}</Badge>
-              {selected.paymentStatus === "paid" && <Badge color="emerald">پرداخت‌شده ({selected.paymentMethod})</Badge>}
+              <PaymentStatusBadge order={selected} />
               <span className="text-xs text-stone-500">
                 {formatDate(selected.createdAt)} · {formatTime(selected.createdAt)}
               </span>

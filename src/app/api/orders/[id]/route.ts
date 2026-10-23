@@ -21,6 +21,14 @@ export const PATCH = withAuth<{ id: string }>(
       return Response.json({ item });
     }
     if (existing.deletedAt) throw new HttpError(404, "سفارش پیدا نشد");
+    if (b.confirmPayment === true) {
+      if (!isManagerRole(auth.role) && auth.role !== "cashier") throw new HttpError(403, "تأیید دریافت وجه فقط برای مدیر و صندوقدار مجاز است");
+      if (existing.paymentMethod !== "card_to_card") throw new HttpError(409, "این سفارش برای تأیید کارت‌به‌کارت ثبت نشده است");
+      if (existing.status === "canceled") throw new HttpError(409, "سفارش لغوشده قابل تسویه نیست");
+      await settleOrder(business, auth.features, oid, "card_to_card", false, { actorId: auth.user.id, actorType: auth.role });
+      const [item] = await listOrders(business.id, { id: oid });
+      return Response.json({ item });
+    }
     const set: Record<string, unknown> = { updatedAt: new Date() };
     if (b.revokeTracking === true) {
       if (!isManagerRole(auth.role)) throw new HttpError(403, "ابطال پیوند پیگیری فقط برای مدیر مجاز است");

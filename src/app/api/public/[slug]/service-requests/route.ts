@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, diningTables, waiterServiceRequests } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
@@ -29,8 +29,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
 
     const [table] = await db.select({ id: diningTables.id, name: diningTables.name })
       .from(diningTables)
-      .where(and(eq(diningTables.id, tableId), eq(diningTables.businessId, business.id), eq(diningTables.operationalStatus, "available")));
-    if (!table) throw new HttpError(400, "میز انتخاب‌شده در دسترس نیست؛ میز دیگری انتخاب کنید");
+      .where(and(eq(diningTables.id, tableId), eq(diningTables.businessId, business.id), inArray(diningTables.operationalStatus, ["available", "occupied", "reserved"])));
+    if (!table) throw new HttpError(400, "میز انتخاب‌شده برای درخواست گارسون در دسترس نیست؛ میز دیگری انتخاب کنید");
 
     const [item] = await db.insert(waiterServiceRequests).values({ businessId: business.id, tableId, kind, message }).returning({ id: waiterServiceRequests.id, createdAt: waiterServiceRequests.createdAt });
     logInfo("waiter_service_request.created", { businessId: business.id, requestId: item.id, tableId, kind });
