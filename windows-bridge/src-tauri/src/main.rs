@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, Mutex},
 };
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Clone)]
 struct AppState {

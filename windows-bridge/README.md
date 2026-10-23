@@ -4,7 +4,7 @@
 
 ## دریافت نصب‌گر
 
-در GitHub به بخش **Actions → Windows hardware bridge** بروید و آخرین اجرای موفق را باز کنید. فایل `digital-menu-bridge-windows-x64` را از بخش **Artifacts** دریافت و از حالت فشرده خارج کنید؛ فایل Setup را اجرا کنید. هر تغییر در `windows-bridge/` نیز ساخت نصب‌گر را خودکار اجرا می‌کند.
+در GitHub به بخش [**Actions → Windows hardware bridge**](https://github.com/asroDesign/menu_online/actions/workflows/windows-bridge.yml) بروید و آخرین اجرای موفق شاخهٔ `main` را باز کنید. از بخش **Artifacts** فایل `digital-menu-bridge-windows-x64` را دانلود، از ZIP خارج و فایل Setup با پسوند `.exe` را اجرا کنید. اجرای ناموفق نصب‌گر قابل دانلود ندارد؛ پس از خطای ساخت باید اجرای موفق جدید را باز کنید. هر تغییر در `windows-bridge/` نیز ساخت نصب‌گر را خودکار اجرا می‌کند.
 
 ## راه‌اندازی
 
