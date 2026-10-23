@@ -25,6 +25,24 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
+      - name: Prepare WinSpool import library name for Rust linker
+        shell: pwsh
+        run: |
+          $sdkLib = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Lib" -Filter WinSpool.lib -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\um\\x64\\WinSpool\.lib$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $sdkLib) {
+            throw "Windows SDK x64 WinSpool.lib was not found; cannot prepare the serialport linker compatibility alias."
+          }
+
+          $compatDir = Join-Path $env:RUNNER_TEMP "winspool-link-compat"
+          New-Item -ItemType Directory -Force -Path $compatDir | Out-Null
+          Copy-Item $sdkLib.FullName (Join-Path $compatDir "winspool.drv.lib") -Force
+          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$compatDir;$env:LIB"
+          Write-Host "Using Windows SDK import library $($sdkLib.FullName) as winspool.drv.lib"
+
       - name: Build NSIS installer
         working-directory: windows-bridge/src-tauri
         run: cargo tauri build --bundles nsis
