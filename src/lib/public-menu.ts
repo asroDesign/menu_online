@@ -25,7 +25,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
   const [cats, prods, tbls, zones, trs] = await Promise.all([
     db.select().from(categories).where(and(eq(categories.businessId, biz.id), eq(categories.isActive, true))).orderBy(asc(categories.sortOrder), asc(categories.id)),
     db.select().from(products).where(eq(products.businessId, biz.id)).orderBy(asc(products.id)),
-    can("self_order")
+    can("self_order") || can("waiter_call")
       ? db.select({ id: diningTables.id, name: diningTables.name, zone: diningTables.zone, operationalStatus: diningTables.operationalStatus }).from(diningTables).where(eq(diningTables.businessId, biz.id)).orderBy(asc(diningTables.id))
       : Promise.resolve([]),
     can("delivery_order") && can("zones")
@@ -61,6 +61,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
     },
     caps: {
       selfOrder: can("self_order"),
+      waiterCall: can("waiter_call"),
       reservations: can("reservations") && st.reservations?.enabled !== false,
       delivery: can("delivery_order"),
       preorder: can("preorder"),

@@ -175,10 +175,15 @@ export function errorResponse(e: unknown) {
     return Response.json({ error: "این مقدار قبلاً ثبت شده است (تکراری)" }, { status: 409 });
   let cause: unknown = e;
   let isStaffScheduleSchemaError = false;
+  let isWaiterServiceRequestSchemaError = false;
   for (let depth = 0; depth < 4 && cause; depth++) {
     const current = cause as { code?: unknown; message?: unknown; cause?: unknown };
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /staff_(?:schedules|leave_requests|shift_templates|shift_swap_requests|attendance)/i.test(String(current.message ?? ""))) {
       isStaffScheduleSchemaError = true;
+      break;
+    }
+    if (["42P01", "42703"].includes(String(current.code ?? "")) && /waiter_service_requests/i.test(String(current.message ?? ""))) {
+      isWaiterServiceRequestSchemaError = true;
       break;
     }
     cause = current.cause;
@@ -186,6 +191,10 @@ export function errorResponse(e: unknown) {
   if (isStaffScheduleSchemaError) {
     logError("api.staff_schedule_migration_required", e);
     return Response.json({ error: "ساختار پایگاه دادهٔ مدیریت شیفت به‌روز نیست؛ migrationهای 0040 و 0041 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
+  }
+  if (isWaiterServiceRequestSchemaError) {
+    logError("api.waiter_service_requests_migration_required", e);
+    return Response.json({ error: "ساختار درخواست گارسون به‌روز نیست؛ migration 0042 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
   }
   logError("api.unhandled_error", e);
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });

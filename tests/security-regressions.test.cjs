@@ -339,7 +339,7 @@ test('interactive preview is local-only, uses fabricated data, and never submits
   assert.match(page, /<DemoPreview\s*\/>/);
 });
 
-test('shared demo identities cannot sign in and public demo writes are rejected', () => {
+test('shared demo identities cannot sign in and demo checkout/reservation actions are rejected', () => {
   const auth = source('src/app/api/auth/demo/route.ts');
   const login = source('src/app/api/auth/login/route.ts');
   const form = source('src/components/auth-form.tsx');
@@ -457,6 +457,31 @@ test('menu templates are whitelisted and the real-menu preview cannot order or r
   assert.match(menu, /!readOnlyPreview && biz\.acceptOrders/);
   assert.match(menu, /caps\.reservations && !readOnlyDemo && !readOnlyPreview/);
   assert.match(menu, /آلرژن ثبت نشده/);
+});
+
+test('demo menu allows the waiter request flow while keeping its order preview read-only', () => {
+  const page = source('src/app/m/[slug]/page.tsx');
+  const menu = source('src/components/menu-client.tsx');
+  const request = source('src/app/api/public/[slug]/service-requests/route.ts');
+  assert.match(page, /readOnlyDemo=\{slug === DEMO_SLUG\}/);
+  assert.match(menu, /caps\.waiterCall && !readOnlyPreview && tables\.some/);
+  assert.match(menu, /pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl/);
+  assert.match(menu, /aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام"/);
+  assert.doesNotMatch(menu, /caps\.waiterCall && !readOnlyDemo/);
+  assert.match(menu, /ثبت سفارش و رزرو میز فعال نیست، اما می‌توانید درخواست گارسون را آزمایش کنید/);
+  assert.doesNotMatch(request, /isReadOnlyDemoSlug|منوی نمایشی امکان درخواست گارسون/);
+  assert.match(request, /hasAny\(features, "waiter_call"\)/);
+  assert.match(request, /eq\(diningTables\.businessId, business\.id\)/);
+});
+
+test('waiter service request notifications render as an accessible Aura message card below the dashboard header', () => {
+  const notifications = source('src/components/waiter-service-request-notifications.tsx');
+  assert.match(notifications, /aria-label="اعلان درخواست‌های مشتری"/);
+  assert.match(notifications, /aura aura-sm aura-glow/);
+  assert.match(notifications, /اعلان دیداری فعال است/);
+  assert.match(notifications, /آزمایش صدای اعلان/);
+  assert.match(notifications, /sm:flex-row sm:items-center/);
+  assert.match(notifications, /top-\[5\.25rem\]/);
 });
 
 test('platform funnel stores no identifying fields and separates observed from server-confirmed events', () => {

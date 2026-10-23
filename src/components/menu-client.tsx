@@ -66,6 +66,10 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
   const [dietFilter, setDietFilter] = useState("");
   const [active, setActive] = useState<number | null>(categories[0]?.id ?? null);
   const [sheet, setSheet] = useState(false);
+  const [serviceRequestOpen, setServiceRequestOpen] = useState(false);
+  const [serviceRequestTableId, setServiceRequestTableId] = useState(initialTableId ? String(initialTableId) : "");
+  const [serviceRequestMessage, setServiceRequestMessage] = useState("");
+  const [serviceRequestBusy, setServiceRequestBusy] = useState(false);
   const [type, setType] = useState<OType>(initialTableId || caps.selfOrder ? "dine_in" : "delivery");
   const [tableId, setTableId] = useState<string>(initialTableId ? String(initialTableId) : "");
   const [name, setName] = useState("");
@@ -173,6 +177,35 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
       setApplied(r);
       toast(`کد تخفیف اعمال شد`);
     } catch (e) { setApplied(null); toast((e as Error).message, "error"); }
+  }
+
+  function openServiceRequest() {
+    const availableTables = tables.filter((table) => table.operationalStatus === "available");
+    const initialIsAvailable = availableTables.some((table) => table.id === initialTableId);
+    setServiceRequestTableId((current) => current && availableTables.some((table) => String(table.id) === current)
+      ? current
+      : initialIsAvailable ? String(initialTableId) : availableTables.length === 1 ? String(availableTables[0].id) : "");
+    setServiceRequestOpen(true);
+  }
+
+  async function sendServiceRequest(withMessage: boolean) {
+    const message = withMessage ? serviceRequestMessage.trim() : "";
+    if (!serviceRequestTableId) return toast("میز خود را انتخاب کنید", "error");
+    if (withMessage && !message) return toast("متن پیام را بنویسید یا گزینهٔ صدا کردن گارسون را بزنید", "error");
+    setServiceRequestBusy(true);
+    try {
+      await api(`/api/public/${encodeURIComponent(biz.slug)}/service-requests`, {
+        method: "POST",
+        body: { tableId: Number(serviceRequestTableId), message },
+      });
+      toast(withMessage ? "پیام شما برای کارکنان ارسال شد" : "گارسون برای میز شما خبر شد");
+      setServiceRequestMessage("");
+      setServiceRequestOpen(false);
+    } catch (error) {
+      toast((error as Error).message, "error");
+    } finally {
+      setServiceRequestBusy(false);
+    }
   }
 
   async function submit() {
@@ -283,7 +316,7 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
           {caps.reservations && !readOnlyDemo && !readOnlyPreview && <Link href={`/m/${biz.slug}/reserve`} className="rounded-full bg-white px-3 py-1.5 font-bold text-stone-900 shadow-sm">رزرو میز</Link>}
           <IconText>{caps.miniSite && <a href={`/s/${biz.slug}`} className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur">{<EmojiIcon emoji="" />} وب‌سایت ما</a>}</IconText>
         </div>
-        {readOnlyDemo && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این منو فقط پیش‌نمایش داده‌های ساختگی است؛ ثبت سفارش و رزرو در دسترس نیست.</p>}
+        {readOnlyDemo && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این منو نمایشی است؛ ثبت سفارش و رزرو میز فعال نیست، اما می‌توانید درخواست گارسون را آزمایش کنید.</p>}
         {readOnlyPreview && <p className="relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6">این پیش‌نمایش فقط برای بررسی قالب است؛ ثبت سفارش و رزرو از این صفحه انجام نمی‌شود.</p>}
         <IconText>{initialTableId && caps.selfOrder && tables.find((x) => x.id === initialTableId) && canOrder && (
           <div className="relative mt-5 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm font-semibold text-stone-800">{<EmojiIcon emoji="" />} {tables.find((x) => x.id === initialTableId)!.name}</div>
@@ -355,6 +388,28 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
         <footer className="pb-4 pt-6 text-center text-[11px] text-stone-400">Powered by <b>منوی دیجیتال</b></footer>
       </main>
 
+      <Modal
+        open={serviceRequestOpen}
+        onClose={() => { if (!serviceRequestBusy) setServiceRequestOpen(false); }}
+        title="درخواست از کارکنان"
+        description="میز را انتخاب کنید؛ می‌توانید فقط گارسون را صدا بزنید یا درخواست خود را بنویسید."
+        size="sm"
+        footer={<div className="grid w-full gap-2 sm:grid-cols-2">
+          <Button type="button" variant="secondary" className="min-h-11" loading={serviceRequestBusy} disabled={!serviceRequestTableId} onClick={() => void sendServiceRequest(false)}><Icon name="bell" className="size-4" /> فقط صدا کردن گارسون</Button>
+          <Button type="button" className="min-h-11" loading={serviceRequestBusy} disabled={!serviceRequestTableId || !serviceRequestMessage.trim()} onClick={() => void sendServiceRequest(true)}><Icon name="message" className="size-4" /> ارسال پیام</Button>
+        </div>}
+      >
+        <div className="space-y-3" dir="rtl">
+          <label className="block text-sm font-semibold text-stone-700" htmlFor="service-request-table">میز شما</label>
+          <Select id="service-request-table" value={serviceRequestTableId} onChange={(event) => setServiceRequestTableId(event.target.value)} disabled={serviceRequestBusy}>
+            <option value="">انتخاب میز</option>
+            {tables.filter((table) => table.operationalStatus === "available").map((table) => <option key={table.id} value={table.id}>{table.name} · {table.zone}</option>)}
+          </Select>
+          <label className="block text-sm font-semibold text-stone-700" htmlFor="service-request-message">درخواست شما <span className="font-normal text-stone-400">(اختیاری)</span></label>
+          <Textarea id="service-request-message" rows={4} maxLength={300} value={serviceRequestMessage} onChange={(event) => setServiceRequestMessage(event.target.value)} disabled={serviceRequestBusy} placeholder="مثلاً لطفاً یک منوی دیگر بیاورید…" />
+          <p className="text-left text-xs text-stone-400">{toFa(serviceRequestMessage.length)} از ۳۰۰ نویسه</p>
+        </div>
+      </Modal>
 
       <Modal open={sheet} onClose={() => setSheet(false)} title="" footer={<Button size="lg" className="w-full !bg-[var(--accent)]" loading={busy} onClick={submit} disabled={!lines.length}>{t("submit")} · {formatPrice(total)}</Button>}>
         <div className="space-y-4" dir={dir}>
@@ -456,6 +511,13 @@ function Menu({ data, initialTableId, readOnlyDemo = false, readOnlyPreview = fa
 
       <Modal open={!!ar} onClose={() => setAr(null)} title={ar ? nameOf("product", ar.id, ar.name) : ""}>{ar && <ModelViewer src={ar.arModelUrl} />}</Modal>
       {optionProduct && <ProductOptionPicker product={optionProduct} onClose={() => setOptionProduct(null)} onConfirm={(selection) => { if (addVariant(optionProduct, selection.optionIds, 1, selection.weightGrams, selection.tareGrams)) { trackMenuEvent(biz.slug, "add_to_cart", { productId: optionProduct.id }); setOptionProduct(null); } }} />}
+      {caps.waiterCall && !readOnlyPreview && tables.some((table) => table.operationalStatus === "available") && <div dir="ltr" className={cn("pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl justify-end px-4", (editorial || bistro) && "max-w-5xl")} style={{ bottom: "calc(5.75rem + env(safe-area-inset-bottom))" }}>
+        <button type="button" dir="rtl" aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام" onClick={openServiceRequest} style={{ background: `linear-gradient(135deg, ${biz.accentColor}, ${biz.accentColor}dd)` }} className="group pointer-events-auto inline-flex min-h-[3.75rem] items-center gap-3 rounded-2xl border border-white/30 px-4 py-2.5 text-start text-white shadow-[0_12px_32px_-10px_rgba(15,23,42,.55)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,.5)] active:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/70">
+          <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/15 ring-1 ring-inset ring-white/20"><span className="absolute -end-1 -top-1 size-4 rounded-full bg-white/20 blur-sm" /><Icon name="bell" className="size-5 transition-transform duration-200 group-hover:-rotate-12" /></span>
+          <span className="grid gap-0.5"><span className="text-sm font-extrabold leading-5">درخواست از گارسون</span><span className="text-[10px] font-medium text-white/80">صدا بزنید یا پیام بفرستید</span></span>
+          <span aria-hidden="true" className="ms-1 size-1.5 shrink-0 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,.85)]" />
+        </button>
+      </div>}
       <PublicMenuNavigation
         key={`${biz.slug}:${readOnlyDemo}:${readOnlyPreview}`}
         slug={biz.slug}

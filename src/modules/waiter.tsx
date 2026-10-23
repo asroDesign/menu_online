@@ -33,6 +33,7 @@ import { useFeatures } from "@/components/features";
 import { MapPicker } from "@/components/map-picker";
 import { TableManager } from "@/components/table-manager";
 import { CashierOrderDesk } from "@/components/cashier-order-desk";
+import { WaiterServiceRequestNotifications } from "@/components/waiter-service-request-notifications";
 import { ProductOptionPicker } from "@/components/product-option-picker";
 import { cartLines, cartProductQuantity, changeAnyCartVariant, changeCartVariant, hasPositiveCartLinePrice, type CartState } from "@/lib/order-cart";
 
@@ -505,6 +506,7 @@ export default function WaiterPage({ mode = "waiter" }: { mode?: "waiter" | "cas
 
   return (
     <div className={cn("animate-fade-in", mode === "cashier" ? "pb-24 lg:pb-0 cashier-workspace" : "waiter-workspace pb-28 xl:pb-0")}>
+      {f.has("waiter_call") && <WaiterServiceRequestNotifications />}
       {mode === "cashier" ? <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <div><p className="text-[11px] font-semibold text-stone-500">سفارش‌گیر صندوق</p><h1 className="mt-0.5 text-base font-extrabold leading-tight text-stone-900">سفارش جدید</h1></div>

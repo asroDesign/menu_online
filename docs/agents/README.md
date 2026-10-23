@@ -42,8 +42,8 @@
 | `/dashboard/orders` | [modules/orders.md](modules/orders.md) — سفارش‌ها و آرشیو رسید |
 | `/dashboard/suppliers` | [modules/suppliers.md](modules/suppliers.md) — تأمین‌کنندگان |
 | `/dashboard/kiosk` | [modules/kiosk.md](modules/kiosk.md) — تنظیم کیوسک |
-| `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
-| `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
+| `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون، دریافت و رسیدگی درخواست میز مشتری؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
+| `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق و اعلان مشترک درخواست میز؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
 | `/dashboard/tables` | [modules/tables.md](modules/tables.md) — مدیریت میزها |
 | `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارکنان |
 | `/dashboard/customers` | [modules/customers.md](modules/customers.md) — مشتریان |
@@ -104,7 +104,7 @@
 | [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه و تنظیم برند |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
-| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، پنج قالب قابل انتخاب و جلوگیری از افزودن محصول رایگان |
+| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، پنج قالب قابل انتخاب، درخواست میز برای گارسون با entitlement `waiter_call` و جلوگیری از افزودن محصول رایگان |
 | [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو میز سمت مشتری |
 | [core-pages/kiosk-client.md](core-pages/kiosk-client.md) | کیوسک مشتری و کنترل قیمت محصول در سبد و سرور |
 | [core-pages/kitchen-display.md](core-pages/kitchen-display.md) | نمایشگر آشپزخانه |
@@ -126,7 +126,7 @@
 
 ## قراردادهای cross-cutting
 
-- APIهای متداول: `/api/orders`, `/api/products`, `/api/categories`, `/api/business`, `/api/stats`, `/api/r/:resource`, `/api/acc/*`, `/api/public/*`, `/api/device/*`, `/api/admin/*`. هر route سند schema مستقل در `src/app/api` دارد.
+- APIهای متداول: `/api/orders`, `/api/products`, `/api/categories`, `/api/business`, `/api/stats`, `/api/r/:resource`, `/api/acc/*`, `/api/public/*`, `/api/device/*`, `/api/admin/*`. درخواست گارسون از منوی مشتری در `/api/public/:slug/service-requests` و پنل‌های گارسون/صندوق در `/api/r/service-requests` و `/api/r/service-requests/:id` انجام می‌شود. هر route سند schema مستقل در `src/app/api` دارد.
 - چند tenant بودن، نقش‌ها و تعرفه‌ها جزو منطق اصلی‌اند؛ کامپوننت را از route جدا نکن بدون حفظ guard.
 - خطاهای API به toast/error state قابل فهم تبدیل شوند؛ صفحه‌های دارای polling هنگام unmount متوقف و هنگام hidden بودن صفحه بی‌جهت تکرار نشوند.
 - پول و تاریخ در UI locale-aware هستند؛ تاریخ‌های تنظیمی/مالی برای کاربر ایران باید شمسی باشند، اما قرارداد ذخیره‌سازی API را تغییر نده.

@@ -907,6 +907,20 @@ export const calls = pgTable("calls", {
   createdAt: created(),
 });
 
+export const waiterServiceRequests = pgTable("waiter_service_requests", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  tableId: integer("table_id").notNull().references(() => diningTables.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull().default("call"), // call | message
+  message: text("message").notNull().default(""),
+  status: text("status").notNull().default("open"), // open | resolved
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (t) => [
+  index("waiter_service_requests_business_status_idx").on(t.businessId, t.status, t.createdAt),
+  index("waiter_service_requests_table_time_idx").on(t.tableId, t.createdAt),
+]);
+
 export const printJobs = pgTable("print_jobs", {
   id: serial("id").primaryKey(),
   businessId: bizId(),

@@ -59,6 +59,7 @@ export const FEATURES: FeatureDef[] = [
   { key: "installment", group: "sales", label: "اتصال به درگاه اقساطی اسنپ‌پی و دیجی‌پی", levels: [N, Y, Y] },
   { key: "cashier_pos", group: "sales", label: "سیستم سفارش‌گیر صندوق و گارسون", levels: [N, Y, Y] },
   { key: "self_order", group: "sales", label: "سیستم سفارش‌گیر حضوری توسط مشتری", levels: [N, Y, Y] },
+  { key: "waiter_call", group: "sales", label: "درخواست گارسون از منوی مشتری", desc: "مشتری از منوی میز، گارسون را صدا می‌زند یا پیام کوتاهی برای کارکنان می‌فرستد.", levels: [N, Y, Y] },
   { key: "kiosk", group: "sales", label: "سفارش‌گیر کیوسک (خودسفارش‌دهی لمسی)", desc: "صفحه‌ی لمسی سفارش‌دهی مشتری با ۵ قالب طراحی.", levels: [N, Y, Y] },
   { key: "delivery_order", group: "sales", label: "سیستم سفارش‌گیر دلیوری آنلاین", levels: [N, Y, Y] },
   { key: "preorder", group: "sales", label: "سیستم پیش‌سفارش", desc: "ثبت سفارش از قبل و آماده‌سازی در زمان مشخص.", levels: [N, Y, Y] },
@@ -203,3 +204,4 @@ export const LANGS: Record<string, { name: string; dir: "rtl" | "ltr" }> = {
   ku: { name: "کوردی", dir: "rtl" },
   az: { name: "Azərbaycan", dir: "ltr" },
 };
+
