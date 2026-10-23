@@ -372,10 +372,10 @@ function PrinterCategorySelector({ device }: { device: Device }) {
   </div>;
 }
 
-type LocalDeviceConfig = { transport: "tcp" | "serial" | "usb"; host: string; port: string; path: string; baud: string; vendorId: string; productId: string; printerName: string; encoding: string; request: string; responseEnd: string; weightRegex: string; weightUnit: "kg" | "g"; factor: string; format: string };
+type LocalDeviceConfig = { transport: "tcp" | "serial" | "usb"; host: string; port: string; path: string; baud: string; vendorId: string; productId: string; printerName: string; printMode: "driver" | "raw"; encoding: string; request: string; responseEnd: string; weightRegex: string; weightUnit: "kg" | "g"; factor: string; format: string };
 const BRIDGE_CONFIG_KEY = "digital-menu.bridge.devices.v1";
 function defaultBridgeConfig(kind: string): LocalDeviceConfig {
-  return { transport: kind === "scale" ? "serial" : "tcp", host: "192.168.1.50", port: kind === "scale" ? "4001" : "9100", path: "COM3", baud: "9600", vendorId: "", productId: "", printerName: "", encoding: "CP1256", request: "", responseEnd: "\\r\\n", weightRegex: "([+-]?\\d+(?:[.,]\\d+)?)", weightUnit: "kg", factor: "1", format: "R{n}\\r\\n" };
+  return { transport: kind === "scale" ? "serial" : "tcp", host: "192.168.1.50", port: kind === "scale" ? "4001" : "9100", path: "COM3", baud: "9600", vendorId: "", productId: "", printerName: "", printMode: "driver", encoding: "CP1256", request: "", responseEnd: "\\r\\n", weightRegex: "([+-]?\\d+(?:[.,]\\d+)?)", weightUnit: "kg", factor: "1", format: "R{n}\\r\\n" };
 }
 export function BridgeSetup() {
   const printers = useCollection<Device>("/api/r/dev_printer", { poll: 10000 });
@@ -404,7 +404,7 @@ export function BridgeSetup() {
     if (c.transport === "usb") return {
       code: d.code, name: d.name, kind: d.kind, transport: "usb",
       ...(c.vendorId ? { vendorId: Number(c.vendorId) } : {}), ...(c.productId ? { productId: Number(c.productId) } : {}),
-      ...(d.kind === "scale" ? { request: c.request, responseEnd: c.responseEnd, weightRegex: c.weightRegex, weightUnit: c.weightUnit, factor: Number(c.factor) || 1 } : { printerName: c.printerName, encoding: c.encoding }),
+      ...(d.kind === "scale" ? { request: c.request, responseEnd: c.responseEnd, weightRegex: c.weightRegex, weightUnit: c.weightUnit, factor: Number(c.factor) || 1 } : { printerName: c.printerName, printMode: c.printMode, encoding: c.encoding }),
     };
     if (d.kind === "pager") return {
       code: d.code, name: d.name, kind: d.kind, transport: c.transport,
@@ -435,18 +435,18 @@ export function BridgeSetup() {
       const set = (key: keyof LocalDeviceConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => updateConfig(d, { [key]: e.target.value } as Partial<LocalDeviceConfig>);
       return <div key={d.code} className="space-y-3 rounded-xl bg-stone-50 p-3">
         <div className="flex items-center justify-between gap-2"><p className="font-semibold">{d.name}</p><code className="text-xs" dir="ltr">{d.code}</code></div>
-        <Field label="روش اتصال"><Select data-tour="bridge-transport" value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option>{d.kind !== "pager" && <option value="usb">{d.kind === "printer" ? "USB از طریق صف چاپ Windows" : "USB مستقیم HID"}</option>}</Select></Field>
+        <Field label="روش اتصال"><Select data-tour="bridge-transport" value={c.transport} onChange={set("transport")}><option value="tcp">شبکه (TCP)</option><option value="serial">USB-سریال / پورت COM</option>{d.kind !== "pager" && <option value="usb">{d.kind === "printer" ? "پرینتر نصب‌شده در Windows (USB یا شبکه)" : "USB مستقیم HID"}</option>}</Select></Field>
         {c.transport === "tcp" && <div className="grid grid-cols-2 gap-2"><Field label="IP دستگاه"><Input data-tour="bridge-host" dir="ltr" value={c.host} onChange={set("host")} /></Field><Field label="درگاه"><Input data-tour="bridge-port" dir="ltr" inputMode="numeric" value={c.port} onChange={set("port")} /></Field></div>}
         {c.transport === "serial" && <div className="grid grid-cols-2 gap-2"><Field label="پورت USB-سریال (مثلاً COM3)"><Input data-tour="bridge-path" dir="ltr" value={c.path} onChange={set("path")} /></Field><Field label="سرعت"><Input data-tour="bridge-baud" dir="ltr" inputMode="numeric" value={c.baud} onChange={set("baud")} /></Field></div>}
         {c.transport === "usb" && d.kind === "scale" && <div className="grid grid-cols-2 gap-2"><Field label="Vendor ID"><Input dir="ltr" value={c.vendorId} onChange={set("vendorId")} placeholder="0x04b8" /></Field><Field label="Product ID"><Input dir="ltr" value={c.productId} onChange={set("productId")} placeholder="0x0e15" /></Field></div>}
-        {d.kind === "printer" && c.transport === "usb" && <Field label="نام صف پرینتر نصب‌شده در Windows"><Input data-tour="bridge-printerName" dir="ltr" value={c.printerName} onChange={set("printerName")} placeholder="مثلاً POS-80" /></Field>}
+        {d.kind === "printer" && c.transport === "usb" && <><Field label="نام صف پرینتر نصب‌شده در Windows"><Input data-tour="bridge-printerName" dir="ltr" value={c.printerName} onChange={set("printerName")} placeholder="مثلاً POS-80" /></Field><Field label="روش چاپ با درایور Windows"><Select value={c.printMode} onChange={set("printMode")}><option value="driver">درایور Windows (پیشنهادی برای پرینتر نصب‌شده)</option><option value="raw">RAW / ESC-POS (اگر چاپگر یا درایور این حالت را نیاز دارد)</option></Select><span className="mt-1 block text-[11px] text-stone-500">حالت درایور از ابزار چاپ Windows استفاده می‌کند و متن فارسی را با فونت سیستم رندر می‌کند. برای چاپ مستقیم فرمان‌های ESC/POS، حالت RAW را انتخاب کنید.</span></Field></>}
         {d.kind === "printer" && c.transport !== "usb" && <Field label="کدگذاری چاپ فارسی"><Input data-tour="bridge-encoding" dir="ltr" value={c.encoding} onChange={set("encoding")} placeholder="CP1256" /></Field>}
         {d.kind === "pager" && <Field label="قالب فرمان فرستنده"><Input dir="ltr" value={c.format} onChange={set("format")} placeholder="R{n}\r\n" /><span className="mt-1 block text-[11px] text-stone-500">{`{n}`} با شماره‌ی پیجر جایگزین می‌شود؛ escapeهای \r و \n پشتیبانی می‌شوند.</span></Field>}
         {d.kind === "scale" && <div className="space-y-2"><Field label={c.transport === "usb" ? "بایت درخواست HID (در صورت نیاز)" : "درخواست خواندن (در صورت نیاز) / متن فرستاده‌شده"}><Input dir="ltr" value={c.request} onChange={set("request")} placeholder={c.transport === "usb" ? "مثلاً \\x00\\x01" : "خالی = خواندن خروجی پیوسته"} /></Field>{c.transport === "usb" && <p className="text-[10px] text-stone-500">در درخواست HID، بایت اول شناسه‌ی گزارش است؛ قالب داده به مدل ترازو وابسته است.</p>}<Field label="پایان پاسخ"><Input dir="ltr" value={c.responseEnd} onChange={set("responseEnd")} placeholder="\\r\\n" /></Field><Field label="عبارت استخراج وزن"><Input dir="ltr" value={c.weightRegex} onChange={set("weightRegex")} /></Field><div className="grid grid-cols-2 gap-2"><Field label="واحد خروجی"><Select value={c.weightUnit} onChange={set("weightUnit")}><option value="kg">کیلوگرم</option><option value="g">گرم</option></Select></Field><Field label="ضریب کالیبراسیون"><Input dir="ltr" inputMode="decimal" value={c.factor} onChange={set("factor")} /></Field></div></div>}
       </div>;
     })}</div>}
     <pre dir="ltr" className="max-h-56 overflow-auto rounded-xl bg-stone-900 p-3 text-[11px] leading-5 text-emerald-100">{configText}</pre>
-    <p className="text-[11px] leading-6 text-stone-500">دکمهٔ دریافت، فایل Setup آخرین ساخت موفق را مستقیم دانلود می‌کند. سپس فایل JSON همین صفحه را داخل اپ وارد و اتصال را شروع کنید. پرینتر USB باید در Windows نصب شده باشد؛ نام صف چاپ را در تنظیم دستگاه وارد کنید. پورت‌های USB-سریال نیز از COM قابل انتخاب‌اند.</p>
+    <p className="text-[11px] leading-6 text-stone-500">دکمهٔ دریافت، فایل Setup آخرین ساخت موفق را مستقیم دانلود می‌کند. سپس فایل JSON همین صفحه را داخل اپ وارد و اتصال را شروع کنید. پرینتر مورد استفاده از درایور Windows باید نصب شده باشد؛ آن را از فهرست چاپگرهای سیستم انتخاب کنید و روش چاپ را تعیین کنید. پورت‌های USB-سریال نیز از COM قابل انتخاب‌اند.</p>
   </Card>;
 }
 

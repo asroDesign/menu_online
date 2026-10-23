@@ -42,6 +42,7 @@ pub struct DeviceConfig {
     pub vendor_id: Option<u16>,
     pub product_id: Option<u16>,
     pub printer_name: Option<String>,
+    pub print_mode: Option<String>,
     pub encoding: Option<String>,
     pub request: Option<String>,
     pub response_end: Option<String>,
@@ -98,6 +99,9 @@ impl BridgeConfig {
             }
             if device.transport == "usb" && device.kind == "printer" && device.printer_name.as_deref().unwrap_or("").trim().is_empty() {
                 return Err(format!("نام صف چاپ Windows برای دستگاه {} وارد نشده است", device.code));
+            }
+            if device.transport == "usb" && device.kind == "printer" && device.print_mode.as_deref().is_some_and(|mode| !["driver", "raw"].contains(&mode)) {
+                return Err(format!("روش چاپ Windows برای دستگاه {} معتبر نیست", device.code));
             }
             if device.transport == "usb" && device.kind == "scale" && (device.vendor_id.is_none() || device.product_id.is_none()) {
                 return Err(format!("Vendor ID و Product ID ترازوی {} لازم است", device.code));
@@ -278,6 +282,11 @@ fn api(client: &Client, server: &str, device: &DeviceConfig, action: &str, body:
 }
 
 fn print_job(device: &DeviceConfig, content: &str) -> Result<(), String> {
+    if device.transport == "usb" && device.kind == "printer" && device.print_mode.as_deref() != Some("raw") {
+        let name = device.printer_name.as_deref().filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "نام پرینتر نصب‌شده در Windows را در تنظیمات وارد کنید".to_string())?;
+        return print_windows_driver(name, content);
+    }
     let mut bytes = vec![0x1b, 0x40];
     bytes.extend(encode_text(content, device.encoding.as_deref().unwrap_or("CP1256")));
     bytes.extend([0x0a, 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00]);
@@ -303,7 +312,7 @@ pub fn send_test_print(device: &DeviceConfig) -> Result<(), String> {
 
 fn local_test_receipt(name: &str, code: &str) -> String {
     format!(
-        "MENUPEAK LOCAL PRINTER TEST\nDevice: {name}\nCode: {code}\nIf this page printed, the local printer path works.\n"
+        "چاپ آزمایشی منوپیک\nپرینتر: {name}\nکد دستگاه: {code}\nاگر این نوشته را می‌بینید مسیر چاپ محلی برقرار است.\n"
     )
 }
 
@@ -537,9 +546,80 @@ fn print_windows_queue(name: &str, data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn print_windows_driver(name: &str, content: &str) -> Result<(), String> {
+    use std::{io::Write, os::windows::process::CommandExt, process::{Command, Stdio}};
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$inputStream = [Console]::OpenStandardInput()
+$inputBuffer = New-Object System.IO.MemoryStream
+$inputStream.CopyTo($inputBuffer)
+$payloadJson = [System.Text.Encoding]::UTF8.GetString($inputBuffer.ToArray())
+$payload = $payloadJson | ConvertFrom-Json
+$document = New-Object System.Drawing.Printing.PrintDocument
+$document.PrinterSettings.PrinterName = [string]$payload.printerName
+if (-not $document.PrinterSettings.IsValid) { throw "صف چاپگر نصب‌شده معتبر نیست: $($payload.printerName)" }
+$document.DocumentName = 'MenuPeak receipt'
+$document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(5, 5, 5, 5)
+$script:receiptLines = [string]$payload.content -split "`r?`n"
+$script:receiptLine = 0
+$script:receiptFont = New-Object System.Drawing.Font('Tahoma', 9)
+$document.add_PrintPage({
+    param($sender, $eventArgs)
+    $format = New-Object System.Drawing.StringFormat
+    $format.Alignment = [System.Drawing.StringAlignment]::Far
+    $format.FormatFlags = [System.Drawing.StringFormatFlags]::DirectionRightToLeft
+    $x = [single]$eventArgs.MarginBounds.Left
+    $y = [single]$eventArgs.MarginBounds.Top
+    $width = [int]$eventArgs.MarginBounds.Width
+    while ($script:receiptLine -lt $script:receiptLines.Count -and $y -lt $eventArgs.MarginBounds.Bottom) {
+        $line = [string]$script:receiptLines[$script:receiptLine]
+        $size = $eventArgs.Graphics.MeasureString($line, $script:receiptFont, $width, $format)
+        $height = [Math]::Max($script:receiptFont.GetHeight($eventArgs.Graphics), $size.Height) + 2
+        if (($y + $height) -gt $eventArgs.MarginBounds.Bottom -and $y -gt $eventArgs.MarginBounds.Top) { break }
+        $rectangle = New-Object System.Drawing.RectangleF($x, $y, [single]$width, [single]$height)
+        $eventArgs.Graphics.DrawString($line, $script:receiptFont, [System.Drawing.Brushes]::Black, $rectangle, $format)
+        $y += $height
+        $script:receiptLine++
+    }
+    $eventArgs.HasMorePages = $script:receiptLine -lt $script:receiptLines.Count
+})
+$document.Print()
+$script:receiptFont.Dispose()
+$document.Dispose()
+Write-Output 'داده به درایور Windows تحویل شد'
+"#;
+
+    let input = serde_json::to_vec(&json!({ "printerName": name, "content": content }))
+        .map_err(|error| format!("آماده‌سازی رسید برای چاپ ناموفق بود: {error}"))?;
+    let mut child = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SCRIPT])
+        .creation_flags(0x08000000)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("اجرای درایور چاپ Windows ناموفق بود: {error}"))?;
+    child.stdin.as_mut().ok_or_else(|| "ورودی فرایند چاپ Windows در دسترس نیست".to_string())?
+        .write_all(&input).map_err(|error| format!("ارسال رسید به ابزار چاپ Windows ناموفق بود: {error}"))?;
+    drop(child.stdin.take());
+    let output = child.wait_with_output().map_err(|error| format!("دریافت نتیجه‌ی درایور چاپ ناموفق بود: {error}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!("چاپ از مسیر درایور Windows ناموفق بود: {}", if detail.is_empty() { format!("کد خروج {}", output.status) } else { detail }));
+    }
+    Ok(())
+}
+
 #[cfg(not(windows))]
 fn print_windows_queue(_name: &str, _data: &[u8]) -> Result<(), String> {
     Err("چاپگر USB نصب‌شده فقط در نسخه‌ی ویندوز پشتیبانی می‌شود".to_string())
+}
+
+#[cfg(not(windows))]
+fn print_windows_driver(_name: &str, _content: &str) -> Result<(), String> {
+    Err("چاپ از درایور نصب‌شده‌ی Windows فقط در نسخه‌ی ویندوز پشتیبانی می‌شود".to_string())
 }
 
 #[cfg(test)]
@@ -570,8 +650,8 @@ mod tests {
     #[test]
     fn local_test_receipt_identifies_the_target_printer_without_cloud_data() {
         let receipt = local_test_receipt("Kitchen Printer", "printer01");
-        assert!(receipt.contains("MENUPEAK LOCAL PRINTER TEST"));
-        assert!(receipt.contains("Device: Kitchen Printer"));
-        assert!(receipt.contains("Code: printer01"));
+        assert!(receipt.contains("چاپ آزمایشی منوپیک"));
+        assert!(receipt.contains("پرینتر: Kitchen Printer"));
+        assert!(receipt.contains("کد دستگاه: printer01"));
     }
 }

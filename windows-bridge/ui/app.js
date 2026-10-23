@@ -32,7 +32,7 @@ function renderStatus(data) {
   byId("devices").className = `devices ${devices.length ? "" : "empty"}`;
   byId("devices").innerHTML = devices.length ? devices.map((device) => {
     const names = { printer: "پرینتر", scale: "ترازو", pager: "پیجر", pos: "کارتخوان" };
-    const transport = { tcp: "شبکه", serial: "USB-سریال", usb: "USB مستقیم" };
+    const transport = { tcp: "شبکه", serial: "USB-سریال", usb: device.kind === "printer" ? "صف چاپ Windows" : "USB مستقیم HID" };
     const testButton = device.kind === "printer" ? `<button class="device-test" type="button" data-test-printer="${escapeHtml(device.code)}">چاپ آزمایشی محلی</button>` : "";
     return `<div class="device"><span class="device-icon">${device.kind === "scale" ? "kg" : device.kind === "printer" ? "PR" : "••"}</span><div class="device-copy"><strong>${escapeHtml(device.name || names[device.kind] || device.kind)}</strong><span>${escapeHtml(device.code)} · ${escapeHtml(transport[device.transport] || device.transport || "")}</span></div>${testButton}<i class="device-status"></i></div>`;
   }).join("") : "هنوز تنظیماتی وارد نشده است.";

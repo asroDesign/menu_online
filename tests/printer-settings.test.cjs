@@ -116,9 +116,27 @@ test('Windows bridge distinguishes an empty cloud queue from a stopped worker an
   assert.match(bridge, /فرمان توقف از پنجره پایان یافت/);
   assert.match(bridge, /pub fn send_test_print\(device: &DeviceConfig\)/);
   assert.match(bridge, /fn local_test_receipt\(name: &str, code: &str\)/);
+  assert.match(bridge, /چاپ آزمایشی منوپیک/);
   assert.match(main, /fn test_local_printer\(code: String/);
   assert.match(main, /bridge::send_test_print\(device\)/);
   assert.match(ui, /invoke\("test_local_printer", \{ code \}\)/);
   assert.match(ui, /data-test-printer/);
   assert.match(html, /شروع اتصال فقط صف سرور را بررسی می‌کند/);
+});
+
+test('USB Windows printers can use the installed driver for Persian text while retaining explicit RAW ESC-POS mode', () => {
+  const bridge = source('windows-bridge/src-tauri/src/bridge.rs');
+  const hardware = source('src/modules/hardware.tsx');
+  const readme = source('windows-bridge/README.md');
+
+  assert.match(bridge, /pub print_mode: Option<String>/);
+  assert.match(bridge, /device\.print_mode\.as_deref\(\) != Some\("raw"\)[\s\S]*?print_windows_driver\(name, content\)/);
+  assert.match(bridge, /"usb" => \{[\s\S]*?print_windows_queue\(name, &bytes\)/);
+  assert.match(bridge, /System\.Drawing\.Printing\.PrintDocument/);
+  assert.match(bridge, /OpenStandardInput\(\)/);
+  assert.match(bridge, /DirectionRightToLeft/);
+  assert.match(hardware, /printMode: "driver"/);
+  assert.match(hardware, /printMode: c\.printMode/);
+  assert.match(hardware, /value="raw">RAW \/ ESC-POS/);
+  assert.match(readme, /درایور نصب‌شده‌ی Windows/);
 });
