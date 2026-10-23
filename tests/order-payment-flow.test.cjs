@@ -27,16 +27,20 @@ test('the first successful payment sends unpaid orders into preparation without 
   assert.equal(orderStatusAfterPayment('canceled', { reopen: true }), 'preparing');
 });
 
-test('orders show payment state, separate the unpaid queue, and confirm card transfers without hiding the order status', () => {
+test('orders collect an explicit payment split and cannot confirm a card transfer as an implicit full-total payment', () => {
   const module = source('src/modules/orders.tsx');
   const route = source('src/app/api/orders/[id]/route.ts');
+  const cashier = source('src/app/api/orders/[id]/cashier/route.ts');
   assert.match(module, /function PaymentStatusBadge/);
   assert.match(module, /key: "unpaid", label: "پرداخت‌نشده"/);
   assert.match(module, /سفارش‌های پرداخت‌نشده/);
   assert.match(module, /selected\.paymentStatus !== "paid"/);
-  assert.match(module, /body: \{ confirmPayment: true \}/);
-  assert.match(module, /feat\.has\("tablet_pos"\) && selected\.paymentStatus !== "paid"/);
-  assert.match(route, /if \(b\.confirmPayment === true\)/);
-  assert.match(route, /auth\.role !== "cashier"/);
-  assert.match(route, /settleOrder\(business, auth\.features, oid, "card_to_card", false/);
+  assert.match(module, /AmountInput value=\{cashAmount\}/);
+  assert.match(module, /AmountInput value=\{bankAmount\}/);
+  assert.match(module, /AmountInput value=\{posAmount\}/);
+  assert.match(module, /ثبت باقیمانده در دفتر بدهکاران/);
+  assert.match(cashier, /action === "settle"/);
+  assert.match(cashier, /createPosRequest\(auth\.business, orderId, plan\.posDeviceId, plan\)/);
+  assert.match(route, /برای ثبت پرداخت، مبلغ نقدی، بانکی، کارتخوان/);
+  assert.match(route, /b\.status === "paid" && existing\.paymentStatus !== "paid"/);
 });

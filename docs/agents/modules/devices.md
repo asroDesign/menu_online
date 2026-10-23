@@ -21,6 +21,8 @@ GET/CRUD /api/r/dev_tablet؛ GET /api/r/posrequests (poll 4s)؛ POST /api/r/posr
 
 کد دستگاه secret است و یک‌بار امن نمایش داده شود؛ route device باید token/code validate کند؛ polling متوقف در unmount.
 
+برای دستگاه‌های `kind=pos`، فیلد اختیاری `terminalNumber` شمارهٔ واقعی ترمینال بانکی را نگه می‌دارد و هنگام ساخت یا ویرایش همان کارت دستگاه قابل ثبت است. این مقدار از `code` اتصال جداست: شماره ترمینال در انتخاب پوز، snapshot تسویه و تفصیلی/گزارش حسابداری استفاده می‌شود و کد اتصال در API انتخاب تسویه ارسال نمی‌شود. فیلد دیتابیس در migration `0046_order_tender_settlement.sql` افزوده شده است.
+
 - وضعیت‌های loading، خطا، داده خالی و موفقیت را جدا و قابل فهم نشان بده؛ خطا را با امکان تلاش مجدد مدیریت کن.
 - رابط فارسی و RTL، ارقام فارسی، پول تومان، و تاریخ‌های شمسی را مطابق ابزارهای مشترک پروژه نمایش بده.
 - layout را برای موبایل/تبلت/دسکتاپ بازسازی کن؛ فرم‌ها و جدول‌ها در عرض کم قابل استفاده بمانند و اکشن اصلی از دسترس خارج نشود.
@@ -32,6 +34,8 @@ GET/CRUD /api/r/dev_tablet؛ GET /api/r/posrequests (poll 4s)؛ POST /api/r/posr
 ماژول سه رفتار دارد: `Devices` برای ثبت tablet/POS؛ `PosRequests` برای تأیید عملیات پرداخت؛ `PosSetup` برای خروجی config پل محلی. `DevicePanel` resource `/api/r/dev_tablet` هر ۱۰s poll، code تصادفی ۸ hex از API، name/kind، online اگر lastSeen کمتر از ۵ دقیقه، hint endpoint، ping و remove. تبلت route `/tablet/:code` نمایشگر آشپزخانه است.
 
 POS request list هر ۴s poll؛ statuses pending/approved/failed/canceled؛ pending را تأیید دستی (اختیاری refNo) یا failed کن؛ failed/canceled را نیز اگر پول واقعاً کسر شده تأیید دستی کن. این اقدام settlement است و نباید بدون رسید واقعی خودکار done شود.
+
+تسویهٔ `/dashboard/orders` می‌تواند علاوه بر legacy request کامل، plan تفکیکی نقد/بانک/POS/طلب را به `createPosRequest` بدهد. در plan جدید، `pos_requests.amount` فقط سهم POS است و `settlement_plan` مبلغ‌های نقد/بانک/بدهی، بانک مقصد، دستگاه مشخص و کلید idempotency را نگه می‌دارد. فقط دستگاهی که درخواست برایش ساخته شده می‌گیرد؛ order/ledger/receivable پس از callback `approved` نهایی می‌شوند. bridge باید برای آزمایش مبلغ را از `amountToman` بگیرد و ریال ارسالی را برابر همین سهم (`amountRial`) بسازد؛ جمع کل فاکتور را دوباره ارسال نکند.
 
 `PosSetup` پروتکل‌ها: saman-ssp1126 over TCP/serial؛ HTTP محلی با URL/method/body/successPath/refPath؛ executable با args؛ raw TCP/serial با request frame, LRC, response end/regex. JSON config شامل server origin, pollSeconds=2 و devices است و باید طبق کنترل‌های همین UI ساخته/کپی شود. نوع serial/network روی browser انجام نمی‌شود؛ local bridge عامل اجرای config است. فایل `docs/DEVICES.md`/agent implementation را با source فعلی تطبیق بده.
 

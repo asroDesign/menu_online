@@ -18,6 +18,7 @@ import type { Order, StaffMember } from "@/lib/types";
 import {
   Badge,
   Button,
+  AmountInput,
   Card,
   ConfirmDialog,
   EmptyState,
@@ -29,13 +30,14 @@ import {
   Select,
   Skeleton,
   cn,
-  useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
+  useToast, iconGlyph, EmojiIcon, IconText, Field} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
 import { DELIVERY_STATUS } from "@/lib/admin-meta";
 import { MapPicker } from "@/components/map-picker";
 import { useFeatures } from "@/components/features";
 import { api } from "@/lib/api";
 import { workflowDisplayStageIndex, workflowDisplayStages } from "@/lib/order-workflow-core";
+import type { SettlementInput } from "@/lib/order-settlement-core";
 
 const TABS = [
   { key: "active", label: "فعال" },
@@ -46,7 +48,7 @@ const TABS = [
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: "نقدی", pos: "کارتخوان", card: "کارت", card_to_card: "کارت‌به‌کارت",
-  ipg: "آنلاین", cashback: "اعتبار کیف پول", credit: "پرداخت بعداً",
+  ipg: "آنلاین", cashback: "اعتبار کیف پول", credit: "پرداخت بعداً", mixed: "ترکیبی",
 };
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   unpaid: "پرداخت‌نشده", pending: "در انتظار تأیید", paid: "پرداخت‌شده",
@@ -83,6 +85,20 @@ export default function OrdersPage() {
   const [deleting, setDeleting] = useState<Order | null>(null);
   const [revokingTracking, setRevokingTracking] = useState<Order | null>(null);
   const [workflowPreset, setWorkflowPreset] = useState<1 | 2 | 3 | 4>(4);
+  const [settlementOrder, setSettlementOrder] = useState<Order | null>(null);
+  const [settlementOptions, setSettlementOptions] = useState<{ banks: { id: number; name: string; bank: string }[]; posDevices: { id: number; name: string; terminalNumber: string; online: boolean }[] }>({ banks: [], posDevices: [] });
+  const [cashAmount, setCashAmount] = useState("0");
+  const [bankAmount, setBankAmount] = useState("0");
+  const [bankAccountId, setBankAccountId] = useState("");
+  const [posAmount, setPosAmount] = useState("0");
+  const [posDeviceId, setPosDeviceId] = useState("");
+  const [posBankAccountId, setPosBankAccountId] = useState("");
+  const [allowDebt, setAllowDebt] = useState(false);
+  const [debtorName, setDebtorName] = useState("");
+  const [debtorPhone, setDebtorPhone] = useState("");
+  const [debtDescription, setDebtDescription] = useState("");
+  const [settlementBusy, setSettlementBusy] = useState(false);
+  const [completeAfterPayment, setCompleteAfterPayment] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -91,6 +107,15 @@ export default function OrdersPage() {
       .catch(() => {});
     return () => { live = false; };
   }, []);
+
+  useEffect(() => {
+    if (feat.role === "waiter") return;
+    let live = true;
+    api<typeof settlementOptions>("/api/orders/settlement-options")
+      .then((options) => { if (live) setSettlementOptions(options); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [feat.role]);
 
   const workflowStages = useMemo(() => workflowDisplayStages(workflowPreset), [workflowPreset]);
 
@@ -129,8 +154,32 @@ export default function OrdersPage() {
 
   const selected = orders.items.find((o) => o.id === selectedId) ?? null;
   const unpaidOrders = useMemo(() => orders.items.filter((o) => !o.deletedAt && o.status !== "canceled" && o.paymentStatus === "unpaid"), [orders.items]);
+  const collectedNow = Number(cashAmount || 0) + Number(bankAmount || 0) + Number(posAmount || 0);
+  const debtRemainder = settlementOrder ? settlementOrder.total - collectedNow : 0;
+  const settlementInvalid = debtRemainder < 0 || (debtRemainder > 0 && !allowDebt) || (Number(bankAmount || 0) > 0 && !bankAccountId) || (Number(posAmount || 0) > 0 && (!posDeviceId || !posBankAccountId));
+
+  function openSettlement(o: Order, complete = false) {
+    setSelectedId(null);
+    setSettlementOrder(o);
+    const bankPrefill = o.paymentMethod === "card_to_card" ? o.total : 0;
+    setCashAmount("0");
+    setBankAmount(String(bankPrefill));
+    setBankAccountId(String(settlementOptions.banks[0]?.id ?? ""));
+    setPosAmount("0");
+    setPosDeviceId(String(settlementOptions.posDevices.find((device) => device.online)?.id ?? ""));
+    setPosBankAccountId("");
+    setAllowDebt(false);
+    setDebtorName(o.customerName || "");
+    setDebtorPhone(o.customerPhone || "");
+    setDebtDescription(`باقی‌ماندهٔ سفارش شماره ${o.number}`);
+    setCompleteAfterPayment(complete);
+  }
 
   async function setStatus(o: Order, status: string) {
+    if (status === "paid") {
+      openSettlement(o, true);
+      return;
+    }
     try {
       await orders.update(o.id, { status });
       toast(`سفارش #${toFa(o.number)}: ${statusInfo(status).label}`);
@@ -139,13 +188,36 @@ export default function OrdersPage() {
     }
   }
 
-  async function confirmCardTransfer(o: Order) {
+  async function submitSettlement(event: FormEvent) {
+    event.preventDefault();
+    if (!settlementOrder || settlementBusy) return;
+    const cash = Number(cashAmount || 0), bank = Number(bankAmount || 0), pos = Number(posAmount || 0);
+    const remaining = settlementOrder.total - cash - bank - pos;
+    if (remaining < 0) { toast("جمع مبالغ از مبلغ فاکتور بیشتر است", "error"); return; }
+    if (remaining > 0 && !allowDebt) { toast("باقی‌مانده را پرداخت کنید یا ثبت در دفتر بدهکاران را فعال کنید", "error"); return; }
+    const plan: SettlementInput = {
+      cashAmount: cash,
+      bankAmount: bank,
+      bankAccountId: bankAccountId ? Number(bankAccountId) : null,
+      posAmount: pos,
+      posDeviceId: posDeviceId ? Number(posDeviceId) : null,
+      posBankAccountId: posBankAccountId ? Number(posBankAccountId) : null,
+      allowDebt,
+      creditDetails: remaining > 0 ? { name: debtorName, phone: debtorPhone, type: "person", companyName: "", dueAt: null, description: debtDescription } : null,
+      idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `order-${settlementOrder.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      completeOrder: completeAfterPayment,
+    };
+    setSettlementBusy(true);
     try {
-      await api(`/api/orders/${o.id}`, { method: "PATCH", body: { confirmPayment: true } });
+      const result = await api<{ ok: true; pendingPos?: boolean; amount?: number }>(`/api/orders/${settlementOrder.id}/cashier`, { method: "POST", body: { action: "settle", settlement: plan } });
+      setSettlementOrder(null);
       await orders.reload(true);
-      toast(`پرداخت سفارش #${toFa(o.number)} تأیید شد`);
+      if (result.pendingPos) toast(`${formatPrice(result.amount ?? pos)} به کارتخوان ارسال شد؛ ثبت پرداخت پس از تأیید دستگاه انجام می‌شود`);
+      else toast(`تسویهٔ سفارش #${toFa(settlementOrder.number)} ثبت شد؛ سند حسابداری و ماندهٔ بدهی به‌روزرسانی شدند`);
     } catch (e) {
       toast((e as Error).message, "error");
+    } finally {
+      setSettlementBusy(false);
     }
   }
 
@@ -338,18 +410,17 @@ export default function OrdersPage() {
                 <Icon name="link" className="size-4" /> ابطال پیوند رهگیری
               </Button>}
               <a href={`/print/receipt/${selected.id}`} target="_blank"><Button variant="secondary"><IconText>{<EmojiIcon emoji="" />}</IconText> رسید</Button></a>
-              <IconText>{feat.has("tablet_pos") && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
-                <Button variant="secondary" onClick={() => api("/api/r/posrequests", { method: "POST", body: { orderId: selected.id } }).then(() => toast("مبلغ برای کارتخوان ارسال شد")).catch((e) => toast(e.message, "error"))}>{<EmojiIcon emoji="" />} کارتخوان</Button>
-              )}</IconText>
-              {feat.role !== "waiter" && selected.paymentMethod === "card_to_card" && selected.paymentStatus !== "paid" && selected.status !== "canceled" && (
-                <Button onClick={() => void confirmCardTransfer(selected)}><Icon name="check" className="size-4" />تأیید دریافت کارت‌به‌کارت</Button>
+              {feat.role !== "waiter" && selected.paymentStatus !== "paid" && selected.status !== "canceled" && !selected.paymentBreakdown && selected.paymentMethod !== "credit" && (
+                <Button onClick={() => openSettlement(selected, selected.status === "served")}><Icon name="wallet" className="size-4" />ثبت پرداخت</Button>
               )}
+              {feat.role !== "waiter" && (selected.paymentBreakdown?.creditAmount ?? 0) > 0 && <Link href="/dashboard/receivables"><Button variant="secondary"><Icon name="bank" className="size-4" />مشاهده بدهکاران</Button></Link>}
+              {feat.role !== "waiter" && selected.paymentMethod === "credit" && !selected.paymentBreakdown && <Link href="/dashboard/receivables"><Button variant="secondary"><Icon name="bank" className="size-4" />مشاهده بدهکاران</Button></Link>}
               {selected.status !== "canceled" && selected.status !== "paid" && (
                 <Button variant="secondary" onClick={() => setStatus(selected, "canceled")}>
                   لغو سفارش
                 </Button>
               )}
-              {statusInfo(selected.status).next && (
+              {statusInfo(selected.status).next && statusInfo(selected.status).next !== "paid" && (
                 <Button onClick={() => setStatus(selected, statusInfo(selected.status).next!)}>{statusInfo(selected.status).nextLabel}</Button>
               )}
             </>
@@ -392,6 +463,15 @@ export default function OrdersPage() {
                 </div>
               </div>
             </div>
+
+            {selected.paymentBreakdown && <div className="space-y-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm">
+              <p className="mb-2 flex items-center gap-2 font-extrabold text-emerald-950"><Icon name="check" className="size-4"/>جزئیات ثبت تسویه</p>
+              {selected.paymentBreakdown.cashAmount > 0 && <Row label="دریافت نقدی" value={formatPrice(selected.paymentBreakdown.cashAmount)} />}
+              {selected.paymentBreakdown.bankAmount > 0 && <Row label={`واریز به ${selected.paymentBreakdown.bankAccountName || "بانک"}`} value={formatPrice(selected.paymentBreakdown.bankAmount)} />}
+              {selected.paymentBreakdown.posAmount > 0 && <Row label={`کارتخوان ${selected.paymentBreakdown.posDeviceName || ""}${selected.paymentBreakdown.posTerminalNumber ? ` · شماره ${selected.paymentBreakdown.posTerminalNumber}` : ""} · ${selected.paymentBreakdown.posBankAccountName || "بانک"}`} value={`${formatPrice(selected.paymentBreakdown.posAmount)}${selected.paymentBreakdown.posRefNo ? ` · پیگیری ${selected.paymentBreakdown.posRefNo}` : ""}`} />}
+              {selected.paymentBreakdown.creditAmount > 0 && <Row label={`ثبت در بدهکاران${selected.paymentBreakdown.creditCustomerName ? ` · ${selected.paymentBreakdown.creditCustomerName}` : ""}`} value={formatPrice(selected.paymentBreakdown.creditAmount)} />}
+              <Row label="جمع فاکتور" value={formatPrice(selected.total)} />
+            </div>}
 
             {selected.note && <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">{<EmojiIcon emoji="" />} {selected.note}</p>}
             {selected.address && <p className="rounded-xl bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">{<EmojiIcon emoji="" />} {selected.address}{selected.customerPhone && <span className="mt-1 block text-xs" dir="ltr" style={{ textAlign: "start" }}>{selected.customerPhone}</span>}{selected.courierName && <span className="mt-1 block text-xs">{<EmojiIcon emoji="" />} پیک: {selected.courierName}</span>}</p>}
@@ -439,7 +519,7 @@ export default function OrdersPage() {
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-stone-600">تغییر وضعیت</span>
                 <Select value={selected.status} onChange={(e) => setStatus(selected, e.target.value)}>
-                  {ORDER_STATUSES.map((s) => (
+                  {ORDER_STATUSES.filter((s) => s.key !== "paid" || selected.status === "paid").map((s) => (
                     <option key={s.key} value={s.key}>{s.label}</option>
                   ))}
                 </Select>
@@ -447,6 +527,76 @@ export default function OrdersPage() {
             </div>}
           </div>
         )}</IconText>
+      </Modal>
+
+      <Modal
+        open={!!settlementOrder}
+        onClose={() => !settlementBusy && setSettlementOrder(null)}
+        title={settlementOrder ? `ثبت تسویه سفارش #${toFa(settlementOrder.number)}` : "ثبت تسویه"}
+        description="مبلغ فاکتور را بین دریافت نقدی، حساب بانکی، کارتخوان و ماندهٔ بدهکار تفکیک کنید. سند حسابداری با همین تفکیک ثبت می‌شود."
+        size="lg"
+        footer={<>
+          <Button variant="secondary" disabled={settlementBusy} onClick={() => setSettlementOrder(null)}>انصراف</Button>
+          <Button type="submit" form="order-settlement-form" disabled={settlementBusy || settlementInvalid} loading={settlementBusy}>
+            <Icon name={Number(posAmount || 0) > 0 ? "send" : "check"} className="size-4" />
+            {Number(posAmount || 0) > 0 ? "ارسال مبلغ پوز و انتظار تأیید" : "ثبت تسویه و سند"}
+          </Button>
+        </>}
+      >
+        {settlementOrder && <form id="order-settlement-form" onSubmit={submitSettlement} className="space-y-4">
+          <div className="grid gap-2 rounded-2xl border border-sky-200 bg-sky-50 p-3 sm:grid-cols-3">
+            <div><p className="text-xs text-sky-800">مبلغ فاکتور</p><b className="mt-1 block text-base font-extrabold text-sky-950">{formatPrice(settlementOrder.total)}</b></div>
+            <div><p className="text-xs text-sky-800">دریافتی فعلی</p><b className="mt-1 block text-base font-extrabold text-sky-950">{formatPrice(collectedNow)}</b></div>
+            <div><p className="text-xs text-sky-800">ماندهٔ فاکتور</p><b className={cn("mt-1 block text-base font-extrabold", debtRemainder < 0 ? "text-rose-700" : debtRemainder > 0 ? "text-amber-800" : "text-emerald-800")}>{formatPrice(debtRemainder)}</b></div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="دریافت نقدی (تومان)">
+              <AmountInput value={cashAmount} onValueChange={setCashAmount} placeholder="۰" aria-label="مبلغ دریافتی نقدی" />
+            </Field>
+            <Field label="واریز بانکی یا کارت‌به‌کارت (تومان)">
+              <AmountInput value={bankAmount} onValueChange={setBankAmount} placeholder="۰" aria-label="مبلغ واریز بانکی" />
+            </Field>
+            {Number(bankAmount || 0) > 0 && <Field label="حساب بانکی مقصد">
+              <Select required value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)}>
+                <option value="">انتخاب بانک</option>
+                {settlementOptions.banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bank ? `${bank.bank} — ` : ""}{bank.name}</option>)}
+              </Select>
+              {settlementOptions.banks.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">برای ثبت دریافت بانکی ابتدا یک حساب در بخش <Link className="font-bold underline" href="/dashboard/bank">مدیریت بانک</Link> تعریف کنید.</span>}
+            </Field>}
+            {feat.has("tablet_pos") && <Field label="مبلغ کارتخوان (تومان)" hint="فقط همین مبلغ به دستگاه انتخاب‌شده فرستاده می‌شود.">
+              <AmountInput value={posAmount} onValueChange={setPosAmount} placeholder="۰" aria-label="مبلغ کارتخوان" />
+            </Field>}
+            {feat.has("tablet_pos") && Number(posAmount || 0) > 0 && <Field label="دستگاه کارتخوان">
+              <Select required value={posDeviceId} onChange={(event) => setPosDeviceId(event.target.value)}>
+                <option value="">انتخاب کارتخوان متصل</option>
+                {settlementOptions.posDevices.map((device) => <option key={device.id} value={device.id} disabled={!device.online}>{device.name}{device.terminalNumber ? ` · شماره ${device.terminalNumber}` : ""}{device.online ? " — آنلاین" : " — آفلاین"}</option>)}
+              </Select>
+              {!settlementOptions.posDevices.some((device) => device.online) && <span className="mt-1 block text-[11px] text-amber-700">کارتخوان آنلاین پیدا نشد. پس از اتصال عامل کارتخوان، دوباره تلاش کنید.</span>}
+            </Field>}
+            {feat.has("tablet_pos") && Number(posAmount || 0) > 0 && <Field label="حساب بانکی تسویهٔ کارتخوان">
+              <Select required value={posBankAccountId} onChange={(event) => setPosBankAccountId(event.target.value)}>
+                <option value="">حساب بانکی مقصد پوز را انتخاب کنید</option>
+                {settlementOptions.banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bank ? `${bank.bank} — ` : ""}{bank.name}</option>)}
+              </Select>
+              {settlementOptions.banks.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">برای تسویهٔ کارتخوان ابتدا در بخش <Link className="font-bold underline" href="/dashboard/bank">مدیریت بانک</Link> یک حساب تعریف کنید.</span>}
+            </Field>}
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <input type="checkbox" className="checkbox checkbox-sm mt-0.5" checked={allowDebt} onChange={(event) => setAllowDebt(event.target.checked)} />
+            <span><b>ثبت باقیمانده در دفتر بدهکاران</b><span className="mt-0.5 block text-xs leading-5 text-amber-900">مانده به نام مشتری ثبت و در دریافتنی‌ها و سند حسابداری منظور می‌شود.</span></span>
+          </label>
+
+          {allowDebt && debtRemainder > 0 && <div className="grid gap-3 rounded-xl border border-amber-200 p-3 sm:grid-cols-2">
+            <Field label="نام بدهکار"><Input required maxLength={80} value={debtorName} onChange={(event) => setDebtorName(event.target.value)} placeholder="نام مشتری یا مسئول حساب" /></Field>
+            <Field label="شماره موبایل بدهکار"><Input required inputMode="tel" maxLength={20} value={debtorPhone} onChange={(event) => setDebtorPhone(event.target.value)} placeholder="۰۹۱۲…" /></Field>
+            <Field label="شرح بدهی (اختیاری)" className="sm:col-span-2"><Input maxLength={500} value={debtDescription} onChange={(event) => setDebtDescription(event.target.value)} placeholder="شرح ثبت در دفتر بدهکاران" /></Field>
+          </div>}
+
+          {debtRemainder < 0 && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">جمع مبالغ دریافتی از مبلغ فاکتور بیشتر است.</p>}
+          {debtRemainder > 0 && !allowDebt && <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">برای ثبت پرداخت ناقص، مانده را در دفتر بدهکاران ثبت کنید یا مبلغ‌های دریافتی را کامل کنید.</p>}
+        </form>}
       </Modal>
 
       <ConfirmDialog

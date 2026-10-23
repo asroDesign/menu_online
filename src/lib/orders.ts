@@ -1,6 +1,6 @@
-import type { CashierDebtInput } from "@/lib/cashier-debt-input";
+import { parseCashierDebt, type CashierDebtInput } from "@/lib/cashier-debt-input";
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, max, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, max, ne, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   bankAccounts,
@@ -20,6 +20,7 @@ import {
   menuEvents,
   payments,
   printJobs,
+  posRequests,
   products,
   recipes,
   reservations,
@@ -44,6 +45,7 @@ import { addCustomerPoints } from "@/lib/customer-points";
 import { normalizeCustomerRewards, referralRewardPoints } from "@/lib/customer-rewards-core";
 import { rewardDiscountAmount, rewardIsExpired } from "@/lib/loyalty-rewards-core";
 import { orderStatusAfterPayment } from "@/lib/order-workflow-core";
+import { normalizeSettlementInput, settlementMethod, type SettlementInput } from "@/lib/order-settlement-core";
 
 type Biz = typeof businesses.$inferSelect;
 type QueryDb = typeof db;
@@ -561,14 +563,20 @@ export async function settleOrder(
   orderId: number,
   method: string | null,
   setStatus: boolean,
-  opts: { reopen?: boolean; paymentId?: number; paymentRef?: string; actorId?: number; actorType?: string; creditSale?: boolean; creditDetails?: CashierDebtInput; executor?: OrderTransaction } = {},
+  opts: { reopen?: boolean; paymentId?: number; paymentRef?: string; actorId?: number; actorType?: string; creditSale?: boolean; creditDetails?: CashierDebtInput; settlement?: ReturnType<typeof normalizeSettlementInput>; executor?: OrderTransaction } = {},
 ) {
   if (method === "credit" && !opts.creditSale) throw new HttpError(400, "فروش نسیه باید از دفتر مطالبات ثبت شود");
-  await ensureAccounting(biz);
+  if (!opts.executor) await ensureAccounting(biz);
   const settle = async (tx: QueryDb) => {
     const [o] = await tx.select().from(orders)
       .where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id))).for("update");
     if (!o) throw new HttpError(404, "سفارش پیدا نشد");
+
+    const settlement = opts.settlement ? normalizeSettlementInput(opts.settlement, o.total) : null;
+    if (settlement && o.paymentBreakdown) {
+      if (o.paymentBreakdown.idempotencyKey === settlement.idempotencyKey) return;
+      throw new HttpError(409, "برای این سفارش قبلاً تسویه ثبت شده است؛ مانده را از دفتر بدهکاران دریافت کنید");
+    }
 
     if (!opts.creditSale) {
       const [registeredDebt] = await tx.select({ id: receivables.id }).from(receivables)
@@ -576,10 +584,12 @@ export async function settleOrder(
       if (registeredDebt) throw new HttpError(409, "این سفارش در دفتر بدهکاران ثبت شده است؛ دریافت وجه را از صورت‌حساب بدهی انجام دهید");
     }
 
-    if (opts.creditSale) {
+    const debtAmount = settlement?.creditAmount ?? (opts.creditSale ? o.total : 0);
+    const debtSale = debtAmount > 0;
+    if (debtSale) {
       if (!("pending preparing ready served".split(" ").includes(o.status)) || o.paymentStatus !== "unpaid") throw new HttpError(409, "فقط سفارش باز و تسویه‌نشده را می‌توان نسیه ثبت کرد");
       if (!o.customerId) throw new HttpError(400, "برای ثبت نسیه، سفارش باید به مشتری ثبت‌شده متصل باشد");
-      if (o.total <= 0) throw new HttpError(400, "مبلغ سفارش برای ثبت نسیه معتبر نیست");
+      if (debtAmount <= 0) throw new HttpError(400, "مبلغ بدهی سفارش معتبر نیست");
       const [existingReceivable] = await tx.select({ id: receivables.id }).from(receivables)
         .where(and(eq(receivables.businessId, biz.id), eq(receivables.orderId, o.id))).limit(1);
       if (existingReceivable) throw new HttpError(409, "برای این سفارش قبلاً طلب ثبت شده است");
@@ -595,12 +605,52 @@ export async function settleOrder(
 
     const alreadyPaid = o.paymentStatus === "paid";
     if (!alreadyPaid) {
-      const paymentMethod = opts.creditSale ? "credit" : method ?? o.paymentMethod ?? "cash";
+      const paymentMethod = settlement ? settlementMethod(settlement) : opts.creditSale ? "credit" : method ?? o.paymentMethod ?? "cash";
       const reopens = o.status === "awaiting_payment" || (opts.reopen && o.status === "canceled");
-      const status = orderStatusAfterPayment(o.status, { creditSale: opts.creditSale, reopen: opts.reopen, markCompleted: setStatus });
-      await tx.update(orders).set({ paymentStatus: opts.creditSale ? "unpaid" : "paid", paymentMethod, status, updatedAt: new Date() })
+      const status = orderStatusAfterPayment(o.status, { creditSale: debtSale && debtAmount === o.total, reopen: opts.reopen, markCompleted: (setStatus || settlement?.completeOrder) && debtAmount === 0 });
+      let paymentBreakdown = o.paymentBreakdown;
+      if (settlement) {
+        let bankAccountName = "", posBankAccountName = "", posDeviceName = "", posTerminalNumber = "";
+        if (settlement.bankAmount > 0) {
+          const [bank] = await tx.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts)
+            .where(and(eq(bankAccounts.id, settlement.bankAccountId ?? 0), eq(bankAccounts.businessId, biz.id)));
+          if (!bank) throw new HttpError(400, "حساب بانکی انتخاب‌شده معتبر نیست");
+          bankAccountName = bank.name;
+        }
+        if (settlement.posAmount > 0) {
+          const [device] = await tx.select({ id: devices.id, name: devices.name, terminalNumber: devices.terminalNumber }).from(devices)
+            .where(and(eq(devices.id, settlement.posDeviceId ?? 0), eq(devices.businessId, biz.id), eq(devices.kind, "pos")));
+          if (!device) throw new HttpError(400, "دستگاه کارتخوان انتخاب‌شده معتبر نیست");
+          const [posBank] = await tx.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts)
+            .where(and(eq(bankAccounts.id, settlement.posBankAccountId ?? 0), eq(bankAccounts.businessId, biz.id)));
+          if (!posBank) throw new HttpError(400, "حساب بانکی متصل به کارتخوان معتبر نیست");
+          posDeviceName = device.name;
+          posTerminalNumber = device.terminalNumber;
+          posBankAccountName = posBank.name;
+        }
+        paymentBreakdown = {
+          idempotencyKey: settlement.idempotencyKey,
+          cashAmount: settlement.cashAmount,
+          bankAmount: settlement.bankAmount,
+          bankAccountId: settlement.bankAccountId,
+          bankAccountName,
+          posAmount: settlement.posAmount,
+          posDeviceId: settlement.posDeviceId,
+          posBankAccountId: settlement.posBankAccountId,
+          posBankAccountName,
+          posDeviceName,
+          posTerminalNumber,
+          posRefNo: settlement.posRefNo ?? "",
+          creditAmount: settlement.creditAmount,
+          creditCustomerName: debtSale ? settlement.creditDetails?.name ?? o.customerName : "",
+          creditCustomerPhone: debtSale ? settlement.creditDetails?.phone ?? o.customerPhone : "",
+          settledAt: new Date().toISOString(),
+        };
+      }
+      const paymentStatus = debtAmount > 0 ? "unpaid" : "paid";
+      await tx.update(orders).set({ paymentStatus, paymentMethod, status, ...(settlement ? { paymentBreakdown } : {}), updatedAt: new Date() })
         .where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id)));
-      if (!opts.creditSale) await recordOrderEvents(tx, biz.id, orderId, { payment: [o.paymentStatus, "paid"], order: [o.status, status] }, opts.actorType ?? "system", opts.actorId ?? null);
+      if (!opts.creditSale || settlement) await recordOrderEvents(tx, biz.id, orderId, { payment: [o.paymentStatus, paymentStatus], order: [o.status, status] }, opts.actorType ?? "system", opts.actorId ?? null);
 
       if (o.status === "canceled" && opts.reopen && o.customerId && o.cashbackUsed > 0) {
         await addWalletEntry(biz.id, o.customerId, -o.cashbackUsed, "spend", o.id,
@@ -617,7 +667,19 @@ export async function settleOrder(
         activeShiftId = shift?.id ?? null;
       }
 
-      if (o.total > 0 && !opts.creditSale) {
+      if (settlement) {
+        const rows = [
+          settlement.cashAmount > 0 ? { method: "cash", amount: settlement.cashAmount, bankAccountId: null, posDeviceId: null } : null,
+          settlement.bankAmount > 0 ? { method: "bank", amount: settlement.bankAmount, bankAccountId: settlement.bankAccountId, posDeviceId: null } : null,
+          settlement.posAmount > 0 ? { method: "pos", amount: settlement.posAmount, bankAccountId: settlement.posBankAccountId, posDeviceId: settlement.posDeviceId } : null,
+        ].filter((row): row is NonNullable<typeof row> => row !== null);
+        if (rows.length) await tx.insert(transactions).values(rows.map((row) => ({
+          businessId: biz.id, kind: "income", source: "sale", category: "فروش", amount: row.amount,
+          bankAccountId: row.bankAccountId, posDeviceId: row.posDeviceId, orderId: o.id, shiftId: activeShiftId,
+          settlementMethod: row.method, sourceRef: `order:${o.id}:${settlement.idempotencyKey}:${row.method}`,
+          description: `دریافت ${row.method === "cash" ? "نقدی" : row.method === "pos" ? "کارتخوان" : "بانکی"} سفارش #${o.number}`,
+        })));
+      } else if (o.total > 0 && !opts.creditSale) {
         let bankId: number | null = null;
         if (paymentMethod !== "cash" && paymentMethod !== "cashback") {
           const [b] = await tx.select({ id: bankAccounts.id }).from(bankAccounts)
@@ -689,8 +751,8 @@ export async function settleOrder(
       }
       cogs = Math.round(cogs);
       if (cogs) await tx.update(orders).set({ cogs }).where(and(eq(orders.id, o.id), eq(orders.businessId, biz.id)));
-      const saleDocument = await postOrderSaleInTransaction(tx, biz, { ...o, cashbackEarned: earned, paymentMethod }, cogs, earned, opts.creditSale ?? false);
-      if (opts.creditSale && o.customerId) {
+      const saleDocument = await postOrderSaleInTransaction(tx, biz, { ...o, cashbackEarned: earned, paymentMethod }, cogs, earned, opts.creditSale ?? false, settlement ?? undefined);
+      if (debtSale && o.customerId) {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`receivable-customer:${biz.id}:${o.customerId}`}))`);
         let [account] = await tx.select().from(receivableAccounts)
           .where(and(eq(receivableAccounts.businessId, biz.id), eq(receivableAccounts.customerId, o.customerId), eq(receivableAccounts.type, opts.creditDetails?.type ?? "person"), ...(opts.creditDetails?.type === "company" ? [eq(receivableAccounts.name, opts.creditDetails.companyName)] : []))).limit(1);
@@ -703,10 +765,10 @@ export async function settleOrder(
           }).returning();
         }
         const [receivable] = await tx.insert(receivables).values({
-          businessId: biz.id, accountId: account.id, orderId: o.id, source: "order", amount: o.total,
+          businessId: biz.id, accountId: account.id, orderId: o.id, source: "order", amount: debtAmount,
           dueAt: opts.creditDetails?.dueAt ? new Date(opts.creditDetails.dueAt) : null, description: opts.creditDetails?.description || `سفارش شماره ${o.number}`, accountingDocumentId: saleDocument.id, createdBy: opts.actorId ?? null,
         }).returning();
-        await tx.insert(receivableEvents).values({ businessId: biz.id, receivableId: receivable.id, kind: "created", amount: o.total, note: `ثبت نسیه سفارش شماره ${o.number}`, actorId: opts.actorId ?? null });
+        await tx.insert(receivableEvents).values({ businessId: biz.id, receivableId: receivable.id, kind: "created", amount: debtAmount, note: `ثبت ماندهٔ نسیه سفارش شماره ${o.number}`, actorId: opts.actorId ?? null });
       }
     } else if (setStatus && o.status !== "paid") {
       await tx.update(orders).set({ status: "paid", updatedAt: new Date() }).where(and(eq(orders.id, o.id), eq(orders.businessId, biz.id)));
@@ -719,6 +781,58 @@ export async function settleOrder(
   };
   if (opts.executor) await settle(opts.executor);
   else await db.transaction((rawTx) => settle(rawTx as unknown as QueryDb));
+}
+
+/** Settle a cashier invoice with an explicit tender split and an optional receivable remainder. */
+export async function settleCashierOrder(
+  biz: Biz,
+  features: FeatureMap,
+  orderId: number,
+  input: SettlementInput,
+  opts: { actorId?: number; actorType?: string; reopen?: boolean; posRequestId?: number } = {},
+) {
+  await ensureAccounting(biz);
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as OrderTransaction;
+    const [order] = await tx.select().from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id))).for("update");
+    if (!order || order.deletedAt) throw new HttpError(404, "سفارش پیدا نشد");
+    if (order.status === "canceled") throw new HttpError(409, "سفارش لغوشده قابل تسویه نیست");
+    const plan = normalizeSettlementInput(input, order.total);
+    const pendingPos = await tx.select().from(posRequests).where(and(
+      eq(posRequests.businessId, biz.id), eq(posRequests.orderId, orderId), eq(posRequests.status, "pending"),
+      opts.posRequestId ? ne(posRequests.id, opts.posRequestId) : undefined,
+    )).for("update");
+    if (pendingPos.some((request) => request.pickedAt)) throw new HttpError(409, "درخواست پرداخت دیگری روی کارتخوان در حال انجام است");
+    if (pendingPos.length) await tx.update(posRequests).set({ status: "canceled", detail: "تسویهٔ سفارش از مسیر دیگری انجام شد", updatedAt: new Date() })
+      .where(and(inArray(posRequests.id, pendingPos.map((request) => request.id)), eq(posRequests.status, "pending")));
+    let details: CashierDebtInput | undefined;
+    if (plan.creditAmount > 0) {
+      details = parseCashierDebt(plan.creditDetails ?? { name: order.customerName, phone: order.customerPhone });
+      plan.creditDetails = details;
+      let [customer] = await tx.select().from(customers)
+        .where(and(eq(customers.businessId, biz.id), eq(customers.phone, details.phone))).limit(1);
+      if (!customer) {
+        [customer] = await tx.insert(customers).values({ businessId: biz.id, name: details.name, phone: details.phone })
+          .onConflictDoNothing().returning();
+        if (!customer) [customer] = await tx.select().from(customers)
+          .where(and(eq(customers.businessId, biz.id), eq(customers.phone, details.phone))).limit(1);
+      }
+      if (!customer) throw new HttpError(409, "ثبت مشتری انجام نشد؛ دوباره تلاش کنید");
+      await tx.update(orders).set({ customerId: customer.id, customerName: details.name, customerPhone: details.phone, updatedAt: new Date() })
+        .where(and(eq(orders.id, order.id), eq(orders.businessId, biz.id)));
+    }
+    await settleOrder(biz, features, orderId, settlementMethod(plan), false, {
+      reopen: opts.reopen,
+      actorId: opts.actorId,
+      actorType: opts.actorType,
+      creditSale: plan.creditAmount === order.total,
+      creditDetails: details,
+      settlement: plan,
+      executor: tx,
+    });
+    return { paymentBreakdown: plan };
+  });
 }
 
 /** Real Zarinpal (v4) payment request. Returns the URL the customer must be redirected to. */

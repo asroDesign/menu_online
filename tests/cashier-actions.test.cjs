@@ -31,7 +31,13 @@ function harness({tenant=1,paid=false,fail=false}={}) {
  'drizzle-orm':{eq,and},'@/db':{db},'@/db/schema':tables,
  '@/lib/auth':{withAuth:(fn,p)=>(policy=p,fn),readJson:async value=>value,HttpError:class extends Error{}},
  '@/lib/accounting':{ensureAccounting:async()=>{}},'@/lib/rate-limit':{enforceRateLimit:async()=>{}},
- '@/lib/cashier-debt-input':{parseCashierDebt},'@/lib/orders':{settleOrder:async(_biz,_features,id,_method,_status,opts)=>{assert.ok(opts.executor);if(fail)throw Error('ledger failure');await opts.executor.insert(tables.receivables).values({orderId:id,businessId:1,details:opts.creditDetails});}},
+   '@/lib/cashier-debt-input':{parseCashierDebt},
+   '@/lib/order-settlement-core':{normalizeSettlementInput:()=>({})},
+   '@/lib/pos':{createPosRequest:async()=>({req:{id:1,amount:1},orderNumber:1}),posOnline:async()=>true},
+   '@/lib/orders':{
+    settleCashierOrder:async()=>({paymentBreakdown:{}}),
+    settleOrder:async(_biz,_features,id,_method,_status,opts)=>{assert.ok(opts.executor);if(fail)throw Error('ledger failure');await opts.executor.insert(tables.receivables).values({orderId:id,businessId:1,details:opts.creditDetails});},
+   },
  });
  return {run:body=>route.POST(body,{business:{id:1},user:{id:9},role:'cashier',features:{}},{id:'1'}),state:()=>state,policy};
 }

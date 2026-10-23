@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   suppliers, campaigns, categories, customers, inventoryItems, orderItems, orders, payments, products, recipes,
-  stockMovements, stockReceipts, ticketMessages, tickets, transactions, translations, walletEntries, bankAccounts, crossSellRules,
+  stockMovements, stockReceipts, ticketMessages, tickets, transactions, translations, walletEntries, bankAccounts, devices, crossSellRules,
 } from "@/db/schema";
 import { HttpError, readJson, withAuth, can, type AuthContext } from "@/lib/auth";
 import { saveStockReceipt } from "@/lib/stock-receipts";
@@ -392,6 +392,7 @@ const reportBank = {
       const days = daysParam(req, 30);
       const from = since(days);
       const accs = await db.select().from(bankAccounts).where(eq(bankAccounts.businessId, business.id)).orderBy(asc(bankAccounts.id));
+      const posDevices = await db.select({ id: devices.id, name: devices.name, terminalNumber: devices.terminalNumber }).from(devices).where(and(eq(devices.businessId, business.id), eq(devices.kind, "pos")));
       const agg = await db
         .select({ id: transactions.bankAccountId, kind: transactions.kind, total: sql<number>`sum(${transactions.amount})::float8`, rng: sql<number>`coalesce(sum(case when ${transactions.date} >= ${from} then ${transactions.amount} else 0 end),0)::float8` })
         .from(transactions).where(eq(transactions.businessId, business.id)).groupBy(transactions.bankAccountId, transactions.kind);
@@ -401,7 +402,11 @@ const reportBank = {
       };
       const rows = [calc(null, 0, "صندوق (نقدی)", "—", ""), ...accs.map((a) => calc(a.id, a.openingBalance, a.name, a.bank, a.accountNumber))];
       const recent = await db.select().from(transactions).where(eq(transactions.businessId, business.id)).orderBy(desc(transactions.date)).limit(25);
-      return J({ days, accounts: rows, total: rows.reduce((s, r) => s + r.balance, 0), recent: recent.map((t) => ({ ...t, accountName: rows.find((r) => r.id === t.bankAccountId)?.name ?? "صندوق (نقدی)" })) });
+      return J({ days, accounts: rows, total: rows.reduce((s, r) => s + r.balance, 0), recent: recent.map((t) => {
+        const terminal = posDevices.find((d) => d.id === t.posDeviceId);
+        const bank = rows.find((r) => r.id === t.bankAccountId);
+        return { ...t, accountName: terminal ? `کارتخوان — ${terminal.name}${terminal.terminalNumber ? ` (شماره ${terminal.terminalNumber})` : ""}${bank ? ` · ${bank.name}` : ""}` : bank?.name ?? "صندوق (نقدی)" };
+      }) });
     },
     { feature: "bank_report" },
   ),

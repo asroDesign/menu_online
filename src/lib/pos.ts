@@ -3,8 +3,9 @@ import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, devices, orders, posRequests } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
-import { queuePrintJobs, recordOrderEvents, refundCashback, settleOrder } from "@/lib/orders";
+import { queuePrintJobs, recordOrderEvents, refundCashback, settleCashierOrder, settleOrder } from "@/lib/orders";
 import type { FeatureMap } from "@/lib/plans";
+import { normalizeSettlementInput, type SettlementInput, type SettlementPlan } from "@/lib/order-settlement-core";
 
 type Biz = typeof businesses.$inferSelect;
 type Req = typeof posRequests.$inferSelect;
@@ -28,19 +29,44 @@ export async function expirePosRequests(bizId?: number) {
     .where(and(eq(posRequests.status, "pending"), lt(posRequests.createdAt, new Date(Date.now() - POS_TIMEOUT_MS)), bizId ? eq(posRequests.businessId, bizId) : undefined));
 }
 
-export async function createPosRequest(biz: Biz, orderId: number, deviceId?: number | null) {
-  const [o] = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id)));
-  if (!o) throw new HttpError(404, "سفارش پیدا نشد");
-  if (o.paymentStatus === "paid" || o.status === "canceled") throw new HttpError(400, "این سفارش پرداخت یا لغو شده است");
-  if (o.total < 1) throw new HttpError(400, "مبلغ سفارش صفر است");
-  await db.update(posRequests).set({ status: "canceled", detail: "جایگزین درخواست جدید شد", updatedAt: new Date() }).where(and(eq(posRequests.orderId, o.id), eq(posRequests.status, "pending"), isNull(posRequests.pickedAt)));
-  const [row] = await db.insert(posRequests).values({ businessId: biz.id, orderId: o.id, deviceId: deviceId ?? null, amount: o.total, token: randomBytes(12).toString("hex") }).returning();
-  return { req: row, orderNumber: o.number };
+export async function createPosRequest(biz: Biz, orderId: number, deviceId?: number | null, settlementInput?: SettlementInput) {
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    const [o] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.businessId, biz.id))).for("update");
+    if (!o) throw new HttpError(404, "سفارش پیدا نشد");
+    if (o.paymentStatus === "paid" || o.status === "canceled" || o.paymentBreakdown) throw new HttpError(400, "این سفارش قبلاً تسویه یا لغو شده است");
+    if (o.total < 1) throw new HttpError(400, "مبلغ سفارش صفر است");
+    let settlementPlan: SettlementPlan | null = null;
+    let amount = o.total;
+    const selectedDeviceId = deviceId ?? null;
+    if (settlementInput) {
+      settlementPlan = normalizeSettlementInput(settlementInput, o.total);
+      if (settlementPlan.posAmount < 1 || !settlementPlan.posDeviceId || settlementPlan.posDeviceId !== selectedDeviceId)
+        throw new HttpError(400, "مبلغ و دستگاه کارتخوان درخواست با برنامهٔ تسویه سازگار نیست");
+      const [device] = await tx.select({ id: devices.id }).from(devices).where(and(eq(devices.id, selectedDeviceId), eq(devices.businessId, biz.id), eq(devices.kind, "pos")));
+      if (!device) throw new HttpError(400, "دستگاه کارتخوان انتخاب‌شده معتبر نیست");
+      amount = settlementPlan.posAmount;
+    }
+    const pendingRequests = await tx.select().from(posRequests).where(and(
+      eq(posRequests.businessId, biz.id), eq(posRequests.orderId, o.id), eq(posRequests.status, "pending"),
+    )).for("update");
+    const duplicate = settlementPlan && pendingRequests.find((request) => request.settlementPlan?.idempotencyKey === settlementPlan?.idempotencyKey);
+    if (duplicate) return { req: duplicate, orderNumber: o.number };
+    if (pendingRequests.some((request) => request.pickedAt)) throw new HttpError(409, "برای این سفارش پرداختی روی کارتخوان در حال انجام است");
+    await tx.update(posRequests).set({ status: "canceled", detail: "جایگزین درخواست جدید شد", updatedAt: new Date() })
+      .where(and(eq(posRequests.orderId, o.id), eq(posRequests.status, "pending"), isNull(posRequests.pickedAt)));
+    const [row] = await tx.insert(posRequests).values({
+      businessId: biz.id, orderId: o.id, deviceId: selectedDeviceId, amount,
+      settlementPlan, token: randomBytes(12).toString("hex"),
+    }).returning();
+    return { req: row, orderNumber: o.number };
+  });
 }
 
 /** Terminal confirmed the payment (also valid late: after a timeout/cancel, money was already taken). */
 export async function approvePosRequest(biz: Biz, features: FeatureMap, r: Req, refNo: string) {
-  await settleOrder(biz, features, r.orderId, "pos", false, { reopen: true });
+  if (r.settlementPlan) await settleCashierOrder(biz, features, r.orderId, { ...r.settlementPlan, posRefNo: refNo.slice(0, 40) }, { reopen: true, actorType: "pos", posRequestId: r.id });
+  else await settleOrder(biz, features, r.orderId, "pos", false, { reopen: true });
   await db.update(posRequests).set({ status: "approved", refNo: refNo.slice(0, 40), detail: "", updatedAt: new Date() }).where(eq(posRequests.id, r.id));
 }
 

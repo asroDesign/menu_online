@@ -31,6 +31,7 @@ const devCrud = (feature: string, kinds: string[]) =>
     spec: {
       name: str(60, true),
       kind: { type: "enum", values: kinds },
+      ...(kinds.includes("pos") ? { terminalNumber: str(40) } : {}),
       lastValue: { type: "float", min: 0, max: 100000 },
       ...(kinds.includes("printer") ? { printerCategoryIds: { type: "json" as const } } : {}),
     },
@@ -352,13 +353,19 @@ export const registryA: Record<string, any> = {
     },
     decorate: async (rows, biz) => {
       const acc = await db.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts).where(eq(bankAccounts.businessId, biz.id));
+      const terminalIds = [...new Set(rows.map((r) => r.posDeviceId).filter((id): id is number => id != null))];
+      const terminals = terminalIds.length ? await db.select({ id: devices.id, name: devices.name, terminalNumber: devices.terminalNumber }).from(devices).where(and(eq(devices.businessId, biz.id), inArray(devices.id, terminalIds))) : [];
       const accounts = await loadAccounts(biz.id);
-      return rows.map((r) => ({
-        ...r,
-        accountName: acc.find((a) => a.id === r.bankAccountId)?.name ?? "صندوق (نقدی)",
-        accountMoeinName: accounts.find((a) => a.id === r.accountMoeinId)?.name ?? "",
-        accountTafsiliName: accounts.find((a) => a.id === r.accountTafsiliId)?.name ?? "",
-      }));
+      return rows.map((r) => {
+        const terminal = terminals.find((d) => d.id === r.posDeviceId);
+        const bank = acc.find((a) => a.id === r.bankAccountId);
+        return {
+          ...r,
+          accountName: terminal ? `کارتخوان — ${terminal.name}${terminal.terminalNumber ? ` (شماره ${terminal.terminalNumber})` : ""}${bank ? ` · ${bank.name}` : ""}` : bank?.name ?? "صندوق (نقدی)",
+          accountMoeinName: accounts.find((a) => a.id === r.accountMoeinId)?.name ?? "",
+          accountTafsiliName: accounts.find((a) => a.id === r.accountTafsiliId)?.name ?? "",
+        };
+      });
     },
   })),
 

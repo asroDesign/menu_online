@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  accAccounts, accDocuments, accFiscalYears, accLines, assets, bankAccounts, businesses, inventoryItems, orders, transactions,
+  accAccounts, accDocuments, accFiscalYears, accLines, assets, bankAccounts, businesses, devices, inventoryItems, orders, transactions,
 } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { fmtJ, jMonthRange, jYearRange, toJ, fromJ } from "@/lib/jalali";
@@ -487,11 +487,15 @@ async function payAccount(biz: Biz, method: string | null) {
   return bankDetailId(biz, null);
 }
 
-export function orderDocLines(o: OrderRow, payId: number, ids: Map<string, number>, cogs: number, earned: number): LineIn[] {
+export type OrderTenderLine = { accountId: number; amount: number; description: string };
+
+export function orderDocLines(o: OrderRow, payId: number, ids: Map<string, number>, cogs: number, earned: number, tenderLines?: OrderTenderLine[]): LineIn[] {
   const L: LineIn[] = [];
   const dr = (code: string, v: number, d = "") => v > 0 && L.push({ accountId: ids.get(code), debit: v, description: d });
   const cr = (code: string, v: number, d = "") => v > 0 && L.push({ accountId: ids.get(code), credit: v, description: d });
-  if (o.total > 0) L.push({ accountId: payId, debit: o.total, description: `دریافت وجه سفارش #${o.number}` });
+  if (tenderLines) {
+    for (const line of tenderLines) if (line.amount > 0) L.push({ accountId: line.accountId, debit: line.amount, description: line.description });
+  } else if (o.total > 0) L.push({ accountId: payId, debit: o.total, description: `دریافت وجه سفارش #${o.number}` });
   dr(C.CB_LIAB, o.cashbackUsed, "استفاده مشتری از اعتبار کش‌بک");
   dr(C.DISCOUNT, o.discountAmount, o.discountCode ? `کد تخفیف ${o.discountCode}` : "تخفیف");
   cr(C.SALES, o.subtotal, "فروش");
@@ -521,7 +525,10 @@ export async function postOrderSale(biz: Biz, o: OrderRow, cogs: number, earned:
 }
 
 /** Post an order sale using the caller's transaction so a failed journal rolls back settlement. */
-export async function postOrderSaleInTransaction(txInput: Q, biz: Biz, o: OrderRow, cogs: number, earned: number, receivable = false) {
+export async function postOrderSaleInTransaction(txInput: Q, biz: Biz, o: OrderRow, cogs: number, earned: number, receivable = false, settlement?: {
+  cashAmount: number; bankAmount: number; bankAccountId: number | null;
+  posAmount: number; posDeviceId: number | null; posBankAccountId: number | null; posRefNo?: string; creditAmount: number;
+}) {
   const tx = txInput as Q;
   await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
   const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
@@ -545,10 +552,49 @@ export async function postOrderSaleInTransaction(txInput: Q, biz: Biz, o: OrderR
       payId = detail.id;
     }
   }
+  let tenderLines: OrderTenderLine[] | undefined;
+  if (settlement) {
+    tenderLines = [];
+    const cashId = byCode.get(C.CASH)!.id;
+    if (settlement.cashAmount > 0) tenderLines.push({ accountId: cashId, amount: settlement.cashAmount, description: `دریافت نقدی سفارش #${o.number}` });
+    if (settlement.bankAmount > 0) {
+      const [bank] = await tx.select().from(bankAccounts).where(and(eq(bankAccounts.id, settlement.bankAccountId ?? 0), eq(bankAccounts.businessId, biz.id)));
+      if (!bank) throw new HttpError(400, "حساب بانکی دریافت معتبر نیست");
+      let detail = all.find((a) => a.refType === "bank" && a.refId === bank.id);
+      if (!detail) {
+        const parent = byCode.get(C.BANK)!;
+        const seq = all.filter((a) => a.parentId === parent.id).length + 1;
+        [detail] = await tx.insert(accAccounts).values({
+          businessId: biz.id, code: `${C.BANK}${String(seq).padStart(2, "0")}`, name: `بانک — ${bank.name}`,
+          level: "tafsili", parentId: parent.id, type: "asset", nature: "debit", refType: "bank", refId: bank.id, isSystem: true,
+        }).returning();
+        all.push(detail);
+      }
+      tenderLines.push({ accountId: detail.id, amount: settlement.bankAmount, description: `دریافت بانکی سفارش #${o.number} — ${bank.name}` });
+    }
+    if (settlement.posAmount > 0) {
+      const [device] = await tx.select().from(devices).where(and(eq(devices.id, settlement.posDeviceId ?? 0), eq(devices.businessId, biz.id), eq(devices.kind, "pos")));
+      if (!device) throw new HttpError(400, "دستگاه کارتخوان انتخاب‌شده معتبر نیست");
+      const [posBank] = await tx.select().from(bankAccounts).where(and(eq(bankAccounts.id, settlement.posBankAccountId ?? 0), eq(bankAccounts.businessId, biz.id)));
+      if (!posBank) throw new HttpError(400, "حساب بانکی متصل به کارتخوان معتبر نیست");
+      let detail = all.find((a) => a.refType === "pos" && a.refId === device.id);
+      if (!detail) {
+        const parent = byCode.get(C.BANK)!;
+        const seq = all.filter((a) => a.parentId === parent.id).length + 1;
+        [detail] = await tx.insert(accAccounts).values({
+          businessId: biz.id, code: `${C.BANK}${String(seq).padStart(2, "0")}`, name: `کارتخوان — ${device.name}${device.terminalNumber ? ` (شماره ${device.terminalNumber})` : ""} · ${posBank.name}`,
+          level: "tafsili", parentId: parent.id, type: "asset", nature: "debit", refType: "pos", refId: device.id, isSystem: true,
+        }).returning();
+        all.push(detail);
+      }
+      tenderLines.push({ accountId: detail.id, amount: settlement.posAmount, description: `دریافت کارتخوان سفارش #${o.number} — ${device.name}${device.terminalNumber ? ` (شماره ${device.terminalNumber})` : ""} · ${posBank.name}${settlement.posRefNo ? ` · پیگیری ${settlement.posRefNo}` : ""}` });
+    }
+    if (settlement.creditAmount > 0) tenderLines.push({ accountId: byCode.get(C.AR)!.id, amount: settlement.creditAmount, description: `مانده در دفتر بدهکاران سفارش #${o.number}` });
+  }
   return postDocumentInTransaction(tx, biz, {
     date: new Date(), source: "order", sourceRef: `order:${o.id}`,
     description: `فروش سفارش #${o.number}${o.customerName ? ` — ${o.customerName}` : ""}`,
-    lines: orderDocLines(o, payId, ids, cogs, earned),
+    lines: orderDocLines(o, payId, ids, cogs, earned, tenderLines),
   });
 }
 

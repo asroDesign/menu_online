@@ -39,7 +39,7 @@
 
 | مسیر | راهنما |
 |---|---|
-| `/dashboard/orders` | [modules/orders.md](modules/orders.md) — سفارش‌ها و آرشیو رسید |
+| `/dashboard/orders` | [modules/orders.md](modules/orders.md) — سفارش‌ها، آرشیو رسید و تسویهٔ تفکیکی نقد/بانک/POS/دریافتنی |
 | `/dashboard/suppliers` | [modules/suppliers.md](modules/suppliers.md) — تأمین‌کنندگان |
 | `/dashboard/kiosk` | [modules/kiosk.md](modules/kiosk.md) — تنظیم کیوسک |
 | `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون، دریافت و رسیدگی درخواست میز مشتری؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |

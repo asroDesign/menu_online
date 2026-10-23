@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { couriers, orders, pagers } from "@/db/schema";
 import { can, HttpError, readJson, requireFeature, withAuth } from "@/lib/auth";
-import { listOrders, queuePrintJobs, recordOrderEvents, refundCashback, settleOrder } from "@/lib/orders";
+import { listOrders, queuePrintJobs, recordOrderEvents, refundCashback } from "@/lib/orders";
 import { isManagerRole } from "@/lib/roles";
 
 const STATUSES = ["awaiting_payment", "pending", "preparing", "ready", "served", "paid", "canceled"];
@@ -21,14 +21,7 @@ export const PATCH = withAuth<{ id: string }>(
       return Response.json({ item });
     }
     if (existing.deletedAt) throw new HttpError(404, "سفارش پیدا نشد");
-    if (b.confirmPayment === true) {
-      if (!isManagerRole(auth.role) && auth.role !== "cashier") throw new HttpError(403, "تأیید دریافت وجه فقط برای مدیر و صندوقدار مجاز است");
-      if (existing.paymentMethod !== "card_to_card") throw new HttpError(409, "این سفارش برای تأیید کارت‌به‌کارت ثبت نشده است");
-      if (existing.status === "canceled") throw new HttpError(409, "سفارش لغوشده قابل تسویه نیست");
-      await settleOrder(business, auth.features, oid, "card_to_card", false, { actorId: auth.user.id, actorType: auth.role });
-      const [item] = await listOrders(business.id, { id: oid });
-      return Response.json({ item });
-    }
+    if (b.confirmPayment === true) throw new HttpError(409, "برای ثبت پرداخت، مبلغ نقدی، بانکی، کارتخوان و ماندهٔ بدهی را در فرم تسویه مشخص کنید");
     const set: Record<string, unknown> = { updatedAt: new Date() };
     if (b.revokeTracking === true) {
       if (!isManagerRole(auth.role)) throw new HttpError(403, "ابطال پیوند پیگیری فقط برای مدیر مجاز است");
@@ -36,7 +29,8 @@ export const PATCH = withAuth<{ id: string }>(
     }
     if (typeof b.status === "string") {
       if (!STATUSES.includes(b.status)) throw new HttpError(400, "وضعیت نامعتبر است");
-      if (b.status !== "paid") set.status = b.status;
+      if (b.status === "paid" && existing.paymentStatus !== "paid") throw new HttpError(409, "وضعیت پرداخت فقط پس از ثبت تفکیکی روش‌ها و مبالغ قابل تغییر است");
+      set.status = b.status;
     }
     if (typeof b.note === "string") set.note = b.note.slice(0, 300);
     if (typeof b.customerName === "string") set.customerName = b.customerName.slice(0, 80);
@@ -72,9 +66,6 @@ export const PATCH = withAuth<{ id: string }>(
     });
 
     const status = typeof b.status === "string" ? b.status : null;
-    if (status === "paid") {
-      await settleOrder(business, auth.features, oid, typeof b.paymentMethod === "string" ? b.paymentMethod : null, true, { actorId: auth.user.id, actorType: auth.role });
-    }
     if (status === "canceled") await refundCashback(business, oid);
     if (existing.status === "awaiting_payment" && status && !["awaiting_payment", "canceled", "paid"].includes(status)) await queuePrintJobs(business, oid, auth.features, false);
     if (can(auth, "foodcourt_pager") && status) {

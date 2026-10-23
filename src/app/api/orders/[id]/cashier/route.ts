@@ -1,17 +1,45 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { customers, orders, orderStatusEvents, receivables } from "@/db/schema";
-import { HttpError, readJson, withAuth } from "@/lib/auth";
+import { bankAccounts, customers, orders, orderStatusEvents, receivables } from "@/db/schema";
+import { HttpError, readJson, requireFeature, withAuth } from "@/lib/auth";
 import { ensureAccounting } from "@/lib/accounting";
-import { settleOrder, type OrderTransaction } from "@/lib/orders";
+import { settleCashierOrder, settleOrder, type OrderTransaction } from "@/lib/orders";
 import { parseCashierDebt } from "@/lib/cashier-debt-input";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { normalizeSettlementInput } from "@/lib/order-settlement-core";
+import { createPosRequest, posOnline } from "@/lib/pos";
 
 export const POST = withAuth<{ id: string }>(async (req, auth, { id }) => {
   await enforceRateLimit(req, "cashier-action", `${auth.business.id}:${auth.user.id}`, 30, 60_000);
   const body = await readJson(req, 8192);
   const orderId = Number(id);
   if (!Number.isSafeInteger(orderId) || orderId < 1) throw new HttpError(400, "سفارش معتبر نیست");
+  if (body.action === "settle") {
+    const [order] = await db.select().from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.businessId, auth.business.id)));
+    if (!order || order.deletedAt) throw new HttpError(404, "سفارش پیدا نشد");
+    const plan = normalizeSettlementInput(body.settlement, order.total);
+    if (plan.creditAmount > 0) {
+      try { plan.creditDetails = parseCashierDebt(plan.creditDetails ?? { name: order.customerName, phone: order.customerPhone }); }
+      catch (error) { throw new HttpError(400, (error as Error).message); }
+    }
+    for (const bankId of [...new Set([
+      ...(plan.bankAmount > 0 ? [plan.bankAccountId] : []),
+      ...(plan.posAmount > 0 ? [plan.posBankAccountId] : []),
+    ])]) {
+      const [bank] = await db.select({ id: bankAccounts.id }).from(bankAccounts)
+        .where(and(eq(bankAccounts.id, bankId ?? 0), eq(bankAccounts.businessId, auth.business.id)));
+      if (!bank) throw new HttpError(400, "حساب بانکی انتخاب‌شده معتبر نیست");
+    }
+    if (plan.posAmount > 0) {
+      requireFeature(auth, "tablet_pos");
+      if (!(await posOnline(auth.business.id, plan.posDeviceId))) throw new HttpError(503, "کارتخوان انتخاب‌شده در دسترس نیست؛ اتصال دستگاه را بررسی کنید");
+      const { req: posRequest, orderNumber } = await createPosRequest(auth.business, orderId, plan.posDeviceId, plan);
+      return Response.json({ ok: true, pendingPos: true, amount: posRequest.amount, orderNumber, requestId: posRequest.id });
+    }
+    const result = await settleCashierOrder(auth.business, auth.features, orderId, plan, { actorId: auth.user.id, actorType: auth.role });
+    return Response.json({ ok: true, paymentBreakdown: result.paymentBreakdown });
+  }
   if (body.action !== "confirm" && body.action !== "debt") throw new HttpError(400, "عملیات معتبر نیست");
   let details: ReturnType<typeof parseCashierDebt> | undefined;
   if (body.action === "debt") {

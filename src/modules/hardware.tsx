@@ -11,7 +11,7 @@ import type { Order, Product } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 /* ---------- generic device registry ---------- */
-type Device = { id: number; kind: string; name: string; code: string; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
+type Device = { id: number; kind: string; name: string; code: string; terminalNumber?: string; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
 const KIND: Record<string, string> = { tablet: "تبلت", pos: "دستگاه پوز", printer: "پرینتر ابری", scale: "ترازو", caller_id: "کالر آیدی", pager: "فرستنده‌ی پیجر" };
 const online = (d: Device) => !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() < 5 * 60_000;
 export const printerIsOnline = (lastSeenAt: string | null) => !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 5 * 60_000;
@@ -22,6 +22,9 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState(kinds[0]);
+  const [terminalNumber, setTerminalNumber] = useState("");
+  const [terminalNumbers, setTerminalNumbers] = useState<Record<number, string>>({});
+  const [savingTerminalId, setSavingTerminalId] = useState<number | null>(null);
   const [origin, setOrigin] = useState("");
   useEffect(() => {
     const frame = requestAnimationFrame(() => setOrigin(location.origin));
@@ -29,10 +32,21 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
   }, []);
   async function add() {
     if (!name.trim()) return;
-    try { await col.create({ name: name.trim(), kind }, { name: name.trim(), kind, code: "…", lastSeenAt: null, lastValue: 0 }); setName(""); setOpen(false); if (resource === "dev_printer") notifySetupSaved("printers"); toast("دستگاه اضافه شد"); } catch (e) { toast((e as Error).message, "error"); }
+    const payload = { name: name.trim(), kind, ...(kind === "pos" ? { terminalNumber: terminalNumber.trim() } : {}) };
+    try { await col.create(payload, { ...payload, code: "…", lastSeenAt: null, lastValue: 0 }); setName(""); setTerminalNumber(""); setOpen(false); if (resource === "dev_printer") notifySetupSaved("printers"); toast("دستگاه اضافه شد"); } catch (e) { toast((e as Error).message, "error"); }
   }
   async function ping(d: Device) {
     try { await api(`/api/device/${d.code}/ping`); col.reload(true); toast("ارتباط برقرار است "); } catch (e) { toast((e as Error).message, "error"); }
+  }
+  async function saveTerminalNumber(d: Device) {
+    const value = (terminalNumbers[d.id] ?? d.terminalNumber ?? "").trim();
+    setSavingTerminalId(d.id);
+    try {
+      await api(`/api/r/${resource}/${d.id}`, { method: "PATCH", body: { terminalNumber: value } });
+      col.reload(true);
+      toast("شمارهٔ ترمینال ذخیره شد");
+    } catch (e) { toast((e as Error).message, "error"); }
+    finally { setSavingTerminalId(null); }
   }
   return (
     <div className="mb-8">
@@ -41,9 +55,15 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{col.items.map((d) => (
           <Card key={d.id} className={cn("p-4 animate-pop", d.id < 0 && "opacity-60")}>
             <div className="flex items-start justify-between gap-2">
-              <div><p className="font-bold">{d.name}</p><p className="mt-0.5 text-xs text-stone-500">{KIND[d.kind]}</p></div>
+              <div><p className="font-bold">{d.name}</p><p className="mt-0.5 text-xs text-stone-500">{KIND[d.kind]}{d.kind === "pos" && d.terminalNumber ? ` · شماره ${d.terminalNumber}` : ""}</p></div>
               <Badge color={online(d) ? "emerald" : "stone"}>{online(d) ? "● آنلاین" : "○ آفلاین"}</Badge>
             </div>
+            {d.kind === "pos" && <div className="mt-3 flex items-end gap-2">
+              <Field label="شماره ترمینال پوز" className="min-w-0 flex-1">
+                <Input dir="ltr" inputMode="numeric" value={terminalNumbers[d.id] ?? d.terminalNumber ?? ""} onChange={(e) => setTerminalNumbers((current) => ({ ...current, [d.id]: e.target.value }))} placeholder="مثلاً ۱۲۳۴۵۶۷۸" />
+              </Field>
+              <Button size="sm" variant="secondary" disabled={savingTerminalId === d.id || (terminalNumbers[d.id] ?? d.terminalNumber ?? "").trim() === (d.terminalNumber ?? "")} loading={savingTerminalId === d.id} onClick={() => void saveTerminalNumber(d)}>ذخیره شماره</Button>
+            </div>}
             <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs"><span className="text-stone-500">کد اتصال: </span><code className="font-bold" dir="ltr">{d.code}</code></div>
             <p className="mt-2 break-all text-[11px] text-stone-400" dir="ltr">{origin}{hint ? hint(d) : `/api/device/${d.code}/ping`}</p>
             <p className="mt-2 text-[11px] text-stone-400">آخرین ارتباط: {d.lastSeenAt ? timeAgo(d.lastSeenAt) : "—"}</p>
@@ -57,7 +77,7 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
         ))}</div>
       )}</IconText>
       <Modal open={open} onClose={() => setOpen(false)} title="دستگاه جدید" size="sm" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button data-tour={resource === "dev_printer" ? "printer-save" : undefined} onClick={add} disabled={!name.trim()}>افزودن</Button></>}>
-        <div className="space-y-4"><Field label="نام دستگاه"><Input data-tour={resource === "dev_printer" ? "printer-name" : undefined} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="مثلاً پرینتر آشپزخانه" /></Field>{kinds.length > 1 && <Field label="نوع"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{kinds.map((k) => <option key={k} value={k}>{KIND[k]}</option>)}</Select></Field>}<p className="text-xs leading-6 text-stone-400">پس از افزودن، یک کد اتصال یکتا ساخته می‌شود.</p></div>
+        <div className="space-y-4"><Field label="نام دستگاه"><Input data-tour={resource === "dev_printer" ? "printer-name" : undefined} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder={kind === "pos" ? "مثلاً پوز صندوق اصلی" : "مثلاً پرینتر آشپزخانه"} /></Field>{kinds.length > 1 && <Field label="نوع"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{kinds.map((k) => <option key={k} value={k}>{KIND[k]}</option>)}</Select></Field>}{kind === "pos" && <Field label="شماره ترمینال پوز" hint="این شماره در تسویهٔ صندوق و سند حسابداری نمایش داده می‌شود."><Input dir="ltr" inputMode="numeric" value={terminalNumber} onChange={(e) => setTerminalNumber(e.target.value)} placeholder="مثلاً ۱۲۳۴۵۶۷۸" /></Field>}<p className="text-xs leading-6 text-stone-400">پس از افزودن، یک کد اتصال یکتا ساخته می‌شود.</p></div>
       </Modal>
     </div>
   );

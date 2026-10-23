@@ -17,6 +17,7 @@ import {
 import { sql } from "drizzle-orm";
 import type { ProductOptionGroup, ProductOptionSnapshot } from "@/lib/product-options";
 import type { MembershipOrderSnapshot } from "@/lib/membership-core";
+import type { PaymentBreakdown, SettlementPlan } from "@/lib/order-settlement-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -329,6 +330,7 @@ export const orders = pgTable(
   cashbackEarned: integer("cashback_earned").notNull().default(0),
   paymentMethod: text("payment_method"),
   paymentStatus: text("payment_status").notNull().default("unpaid"),
+  paymentBreakdown: jsonb("payment_breakdown").$type<PaymentBreakdown | null>(),
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   cogs: integer("cogs").notNull().default(0),
@@ -899,6 +901,7 @@ export const transactions = pgTable(
     orderId: integer("order_id"),
     shiftId: integer("shift_id").references(() => cashShifts.id, { onDelete: "set null" }),
     settlementMethod: text("settlement_method"),
+    posDeviceId: integer("pos_device_id").references(() => devices.id, { onDelete: "set null" }),
     sourceRef: text("source_ref"),
     description: text("description").notNull().default(""),
     date: timestamp("date", { withTimezone: true }).notNull().defaultNow(),
@@ -960,6 +963,7 @@ export const devices = pgTable("devices", {
   kind: text("kind").notNull(), // tablet | pos | printer | scale | caller_id
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
+  terminalNumber: text("terminal_number").notNull().default(""),
   printerCategoryIds: jsonb("printer_category_ids").$type<number[]>().notNull().default([]),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   lastValue: doublePrecision("last_value").notNull().default(0),
@@ -1254,6 +1258,7 @@ export const posRequests = pgTable(
     refNo: text("ref_no").notNull().default(""),
     token: text("token").notNull().default(""),
     detail: text("detail").notNull().default(""),
+    settlementPlan: jsonb("settlement_plan").$type<SettlementPlan | null>(),
     pickedAt: timestamp("picked_at", { withTimezone: true }),
     createdAt: created(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

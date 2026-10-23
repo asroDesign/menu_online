@@ -97,6 +97,7 @@ export type Order = {
   scheduledFor: string | null;
   paymentMethod: string | null;
   paymentStatus: string;
+  paymentBreakdown?: import("@/lib/order-settlement-core").PaymentBreakdown | null;
   lat: number | null;
   lng: number | null;
   cogs: number;
