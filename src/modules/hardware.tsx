@@ -87,6 +87,7 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
             <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs"><span className="text-stone-500">کد اتصال: </span><code className="font-bold" dir="ltr">{d.code}</code></div>
             <p className="mt-2 break-all text-[11px] text-stone-400" dir="ltr">{origin}{hint ? hint(d) : `/api/device/${d.code}/ping`}</p>
             <p className="mt-2 text-[11px] text-stone-400">{d.kind === "printer" || d.kind === "pager" ? "آخرین آزمون واقعی:" : "آخرین ارتباط:"} {d.lastSeenAt ? timeAgo(d.lastSeenAt) : "—"}</p>
+            {d.kind === "printer" && <p className="mt-1 text-[11px] leading-5 text-stone-500">چاپ آزمایشی این صفحه از صف ابری انجام می‌شود؛ چاپ تستی داخل اپ ویندوز به‌تنهایی دستگاه را در پنل آنلاین نمی‌کند.</p>}
             {content?.(d)}
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">
               <Button size="sm" variant="secondary" onClick={() => ping(d)} disabled={d.id < 0 || testingId === d.id} loading={testingId === d.id}>{d.kind === "printer" ? "چاپ آزمایشی واقعی" : d.kind === "pager" ? "تست اتصال واقعی" : "تست اتصال"}</Button>

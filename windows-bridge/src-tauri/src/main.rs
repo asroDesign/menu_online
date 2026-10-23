@@ -168,6 +168,26 @@ fn test_local_printer(code: String, state: State<'_, AppState>) -> Result<String
 }
 
 #[tauri::command]
+fn test_cloud_printer(code: String, state: State<'_, AppState>) -> Result<String, String> {
+    let raw = fs::read_to_string(&state.config_path)
+        .map_err(|_| "ابتدا تنظیمات پرینتر را وارد و ذخیره کنید".to_string())?;
+    let config: BridgeConfig = serde_json::from_str(&raw)
+        .map_err(|e| format!("فایل تنظیمات خوانده نشد: {e}"))?;
+    let device = config.devices.iter().find(|device| device.code == code && device.kind == "printer")
+        .ok_or_else(|| "پرینتر در تنظیمات ذخیره‌شده پیدا نشد؛ تنظیمات را دوباره ذخیره کنید".to_string())?;
+    match bridge::test_cloud_connection(&config.server, device) {
+        Ok(message) => {
+            (state.logger())(format!("[{}] ارتباط ابری پرینتر تأیید شد: {message}", device.code));
+            Ok(message)
+        }
+        Err(error) => {
+            (state.logger())(format!("[{}] تست ارتباط با پنل ناموفق بود: {error}", device.code));
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 fn stop_bridge(state: State<'_, AppState>) -> Result<Status, String> {
     if let Ok(mut current) = state.running.lock() {
         if let Some(flag) = current.take() {
@@ -239,6 +259,7 @@ fn main() {
             import_config,
             start_bridge,
             test_local_printer,
+            test_cloud_printer,
             stop_bridge,
             clear_logs,
             set_autostart

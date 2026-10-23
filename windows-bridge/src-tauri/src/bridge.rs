@@ -159,7 +159,7 @@ fn poll_printer(client: &Client, server: &str, device: &DeviceConfig, log: &LogS
     let result = api(client, server, device, "jobs", None)?;
     let jobs: Vec<PrintJob> = serde_json::from_value(result.get("jobs").cloned().unwrap_or_else(|| json!([])))
         .map_err(|e| format!("صف چاپ نامعتبر است: {e}"))?;
-    if jobs.is_empty() && last_queue_status_log.as_ref().map_or(true, |last| last.elapsed() >= Duration::from_secs(30)) {
+    if jobs.is_empty() && last_queue_status_log.as_ref().map_or(true, |last| last.elapsed() >= Duration::from_secs(8)) {
         log(format!("[{}] اتصال واقعی چاپگر و سرور برقرار است؛ صف چاپ خالی است. برای چاپ، سفارش یا تست چاپ ایجاد کنید.", device.code));
         *last_queue_status_log = Some(Instant::now());
     } else if !jobs.is_empty() {
@@ -225,6 +225,26 @@ fn poll_pager(client: &Client, server: &str, device: &DeviceConfig, log: &LogSin
 
 fn report_connection(client: &Client, server: &str, device: &DeviceConfig, connected: bool) -> Result<(), String> {
     api(client, server, device, "ping", Some(json!({"connected": connected}))).map(|_| ())
+}
+
+/// Separately verifies the local printer and the cloud heartbeat path without claiming print jobs.
+pub fn test_cloud_connection(server: &str, device: &DeviceConfig) -> Result<String, String> {
+    if device.kind != "printer" {
+        return Err("تست ارتباط پنل فقط برای پرینتر است".to_string());
+    }
+    probe_printer(device).map_err(|error| format!("پرینتر محلی آماده نیست: {error}"))?;
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()
+        .map_err(|error| format!("ساخت ارتباط با پنل ناموفق بود: {error}"))?;
+    report_connection(&client, server, device, true)
+        .map_err(|error| format!("پرینتر محلی آماده است، اما heartbeat به پنل نرسید: {error}"))?;
+    let status = api(&client, server, device, "ping", None)
+        .map_err(|error| format!("heartbeat ارسال شد، اما خواندن وضعیت پنل ناموفق بود: {error}"))?;
+    let online = status.get("online").and_then(Value::as_bool).unwrap_or(false);
+    let age_ms = status.get("probeAgeMs").and_then(Value::as_u64);
+    if !online || age_ms.map_or(true, |age| age > 5_000) {
+        return Err("پرینتر محلی آماده است، اما پنل heartbeat تازه را تأیید نکرد؛ نشانی سرور یا کد اتصال را بررسی کنید".to_string());
+    }
+    Ok("پرینتر محلی آماده است و ارتباط با پنل تأیید شد؛ این آزمون هیچ کاری را از صف چاپ دریافت نمی‌کند".to_string())
 }
 
 fn probe_printer(device: &DeviceConfig) -> Result<(), String> {
@@ -624,8 +644,32 @@ fn print_windows_driver(_name: &str, _content: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{local_test_receipt, probe_tcp};
-    use std::{net::TcpListener, thread};
+    use super::{local_test_receipt, probe_tcp, test_cloud_connection, DeviceConfig};
+    use std::{io::{Read, Write}, net::{TcpListener, TcpStream}, thread, time::Duration};
+
+    fn read_http_request(stream: &mut TcpStream) -> String {
+        stream.set_read_timeout(Some(Duration::from_secs(3))).expect("set mock timeout");
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 1024];
+        loop {
+            let count = stream.read(&mut chunk).expect("read mock request");
+            if count == 0 { break; }
+            bytes.extend_from_slice(&chunk[..count]);
+            let text = String::from_utf8_lossy(&bytes);
+            if let Some(header_end) = text.find("\r\n\r\n") {
+                let content_length = text[..header_end].lines()
+                    .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length: ").and_then(|v| v.parse::<usize>().ok()))
+                    .unwrap_or(0);
+                if bytes.len() >= header_end + 4 + content_length { break; }
+            }
+        }
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    fn reply_json(stream: &mut TcpStream, body: &str) {
+        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
+            .expect("write mock response");
+    }
 
     #[test]
     fn tcp_probe_succeeds_only_when_a_listener_accepts_connections() {
@@ -653,5 +697,39 @@ mod tests {
         assert!(receipt.contains("چاپ آزمایشی منوپیک"));
         assert!(receipt.contains("پرینتر: Kitchen Printer"));
         assert!(receipt.contains("کد دستگاه: printer01"));
+    }
+
+    #[test]
+    fn cloud_printer_test_posts_and_reads_heartbeat_without_claiming_jobs() {
+        let printer = TcpListener::bind(("127.0.0.1", 0)).expect("bind mock printer");
+        let printer_address = printer.local_addr().expect("read printer address");
+        let printer_probe = thread::spawn(move || printer.accept().expect("accept printer probe"));
+        let server = TcpListener::bind(("127.0.0.1", 0)).expect("bind mock API");
+        let server_address = server.local_addr().expect("read API address");
+        let mock_api = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = server.accept().expect("accept API request");
+                requests.push(read_http_request(&mut stream));
+                let body = if requests.len() == 1 { "{\"ok\":true,\"online\":true}" } else { "{\"ok\":true,\"online\":true,\"probeAgeMs\":3}" };
+                reply_json(&mut stream, body);
+            }
+            requests
+        });
+        let device = DeviceConfig {
+            code: "printer-test".to_string(), kind: "printer".to_string(), transport: "tcp".to_string(),
+            name: None, host: Some(printer_address.ip().to_string()), port: Some(printer_address.port()),
+            path: None, baud: None, vendor_id: None, product_id: None, printer_name: None, print_mode: None,
+            encoding: None, request: None, response_end: None, weight_regex: None, weight_unit: None, factor: None, format: None,
+        };
+
+        let result = test_cloud_connection(&format!("http://{server_address}"), &device)
+            .expect("cloud path should be confirmed");
+        assert!(result.contains("ارتباط با پنل تأیید شد"));
+        let _ = printer_probe.join().expect("printer probe should succeed");
+        let requests = mock_api.join().expect("mock API should complete");
+        assert!(requests[0].starts_with("POST /api/device/printer-test/ping HTTP/1.1"));
+        assert!(requests[1].starts_with("GET /api/device/printer-test/ping HTTP/1.1"));
+        assert!(requests.iter().all(|request| !request.contains("/jobs")));
     }
 }

@@ -16,10 +16,25 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 }
 
+function printerCloudState(code, logs, running) {
+  if (!running) return { label: "عامل متوقف", className: "offline" };
+  const events = (logs || []).map((line) => {
+    const match = String(line).match(/^(\d+)\s+\[([^\]]+)\]\s+(.*)$/);
+    return match && match[2] === code ? { at: Number(match[1]), message: match[3] } : null;
+  }).filter((event) => event && (
+    /خطا:|ناموفق|تست ارتباط با پنل ناموفق/.test(event.message) ||
+    /اتصال واقعی چاپگر و سرور برقرار است|کار چاپ از صف سرور دریافت شد|ارتباط ابری پرینتر تأیید شد/.test(event.message)
+  ));
+  const latest = events.at(-1);
+  if (!latest || Date.now() / 1000 - latest.at > 15) return { label: "بدون heartbeat تازه", className: "offline" };
+  if (/خطا:|ناموفق|تست ارتباط با پنل ناموفق/.test(latest.message)) return { label: "خطای ارتباط", className: "error" };
+  return { label: "آنلاین با پنل", className: "online" };
+}
+
 function renderStatus(data) {
   const state = byId("state");
-  state.className = `state ${data.running ? "online" : "offline"}`;
-  state.innerHTML = `<i></i>${data.running ? "در حال اتصال" : "متوقف"}`;
+  state.className = `state ${data.running ? "active" : "offline"}`;
+  state.innerHTML = `<i></i>${data.running ? "عامل محلی فعال" : "عامل متوقف"}`;
   byId("start").disabled = data.running;
   byId("stop").disabled = !data.running;
   byId("config-path").textContent = data.configPath || "";
@@ -33,8 +48,10 @@ function renderStatus(data) {
   byId("devices").innerHTML = devices.length ? devices.map((device) => {
     const names = { printer: "پرینتر", scale: "ترازو", pager: "پیجر", pos: "کارتخوان" };
     const transport = { tcp: "شبکه", serial: "USB-سریال", usb: device.kind === "printer" ? "صف چاپ Windows" : "USB مستقیم HID" };
-    const testButton = device.kind === "printer" ? `<button class="device-test" type="button" data-test-printer="${escapeHtml(device.code)}">چاپ آزمایشی محلی</button>` : "";
-    return `<div class="device"><span class="device-icon">${device.kind === "scale" ? "kg" : device.kind === "printer" ? "PR" : "••"}</span><div class="device-copy"><strong>${escapeHtml(device.name || names[device.kind] || device.kind)}</strong><span>${escapeHtml(device.code)} · ${escapeHtml(transport[device.transport] || device.transport || "")}</span></div>${testButton}<i class="device-status"></i></div>`;
+    const health = device.kind === "printer" ? printerCloudState(device.code, data.logs, data.running) : null;
+    const status = health ? `<span class="device-status ${health.className}">${health.label}</span>` : `<span class="device-status ${data.running ? "active" : "offline"}">${data.running ? "عامل فعال" : "متوقف"}</span>`;
+    const testButtons = device.kind === "printer" ? `<div class="device-actions"><button class="device-test" type="button" data-test-printer="${escapeHtml(device.code)}">چاپ آزمایشی محلی</button><button class="device-test cloud" type="button" data-test-cloud="${escapeHtml(device.code)}">تست ارتباط با پنل</button></div>` : "";
+    return `<div class="device"><span class="device-icon">${device.kind === "scale" ? "kg" : device.kind === "printer" ? "PR" : "••"}</span><div class="device-copy"><strong>${escapeHtml(device.name || names[device.kind] || device.kind)}</strong><span>${escapeHtml(device.code)} · ${escapeHtml(transport[device.transport] || device.transport || "")}</span></div>${status}${testButtons}</div>`;
   }).join("") : "هنوز تنظیماتی وارد نشده است.";
 
   const logs = data.logs || [];
@@ -68,15 +85,16 @@ byId("start").addEventListener("click", async () => {
   catch (error) { toast(String(error), true); }
 });
 byId("devices").addEventListener("click", async (event) => {
-  const target = event.target instanceof Element ? event.target.closest("[data-test-printer]") : null;
+  const target = event.target instanceof Element ? event.target.closest("[data-test-printer], [data-test-cloud]") : null;
   if (!target) return;
   const button = target;
-  const code = button.getAttribute("data-test-printer");
+  const cloudTest = button.hasAttribute("data-test-cloud");
+  const code = button.getAttribute(cloudTest ? "data-test-cloud" : "data-test-printer");
   if (!code || button.disabled) return;
   button.disabled = true;
-  button.textContent = "در حال ارسال…";
+  button.textContent = cloudTest ? "در حال بررسی…" : "در حال چاپ…";
   try {
-    const message = await invoke("test_local_printer", { code });
+    const message = await invoke(cloudTest ? "test_cloud_printer" : "test_local_printer", { code });
     toast(message);
     await refresh();
   } catch (error) {

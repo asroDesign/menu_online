@@ -490,7 +490,7 @@ export const registryA: Record<string, any> = {
         if (requestedId && !ps.length) throw new HttpError(404, "پرینتر متعلق به این کسب‌وکار نیست");
         if (!ps.length) throw new HttpError(400, "ابتدا یک پرینتر ابری اضافه کنید");
         const online = ps.filter((printer) => printer.lastSeenAt && printer.lastSeenAt > freshSince);
-        if (!online.length) throw new HttpError(409, "عامل محلی هیچ پرینتر فعالی را در ۱۵ ثانیه‌ی اخیر تأیید نکرده است؛ اتصال و صف چاپگر را بررسی کنید");
+        if (!online.length) throw new HttpError(409, "عامل محلی هیچ پرینتر فعالی را در ۱۵ ثانیه‌ی اخیر تأیید نکرده است؛ اپ Windows باید با همین کد اتصال و نشانی همین پنل در حال اجرا باشد. چاپ تستی محلی به‌تنهایی heartbeat پنل را ثبت نمی‌کند.");
         const content = receiptText(business, { number: 0, type: "dine_in", tableName: "تست", customerName: "", note: "چاپ آزمایشی", total: 0, items: [{ name: "آیتم آزمایشی", quantity: 1, price: 0 }] });
         const rows = await db.insert(printJobs).values(online.map((p) => ({ businessId: business.id, deviceId: p.id, content }))).returning();
         return Response.json({ item: rows[0], items: rows }, { status: 201 });

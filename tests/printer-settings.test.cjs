@@ -119,9 +119,9 @@ test('Windows bridge distinguishes an empty cloud queue from a stopped worker an
   assert.match(bridge, /چاپ آزمایشی منوپیک/);
   assert.match(main, /fn test_local_printer\(code: String/);
   assert.match(main, /bridge::send_test_print\(device\)/);
-  assert.match(ui, /invoke\("test_local_printer", \{ code \}\)/);
+  assert.match(ui, /invoke\(cloudTest \? "test_cloud_printer" : "test_local_printer", \{ code \}\)/);
   assert.match(ui, /data-test-printer/);
-  assert.match(html, /شروع اتصال فقط صف سرور را بررسی می‌کند/);
+  assert.match(html, /چاپ محلی، پرینتر را بدون سرور می‌آزماید/);
 });
 
 test('USB Windows printers can use the installed driver for Persian text while retaining explicit RAW ESC-POS mode', () => {
@@ -139,4 +139,25 @@ test('USB Windows printers can use the installed driver for Persian text while r
   assert.match(hardware, /printMode: c\.printMode/);
   assert.match(hardware, /value="raw">RAW \/ ESC-POS/);
   assert.match(readme, /درایور نصب‌شده‌ی Windows/);
+});
+
+test('Windows bridge reports cloud heartbeat separately from local printer testing', () => {
+  const bridge = source('windows-bridge/src-tauri/src/bridge.rs');
+  const main = source('windows-bridge/src-tauri/src/main.rs');
+  const ui = source('windows-bridge/ui/app.js');
+  const html = source('windows-bridge/ui/index.html');
+  const registry = source('src/lib/registry-a.ts');
+
+  assert.match(bridge, /pub fn test_cloud_connection\(server: &str, device: &DeviceConfig\)/);
+  assert.match(bridge, /report_connection\(&client, server, device, true\)/);
+  assert.match(bridge, /let status = api\(&client, server, device, "ping", None\)/);
+  assert.match(bridge, /cloud_printer_test_posts_and_reads_heartbeat_without_claiming_jobs/);
+  assert.match(main, /fn test_cloud_printer\(code: String/);
+  assert.match(main, /bridge::test_cloud_connection\(&config\.server, device\)/);
+  assert.match(ui, /invoke\(cloudTest \? "test_cloud_printer" : "test_local_printer"/);
+  assert.match(ui, /بدون heartbeat تازه/);
+  assert.match(ui, /عامل محلی فعال/);
+  assert.match(ui, /تست ارتباط با پنل/);
+  assert.match(html, /برای آنلاین‌شدن در پنل/);
+  assert.match(registry, /چاپ تستی محلی به‌تنهایی heartbeat پنل را ثبت نمی‌کند/);
 });
