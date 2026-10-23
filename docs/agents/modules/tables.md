@@ -5,17 +5,17 @@
 ## جایگاه و دسترسی
 
 - مسیر پنل: `/dashboard/tables`
-- کامپوننت/منبع فعلی: `src/modules/tables.tsx — Tables و src/components/table-manager.tsx`
+- کامپوننت/منبع فعلی: `src/modules/tables.tsx — Tables`، `src/components/table-manager.tsx` و `src/components/table-qr-designer.tsx`
 - entitlement تعرفه: `self_order + cashier_pos`
 - هدف: تعریف سالن/زون، میز و QR اختصاصی و نمایش وضعیت اشغال.
 
 ## رابط و جریان کار
 
-میزها با polling ده‌ثانیه‌ای به تفکیک zone؛ افزودن/ویرایش/حذف میز و زون؛ نمایش آزاد، اشغال، رزرو، نظافت یا خارج از سرویس؛ نمایش سفارش جاری؛ تغییر وضعیت عملیاتی و ثبت علت؛ تولید/چاپ QR اختصاصی هر میز؛ پیوند منوی عمومی میز.
+میزها با polling ده‌ثانیه‌ای به تفکیک zone؛ افزودن/ویرایش/حذف میز و زون؛ نمایش آزاد، اشغال، رزرو، نظافت یا خارج از سرویس؛ نمایش سفارش جاری؛ تغییر وضعیت عملیاتی و ثبت علت؛ تولید/چاپ QR اختصاصی هر میز؛ پیوند منوی عمومی میز. در مودال QR، مدیر قاب، رنگ‌ها، عنوان، راهنما، اندازه و حاشیهٔ ایمنی QR را زنده ویرایش می‌کند، لینک را کپی یا QR برداری را دانلود می‌کند و کارت نهایی را در اندازهٔ A6 چاپ می‌کند.
 
 ## داده و API
 
-GET/CRUD /api/tables؛ `POST /api/tables/:id/status` برای transition عملیاتی؛ DELETE میز با قفل سطر و بررسی سفارش/رزرو؛ GET /api/business برای slug؛ CRUD زون طبق /api/r/zones (جزئیات در TableManager). QR route `/m/:slug?table=:id`.
+GET/CRUD /api/tables؛ `POST /api/tables/:id/status` برای transition عملیاتی؛ DELETE میز با قفل سطر و بررسی سفارش/رزرو؛ GET /api/business برای slug و تنظیمات؛ PATCH `/api/business` با `settings.tableQr` برای ذخیرهٔ طرح مشترک QRهای کسب‌وکار؛ CRUD زون طبق /api/r/zones (جزئیات در TableManager). QR route `/m/:slug?table=:id`.
 
 ## قواعدی که بازنویسی باید حفظ کند
 
@@ -31,9 +31,16 @@ GET/CRUD /api/tables؛ `POST /api/tables/:id/status` برای transition عمل�
 
 مدل هر میز `id,name,zone,capacity,operationalStatus,status,hasActiveReservation,openOrder` است. status مؤثر با اولویت operational-status، سفارش باز، رزرو جاری و سپس available محاسبه می‌شود. `openOrder` شماره/status/total سفارش فعال را می‌آورد. داده `/api/tables` هر ۱۰ ثانیه poll می‌شود و کسب‌وکار برای slug از `/api/business` خوانده می‌شود. گروه‌های zone از مقادیر موجود میزها ساخته می‌شوند؛ افزودن میز نام پیشنهادی «میز N»، zone پیش‌فرض موجود یا «سالن اصلی» و capacity برابر ۴ دارد. ذخیره نام اجباری است و capacity عدد فارسی normalize می‌شود.
 
-هر کارت میز ظرفیت، وضعیت مؤثر، خلاصه order و actionهای QR/status/edit/delete دارد. مسیرهای وضعیت کاربر: available→cleaning/out_of_service، cleaning→available/out_of_service و out_of_service→available؛ علت خروج از سرویس اجباری است. statusهای occupied/reserved فقط نمایشی و مشتق هستند. QR value دقیقاً `${origin}/m/${slug}?table=${id}` است؛ modal QR شامل copy link و چاپ یک برگه با عنوان میز، متن راهنما، QR و URL است. حذف confirm می‌کند که QR چاپ‌شده از کار می‌افتد و server هم order/reservation فعال را چک می‌کند. zone با input/datalist است، نه resource مستقل در این صفحه.
+هر کارت میز ظرفیت، وضعیت مؤثر، خلاصه order و actionهای QR/status/edit/delete دارد. مسیرهای وضعیت کاربر: available→cleaning/out_of_service، cleaning→available/out_of_service و out_of_service→available؛ علت خروج از سرویس اجباری است. statusهای occupied/reserved فقط نمایشی و مشتق هستند. QR value دقیقاً `${origin}/m/${slug}?table=${id}` است و باید برای هر میز حفظ شود. مودال QR از `TableQrDesigner` استفاده می‌کند: پنج قاب امضای برند/مینیمال/بلیتی/نرم/کلاسیک؛ سه رنگ شش‌رقمی؛ عنوان و متن راهنما؛ اندازه‌های ۱۸۰ تا ۳۰۰ پیکسل؛ حاشیهٔ امن ۲ تا ۸؛ نمایش اختیاری نام میز و URL؛ پیش‌نمایش زنده؛ کپی لینک؛ دانلود SVG خود QR؛ چاپ کارت A6 قاب‌دار. کد QR با تصحیح خطای H ساخته می‌شود و رنگ کم‌کنتراست/نامعتبر هنگام ذخیره یا خواندن به رنگ پرکنتراست پیش‌فرض برمی‌گردد. تنظیم `tableQr` در `business.settings` ذخیره می‌شود و برای QR همهٔ میزها مشترک است؛ تغییرات در حافظهٔ مرورگر به‌تنهایی پایدار محسوب نمی‌شوند. ذخیره‌سازی از cleaner تنظیمات کسب‌وکار عبور می‌کند و frame/color/text/size/quiet-zone را محدود می‌سازد. حذف confirm می‌کند که QR چاپ‌شده از کار می‌افتد و server هم order/reservation فعال را چک می‌کند. zone با input/datalist است، نه resource مستقل در این صفحه.
 
 **پذیرش:** گروه با نام zone، میز اشغال‌شده با ring متفاوت، شناسه منفی optimistic بدون امکان QR، QR را روی دامنه/slug درست بساز، popup-blocked/error clipboard را graceful کن؛ refresh/poll unmount cleanup داشته باشد.
+
+## ویرایشگر حرفه‌ای QR — ۲۰۲۶-۱۰-۲۳
+
+- جایگزین مودال سادهٔ QR شد: `src/components/table-qr-designer.tsx` کارت را همراه با پیش‌نمایش زنده و پنل کنترل واکنش‌گرا طراحی می‌کند.
+- طرح در `business.settings.tableQr` نگهداری می‌شود؛ migration لازم نیست. API کسب‌وکار کلید تنظیم را در allowlist می‌شناسد و ورودی را با `normalizeTableQrDesign` محدود می‌کند.
+- QR همان URL قبلی هر میز است. تنظیم قاب فقط ارائهٔ چاپی را تغییر می‌دهد و مقصد اسکن را دستکاری نمی‌کند.
+- `tests/table-qr-designer.test.cjs` نرمال‌سازی تنظیمات، رد رنگ نامعتبر/کم‌کنتراست، محدودیت ورودی و قراردادهای ذخیره و کنترل‌ها را پوشش می‌دهد.
 
 ## چرخه عملیاتی میز — ۲۰۲۶-۱۰-۱۹
 

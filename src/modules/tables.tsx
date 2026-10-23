@@ -1,21 +1,24 @@
 "use client";
 
-import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, useCollection } from "@/lib/api";
 import { formatPrice, toFa } from "@/lib/format";
 import type { DiningTable } from "@/lib/types";
+import { TableQrDesigner } from "@/components/table-qr-designer";
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, PageHeader, Skeleton, cn, useToast,
  EmojiIcon, IconText} from "@/components/ui";
 import { StatusBadge } from "@/components/status-badge";
 import { DEFAULT_BRAND_COLOR, normalizeBrandColor } from "@/lib/brand-color";
+import { DEFAULT_TABLE_QR_DESIGN, normalizeTableQrDesign, type TableQrDesign } from "@/lib/table-qr-design";
 
 export default function TablesPage() {
   const tables = useCollection<DiningTable>("/api/tables", { poll: 10000 });
   const toast = useToast();
   const [slug, setSlug] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [accentColor, setAccentColor] = useState(DEFAULT_BRAND_COLOR);
+  const [qrDesign, setQrDesign] = useState<TableQrDesign>(DEFAULT_TABLE_QR_DESIGN);
   const [origin, setOrigin] = useState("");
   const [editing, setEditing] = useState<DiningTable | "new" | null>(null);
   const [form, setForm] = useState({ name: "", zone: "سالن اصلی", capacity: "4" });
@@ -23,13 +26,15 @@ export default function TablesPage() {
   const [qr, setQr] = useState<DiningTable | null>(null);
   const [statusTarget, setStatusTarget] = useState<{ table: DiningTable; status: "available" | "cleaning" | "out_of_service" } | null>(null);
   const [statusReason, setStatusReason] = useState("");
-  const qrRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setOrigin(location.origin); // eslint-disable-line react-hooks/set-state-in-effect
-    api<{ item: { slug: string; accentColor: string } }>("/api/business").then((r) => {
+    api<{ item: { name: string; slug: string; accentColor: string; settings?: Record<string, unknown> } }>("/api/business").then((r) => {
+      setBusinessName(r.item.name);
       setSlug(r.item.slug);
-      setAccentColor(normalizeBrandColor(r.item.accentColor) ?? DEFAULT_BRAND_COLOR);
+      const color = normalizeBrandColor(r.item.accentColor) ?? DEFAULT_BRAND_COLOR;
+      setAccentColor(color);
+      setQrDesign(r.item.settings?.tableQr ? normalizeTableQrDesign(r.item.settings.tableQr) : { ...DEFAULT_TABLE_QR_DESIGN, frameColor: color });
     });
   }, []);
 
@@ -83,13 +88,10 @@ export default function TablesPage() {
     }
   }
 
-  function printQr() {
-    const svg = qrRef.current?.querySelector("svg")?.outerHTML;
-    if (!svg || !qr) return;
-    const w = window.open("", "_blank", "width=500,height=700");
-    if (!w) return toast("پنجره چاپ مسدود شد", "error");
-    w.document.write(`<html dir="rtl"><head><title>QR ${qr.name}</title><style>body{font-family:Tahoma,sans-serif;text-align:center;padding:40px}svg{width:300px;height:300px}h1{margin:0 0 4px}p{color:#555}.b{border:3px dashed ${accentColor};border-radius:24px;padding:32px;display:inline-block}</style></head><body><div class="b"><h1>${qr.name}</h1><p>برای مشاهده منو و ثبت سفارش اسکن کنید</p>${svg}<p dir="ltr" style="font-size:11px">${link(qr)}</p></div><script>window.onload=()=>{window.print()}<\/script></body></html>`);
-    w.document.close();
+  async function saveQrDesign(design: TableQrDesign) {
+    await api("/api/business", { method: "PATCH", body: { settings: { tableQr: design } } });
+    setQrDesign(design);
+    toast("طرح QR برای همهٔ میزها ذخیره شد");
   }
 
   return (
@@ -178,27 +180,10 @@ export default function TablesPage() {
         open={!!qr}
         onClose={() => setQr(null)}
         title={qr ? `QR کد ${qr.name}` : ""}
-        size="sm"
-        footer={
-          qr && (
-            <>
-              <Button variant="secondary" onClick={() => navigator.clipboard.writeText(link(qr)).then(() => toast("لینک کپی شد"))}><Icon name="copy" className="size-4" /> کپی لینک</Button>
-              <Button onClick={printQr}><Icon name="print" className="size-4" /> چاپ</Button>
-            </>
-          )
-        }
+        size="xl"
+        footer={<Button variant="ghost" onClick={() => setQr(null)}>بستن ادیتور</Button>}
       >
-        {qr && (
-          <div className="text-center">
-            <div ref={qrRef} className="mx-auto inline-block rounded-3xl border-2 border-dashed border-brand-300 bg-white p-5">
-              <QRCodeSVG value={link(qr)} size={220} level="M" marginSize={0} fgColor="#1c1917" />
-            </div>
-            <p className="mt-4 text-sm text-stone-600">مشتری با اسکن این کد، منوی <b>{qr.name}</b> را باز می‌کند.</p>
-            <a href={link(qr)} target="_blank" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:underline" dir="ltr">
-              {link(qr)} <Icon name="external" className="size-3.5" />
-            </a>
-          </div>
-        )}
+        {qr && <TableQrDesigner key={qr.id} tableName={qr.name} businessName={businessName} url={link(qr)} accentColor={accentColor} initialDesign={qrDesign} onSave={saveQrDesign} />}
       </Modal>
 
       <ConfirmDialog open={!!deleting} title="حذف میز" message={deleting ? `«${deleting.name}» حذف می‌شود. QR چاپ‌شده این میز دیگر کار نمی‌کند.` : ""} onConfirm={() => deleting && del(deleting)} onClose={() => setDeleting(null)} />

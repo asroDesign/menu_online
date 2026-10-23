@@ -12,6 +12,7 @@ import { cleanMenuPromoBanners } from "@/lib/menu-banners";
 import { normalizePrinterSettings, validatePrinterSelection } from "@/lib/printer-policy";
 import { isMenuTemplate } from "@/lib/menu-templates";
 import { normalizeCustomerRewards } from "@/lib/customer-rewards-core";
+import { normalizeTableQrDesign } from "@/lib/table-qr-design";
 
 function publicBiz<T extends { settings: unknown }>(b: T): T {
   const st = { ...((b.settings ?? {}) as Record<string, unknown>) };
@@ -70,6 +71,7 @@ const SETTING_FEATURE: Record<string, string | null> = {
   orderWorkflowPreset: "cashier_pos",
   printerSettings: "cloud_printer",
   membershipTiers: "loyalty",
+  tableQr: null,
 };
 
 const s = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -79,6 +81,8 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
   switch (key) {
     case "menuTemplate":
       return isMenuTemplate(v) ? v : "classic";
+    case "tableQr":
+      return normalizeTableQrDesign(v);
     case "promoBanners":
       return cleanMenuPromoBanners(v);
     case "miniSite": {
