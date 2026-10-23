@@ -86,13 +86,12 @@ export default function OrdersPage() {
   const [revokingTracking, setRevokingTracking] = useState<Order | null>(null);
   const [workflowPreset, setWorkflowPreset] = useState<1 | 2 | 3 | 4>(4);
   const [settlementOrder, setSettlementOrder] = useState<Order | null>(null);
-  const [settlementOptions, setSettlementOptions] = useState<{ banks: { id: number; name: string; bank: string }[]; posDevices: { id: number; name: string; terminalNumber: string; online: boolean }[] }>({ banks: [], posDevices: [] });
+  const [settlementOptions, setSettlementOptions] = useState<{ banks: { id: number; name: string; bank: string }[]; posDevices: { id: number; name: string; terminalNumber: string; settlementBankAccountId: number | null; bankName: string; cashierEnabled: boolean; kioskEnabled: boolean; online: boolean }[] }>({ banks: [], posDevices: [] });
   const [cashAmount, setCashAmount] = useState("0");
   const [bankAmount, setBankAmount] = useState("0");
   const [bankAccountId, setBankAccountId] = useState("");
   const [posAmount, setPosAmount] = useState("0");
   const [posDeviceId, setPosDeviceId] = useState("");
-  const [posBankAccountId, setPosBankAccountId] = useState("");
   const [allowDebt, setAllowDebt] = useState(false);
   const [debtorName, setDebtorName] = useState("");
   const [debtorPhone, setDebtorPhone] = useState("");
@@ -154,9 +153,12 @@ export default function OrdersPage() {
 
   const selected = orders.items.find((o) => o.id === selectedId) ?? null;
   const unpaidOrders = useMemo(() => orders.items.filter((o) => !o.deletedAt && o.status !== "canceled" && o.paymentStatus === "unpaid"), [orders.items]);
+  const cashierPosDevices = useMemo(() => settlementOptions.posDevices.filter((device) => device.cashierEnabled && device.settlementBankAccountId), [settlementOptions.posDevices]);
   const collectedNow = Number(cashAmount || 0) + Number(bankAmount || 0) + Number(posAmount || 0);
   const debtRemainder = settlementOrder ? settlementOrder.total - collectedNow : 0;
-  const settlementInvalid = debtRemainder < 0 || (debtRemainder > 0 && !allowDebt) || (Number(bankAmount || 0) > 0 && !bankAccountId) || (Number(posAmount || 0) > 0 && (!posDeviceId || !posBankAccountId));
+  const defaultCashierPosDevice = cashierPosDevices.find((device) => device.online) ?? cashierPosDevices[0];
+  const selectedPosDevice = cashierPosDevices.find((device) => String(device.id) === posDeviceId) ?? defaultCashierPosDevice;
+  const settlementInvalid = debtRemainder < 0 || (debtRemainder > 0 && !allowDebt) || (Number(bankAmount || 0) > 0 && !bankAccountId) || (Number(posAmount || 0) > 0 && (!selectedPosDevice?.online || !selectedPosDevice.settlementBankAccountId));
 
   function openSettlement(o: Order, complete = false) {
     setSelectedId(null);
@@ -166,8 +168,7 @@ export default function OrdersPage() {
     setBankAmount(String(bankPrefill));
     setBankAccountId(String(settlementOptions.banks[0]?.id ?? ""));
     setPosAmount("0");
-    setPosDeviceId(String(settlementOptions.posDevices.find((device) => device.online)?.id ?? ""));
-    setPosBankAccountId("");
+    setPosDeviceId(String(defaultCashierPosDevice?.id ?? ""));
     setAllowDebt(false);
     setDebtorName(o.customerName || "");
     setDebtorPhone(o.customerPhone || "");
@@ -200,8 +201,8 @@ export default function OrdersPage() {
       bankAmount: bank,
       bankAccountId: bankAccountId ? Number(bankAccountId) : null,
       posAmount: pos,
-      posDeviceId: posDeviceId ? Number(posDeviceId) : null,
-      posBankAccountId: posBankAccountId ? Number(posBankAccountId) : null,
+      posDeviceId: selectedPosDevice?.id ?? null,
+      posBankAccountId: selectedPosDevice?.settlementBankAccountId ?? null,
       allowDebt,
       creditDetails: remaining > 0 ? { name: debtorName, phone: debtorPhone, type: "person", companyName: "", dueAt: null, description: debtDescription } : null,
       idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `order-${settlementOrder.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -567,19 +568,16 @@ export default function OrdersPage() {
             {feat.has("tablet_pos") && <Field label="مبلغ کارتخوان (تومان)" hint="فقط همین مبلغ به دستگاه انتخاب‌شده فرستاده می‌شود.">
               <AmountInput value={posAmount} onValueChange={setPosAmount} placeholder="۰" aria-label="مبلغ کارتخوان" />
             </Field>}
-            {feat.has("tablet_pos") && Number(posAmount || 0) > 0 && <Field label="دستگاه کارتخوان">
-              <Select required value={posDeviceId} onChange={(event) => setPosDeviceId(event.target.value)}>
+            {feat.has("tablet_pos") && Number(posAmount || 0) > 0 && <Field label="دستگاه کارتخوان" hint="دستگاه پیش‌فرض صندوق انتخاب شده؛ می‌توانید آن را تغییر دهید.">
+              <Select required value={String(selectedPosDevice?.id ?? "")} onChange={(event) => {
+                const nextId = event.target.value;
+                setPosDeviceId(nextId);
+              }}>
                 <option value="">انتخاب کارتخوان متصل</option>
-                {settlementOptions.posDevices.map((device) => <option key={device.id} value={device.id} disabled={!device.online}>{device.name}{device.terminalNumber ? ` · شماره ${device.terminalNumber}` : ""}{device.online ? " — آنلاین" : " — آفلاین"}</option>)}
+                {cashierPosDevices.map((device) => <option key={device.id} value={device.id} disabled={!device.online}>{device.name}{device.terminalNumber ? ` · شماره ${device.terminalNumber}` : ""}{device.online ? " — آنلاین" : " — آفلاین"}</option>)}
               </Select>
-              {!settlementOptions.posDevices.some((device) => device.online) && <span className="mt-1 block text-[11px] text-amber-700">کارتخوان آنلاین پیدا نشد. پس از اتصال عامل کارتخوان، دوباره تلاش کنید.</span>}
-            </Field>}
-            {feat.has("tablet_pos") && Number(posAmount || 0) > 0 && <Field label="حساب بانکی تسویهٔ کارتخوان">
-              <Select required value={posBankAccountId} onChange={(event) => setPosBankAccountId(event.target.value)}>
-                <option value="">حساب بانکی مقصد پوز را انتخاب کنید</option>
-                {settlementOptions.banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bank ? `${bank.bank} — ` : ""}{bank.name}</option>)}
-              </Select>
-              {settlementOptions.banks.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">برای تسویهٔ کارتخوان ابتدا در بخش <Link className="font-bold underline" href="/dashboard/bank">مدیریت بانک</Link> یک حساب تعریف کنید.</span>}
+              {cashierPosDevices.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">کارتخوانی به صندوق سفارش و حساب بانکی متصل نشده است. تنظیمات را در بخش <Link className="font-bold underline" href="/dashboard/devices">تبلت و پوز</Link> تکمیل کنید.</span>}
+              {cashierPosDevices.length > 0 && !cashierPosDevices.some((device) => device.online) && <span className="mt-1 block text-[11px] text-amber-700">کارتخوان صندوق آنلاین نیست؛ اتصال عامل کارتخوان را بررسی کنید.</span>}
             </Field>}
           </div>
 

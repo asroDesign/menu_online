@@ -31,20 +31,37 @@ const devCrud = (feature: string, kinds: string[]) =>
     spec: {
       name: str(60, true),
       kind: { type: "enum", values: kinds },
-      ...(kinds.includes("pos") ? { terminalNumber: str(40) } : {}),
+      ...(kinds.includes("pos") ? {
+        terminalNumber: str(40),
+        settlementBankAccountId: { type: "nullableInt" as const, min: 1 },
+        cashierEnabled: { type: "bool" as const },
+        kioskEnabled: { type: "bool" as const },
+      } : {}),
       lastValue: { type: "float", min: 0, max: 100000 },
       ...(kinds.includes("printer") ? { printerCategoryIds: { type: "json" as const } } : {}),
     },
-    validate: async (biz, data) => {
-      if (!("printerCategoryIds" in data)) return;
-      if (!kinds.includes("printer")) throw new HttpError(400, "تنظیم دسته‌بندی فقط برای پرینتر مجاز است");
-      if (!Array.isArray(data.printerCategoryIds) || data.printerCategoryIds.length > 100) throw new HttpError(400, "دسته‌بندی‌های چاپ نامعتبر است");
-      const ids = [...new Set(data.printerCategoryIds.map(Number))];
-      if (ids.some((id) => !Number.isInteger(id) || id < 0)) throw new HttpError(400, "شناسه‌ی دسته‌بندی نامعتبر است");
-      const categoryIds = ids.filter((id) => id > 0);
-      const rows = categoryIds.length ? await db.select({ id: categories.id }).from(categories).where(and(eq(categories.businessId, biz.id), inArray(categories.id, categoryIds))) : [];
-      if (rows.length !== categoryIds.length) throw new HttpError(400, "یکی از دسته‌بندی‌ها متعلق به این رستوران نیست");
-      data.printerCategoryIds = ids;
+    validate: async (biz, data, _auth, _creating, id) => {
+      if ("printerCategoryIds" in data) {
+        if (!kinds.includes("printer")) throw new HttpError(400, "تنظیم دسته‌بندی فقط برای پرینتر مجاز است");
+        if (!Array.isArray(data.printerCategoryIds) || data.printerCategoryIds.length > 100) throw new HttpError(400, "دسته‌بندی‌های چاپ نامعتبر است");
+        const ids = [...new Set(data.printerCategoryIds.map(Number))];
+        if (ids.some((value) => !Number.isInteger(value) || value < 0)) throw new HttpError(400, "شناسه‌ی دسته‌بندی نامعتبر است");
+        const categoryIds = ids.filter((value) => value > 0);
+        const rows = categoryIds.length ? await db.select({ id: categories.id }).from(categories).where(and(eq(categories.businessId, biz.id), inArray(categories.id, categoryIds))) : [];
+        if (rows.length !== categoryIds.length) throw new HttpError(400, "یکی از دسته‌بندی‌ها متعلق به این رستوران نیست");
+        data.printerCategoryIds = ids;
+      }
+      if (["kind", "settlementBankAccountId", "cashierEnabled", "kioskEnabled"].some((key) => key in data)) {
+        const [current] = id ? await db.select({ kind: devices.kind, settlementBankAccountId: devices.settlementBankAccountId, cashierEnabled: devices.cashierEnabled, kioskEnabled: devices.kioskEnabled })
+          .from(devices).where(and(eq(devices.id, id), eq(devices.businessId, biz.id))) : [];
+        const kind = String(data.kind ?? current?.kind ?? kinds[0]);
+        const bankId = "settlementBankAccountId" in data ? data.settlementBankAccountId : current?.settlementBankAccountId;
+        const cashierEnabled = "cashierEnabled" in data ? data.cashierEnabled : current?.cashierEnabled ?? false;
+        const kioskEnabled = "kioskEnabled" in data ? data.kioskEnabled : current?.kioskEnabled ?? false;
+        if (kind !== "pos" && (cashierEnabled || kioskEnabled || bankId)) throw new HttpError(400, "تنظیم حساب تسویه فقط برای دستگاه پوز مجاز است");
+        if ((cashierEnabled || kioskEnabled) && !bankId) throw new HttpError(400, "برای فعال‌کردن پوز، حساب بانکی تسویه را انتخاب کنید");
+        if (bankId) await owns(bankAccounts, bankId, biz.id, "حساب بانکی تسویه متعلق به این کسب‌وکار نیست");
+      }
     },
   });
 

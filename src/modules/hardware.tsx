@@ -11,7 +11,8 @@ import type { Order, Product } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal, PageHeader, Select, Skeleton, Switch, cn, useToast, iconGlyph, EmojiIcon, IconText} from "@/components/ui";
 
 /* ---------- generic device registry ---------- */
-type Device = { id: number; kind: string; name: string; code: string; terminalNumber?: string; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
+type Device = { id: number; kind: string; name: string; code: string; terminalNumber?: string; settlementBankAccountId?: number | null; cashierEnabled?: boolean; kioskEnabled?: boolean; lastSeenAt: string | null; lastValue: number; printerCategoryIds?: number[] };
+type SettlementBank = { id: number; name: string; bank: string };
 const KIND: Record<string, string> = { tablet: "تبلت", pos: "دستگاه پوز", printer: "پرینتر ابری", scale: "ترازو", caller_id: "کالر آیدی", pager: "فرستنده‌ی پیجر" };
 const online = (d: Device) => !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() < 5 * 60_000;
 export const printerIsOnline = (lastSeenAt: string | null) => !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 5 * 60_000;
@@ -23,13 +24,18 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
   const [name, setName] = useState("");
   const [kind, setKind] = useState(kinds[0]);
   const [terminalNumber, setTerminalNumber] = useState("");
-  const [terminalNumbers, setTerminalNumbers] = useState<Record<number, string>>({});
-  const [savingTerminalId, setSavingTerminalId] = useState<number | null>(null);
+  const [settlementBanks, setSettlementBanks] = useState<SettlementBank[]>([]);
   const [origin, setOrigin] = useState("");
   useEffect(() => {
     const frame = requestAnimationFrame(() => setOrigin(location.origin));
     return () => cancelAnimationFrame(frame);
   }, []);
+  useEffect(() => {
+    if (resource !== "dev_tablet") return;
+    let live = true;
+    api<{ banks: SettlementBank[] }>("/api/orders/settlement-options").then((result) => { if (live) setSettlementBanks(result.banks); }).catch(() => {});
+    return () => { live = false; };
+  }, [resource]);
   async function add() {
     if (!name.trim()) return;
     const payload = { name: name.trim(), kind, ...(kind === "pos" ? { terminalNumber: terminalNumber.trim() } : {}) };
@@ -37,16 +43,6 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
   }
   async function ping(d: Device) {
     try { await api(`/api/device/${d.code}/ping`); col.reload(true); toast("ارتباط برقرار است "); } catch (e) { toast((e as Error).message, "error"); }
-  }
-  async function saveTerminalNumber(d: Device) {
-    const value = (terminalNumbers[d.id] ?? d.terminalNumber ?? "").trim();
-    setSavingTerminalId(d.id);
-    try {
-      await api(`/api/r/${resource}/${d.id}`, { method: "PATCH", body: { terminalNumber: value } });
-      col.reload(true);
-      toast("شمارهٔ ترمینال ذخیره شد");
-    } catch (e) { toast((e as Error).message, "error"); }
-    finally { setSavingTerminalId(null); }
   }
   return (
     <div className="mb-8">
@@ -58,12 +54,7 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
               <div><p className="font-bold">{d.name}</p><p className="mt-0.5 text-xs text-stone-500">{KIND[d.kind]}{d.kind === "pos" && d.terminalNumber ? ` · شماره ${d.terminalNumber}` : ""}</p></div>
               <Badge color={online(d) ? "emerald" : "stone"}>{online(d) ? "● آنلاین" : "○ آفلاین"}</Badge>
             </div>
-            {d.kind === "pos" && <div className="mt-3 flex items-end gap-2">
-              <Field label="شماره ترمینال پوز" className="min-w-0 flex-1">
-                <Input dir="ltr" inputMode="numeric" value={terminalNumbers[d.id] ?? d.terminalNumber ?? ""} onChange={(e) => setTerminalNumbers((current) => ({ ...current, [d.id]: e.target.value }))} placeholder="مثلاً ۱۲۳۴۵۶۷۸" />
-              </Field>
-              <Button size="sm" variant="secondary" disabled={savingTerminalId === d.id || (terminalNumbers[d.id] ?? d.terminalNumber ?? "").trim() === (d.terminalNumber ?? "")} loading={savingTerminalId === d.id} onClick={() => void saveTerminalNumber(d)}>ذخیره شماره</Button>
-            </div>}
+            {d.kind === "pos" && <PosDeviceSettings key={d.id} device={d} resource={resource} banks={settlementBanks} onSaved={() => col.reload(true)} />}
             <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs"><span className="text-stone-500">کد اتصال: </span><code className="font-bold" dir="ltr">{d.code}</code></div>
             <p className="mt-2 break-all text-[11px] text-stone-400" dir="ltr">{origin}{hint ? hint(d) : `/api/device/${d.code}/ping`}</p>
             <p className="mt-2 text-[11px] text-stone-400">آخرین ارتباط: {d.lastSeenAt ? timeAgo(d.lastSeenAt) : "—"}</p>
@@ -81,6 +72,53 @@ function DevicePanel({ resource, kinds, extra, content, hint }: { resource: stri
       </Modal>
     </div>
   );
+}
+
+function PosDeviceSettings({ device, resource, banks, onSaved }: { device: Device; resource: string; banks: SettlementBank[]; onSaved: () => void }) {
+  const toast = useToast();
+  const [terminalNumber, setTerminalNumber] = useState(device.terminalNumber ?? "");
+  const [bankId, setBankId] = useState(String(device.settlementBankAccountId ?? ""));
+  const [cashierEnabled, setCashierEnabled] = useState(device.cashierEnabled ?? false);
+  const [kioskEnabled, setKioskEnabled] = useState(device.kioskEnabled ?? false);
+  const [busy, setBusy] = useState(false);
+  const needsBank = cashierEnabled || kioskEnabled;
+  async function save() {
+    if (needsBank && !bankId) { toast("برای اتصال پوز یک حساب تسویه انتخاب کنید", "error"); return; }
+    setBusy(true);
+    try {
+      await api(`/api/r/${resource}/${device.id}`, { method: "PATCH", body: {
+        terminalNumber: terminalNumber.trim(),
+        settlementBankAccountId: bankId ? Number(bankId) : null,
+        cashierEnabled,
+        kioskEnabled,
+      } });
+      onSaved();
+      toast("تنظیمات پوز ذخیره شد");
+    } catch (e) { toast((e as Error).message, "error"); }
+    finally { setBusy(false); }
+  }
+  const dirty = terminalNumber.trim() !== (device.terminalNumber ?? "")
+    || bankId !== String(device.settlementBankAccountId ?? "")
+    || cashierEnabled !== (device.cashierEnabled ?? false)
+    || kioskEnabled !== (device.kioskEnabled ?? false);
+  return <div className="mt-3 space-y-3 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
+    <p className="text-xs font-bold text-sky-950">تنظیم مقصد و محل استفاده</p>
+    <div className="grid gap-2 sm:grid-cols-2">
+      <Field label="شماره ترمینال پوز"><Input dir="ltr" inputMode="numeric" value={terminalNumber} onChange={(e) => setTerminalNumber(e.target.value)} placeholder="مثلاً ۱۲۳۴۵۶۷۸" /></Field>
+      <Field label="حساب بانکی تسویهٔ این پوز">
+        <Select value={bankId} onChange={(e) => setBankId(e.target.value)}>
+          <option value="">انتخاب حساب بانکی</option>
+          {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bank ? `${bank.bank} — ` : ""}{bank.name}</option>)}
+        </Select>
+        {banks.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">ابتدا حساب بانکی را در <Link className="font-bold underline" href="/dashboard/bank">مدیریت بانک</Link> بسازید.</span>}
+      </Field>
+    </div>
+    <div className="grid gap-2 sm:grid-cols-2">
+      <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2"><span className="text-xs font-semibold">صندوق سفارش</span><Switch checked={cashierEnabled} onChange={setCashierEnabled} label="اتصال به صندوق سفارش" /></div>
+      <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2"><span className="text-xs font-semibold">کیوسک</span><Switch checked={kioskEnabled} onChange={setKioskEnabled} label="اتصال به کیوسک" /></div>
+    </div>
+    <div className="flex items-center justify-between gap-2"><p className="text-[11px] leading-5 text-stone-500">حساب بانکی و کانال انتخاب‌شده در تسویهٔ خودکار استفاده می‌شوند.</p><Button size="sm" variant="secondary" disabled={!dirty || busy || (needsBank && !bankId)} loading={busy} onClick={() => void save()}>ذخیره تنظیمات</Button></div>
+  </div>;
 }
 
 /* ---------- couriers ---------- */

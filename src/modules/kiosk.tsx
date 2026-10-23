@@ -39,10 +39,10 @@ export default function Kiosk() {
   const [orig, setOrig] = useState("");
   const [origin, setOrigin] = useState("");
   const [busy, setBusy] = useState(false);
-  const [posDevs, setPosDevs] = useState<{ id: number; name: string; code: string; kind: string; lastSeenAt: string | null }[]>([]);
+  const [posDevs, setPosDevs] = useState<{ id: number; name: string; terminalNumber: string; bankName: string; kioskEnabled: boolean; settlementBankAccountId: number | null; online: boolean; lastSeenAt: string | null }[]>([]);
   const [now, setNow] = useState(0);
   useEffect(() => {
-    const load = () => api<{ items: typeof posDevs }>("/api/r/dev_tablet").then((r) => { setPosDevs(r.items.filter((d) => d.kind === "pos")); setNow(Date.now()); }).catch(() => {});
+    const load = () => api<{ posDevices: typeof posDevs }>("/api/orders/settlement-options").then((r) => { setPosDevs(r.posDevices.filter((d) => d.kioskEnabled && d.settlementBankAccountId)); setNow(Date.now()); }).catch(() => {});
     load();
     const t = setInterval(load, 10000);
     return () => clearInterval(t);
@@ -57,17 +57,20 @@ export default function Kiosk() {
     });
   }, []);
   if (!biz || !cfg) return <Skeleton className="h-96 rounded-2xl" />;
+  const currentCfg = cfg;
   const url = `${origin}/kiosk/${biz.slug}`;
   const ipgOk = !!(biz.settings.ipg?.merchantId) && f.has("ipg");
   const posOk = f.has("tablet_pos");
-  const sel = posDevs.find((d) => d.id === cfg.posDeviceId);
+  const selectedPosId = posDevs.some((device) => device.id === cfg.posDeviceId) ? cfg.posDeviceId : posDevs.find((device) => device.online)?.id ?? posDevs[0]?.id;
+  const sel = posDevs.find((d) => d.id === selectedPosId);
   const live = (d: { lastSeenAt: string | null }) => !!d.lastSeenAt && now - new Date(d.lastSeenAt).getTime() < 45_000;
   const anyLive = (sel ? [sel] : posDevs).some(live);
   async function save() {
     setBusy(true);
-    try { await api("/api/business", { method: "PATCH", body: { settings: { kiosk: cfg } } }); setOrig(JSON.stringify(cfg)); toast("تنظیمات کیوسک ذخیره شد"); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(false); }
+    const next = { ...currentCfg, ...(currentCfg.allowPos ? { posDeviceId: selectedPosId } : {}) };
+    try { await api("/api/business", { method: "PATCH", body: { settings: { kiosk: next } } }); setCfg(next); setOrig(JSON.stringify(next)); toast("تنظیمات کیوسک ذخیره شد"); } catch (e) { toast((e as Error).message, "error"); } finally { setBusy(false); }
   }
-  const set = (p: Partial<typeof cfg>) => setCfg({ ...cfg, ...p });
+  const set = (p: Partial<typeof currentCfg>) => setCfg({ ...currentCfg, ...p });
   return (
     <div className="animate-fade-in pb-20">
       <PageHeader title="سفارش‌گیر کیوسک" subtitle="صفحه‌ی لمسی خودسفارش‌دهی؛ مشتری سفارش می‌دهد و در صندوق (یا آنلاین) پرداخت می‌کند، سفارش مستقیم به آشپزخانه می‌رسد" actions={<a href={url} target="_blank"><Button><Icon name="external" className="size-4" /> باز کردن کیوسک</Button></a>} />
@@ -95,15 +98,16 @@ export default function Kiosk() {
             <div className={cn("rounded-xl bg-stone-50 px-4 py-3", !posOk && "opacity-60")}>
               <div className="flex items-center justify-between gap-3">
                 <div><span className="text-sm font-medium"><IconText>{<EmojiIcon emoji="" />}</IconText> پرداخت با دستگاه کارتخوان (ارسال خودکار مبلغ)</span><p className="mt-0.5 text-[11px] leading-5 text-stone-500">پس از تأیید سفارش، مبلغ خودکار به کارتخوان می‌رود و مشتری فقط کارت می‌زند.</p></div>
-                <Switch checked={!!cfg.allowPos && posOk} disabled={!posOk} onChange={(v) => set({ allowPos: v })} label="کارتخوان" />
+                <Switch checked={!!cfg.allowPos && posOk} disabled={!posOk || posDevs.length === 0} onChange={(v) => set({ allowPos: v, ...(v && selectedPosId ? { posDeviceId: selectedPosId } : {}) })} label="کارتخوان" />
               </div>
               {cfg.allowPos && posOk && (
                 <div className="mt-3 space-y-2 border-t border-stone-200 pt-3">
                   {posDevs.length === 0 ? (
-                    <p className="rounded-lg bg-amber-50 p-3 text-xs leading-6 text-amber-800">هنوز دستگاه پوزی تعریف نشده. در «تبلت و پوز» یک دستگاه از نوع «دستگاه پوز» بسازید و برنامه‌ی پل را روی رایانه‌ی صندوق اجرا کنید. <Link href="/dashboard/devices" className="font-bold underline">رفتن به تبلت و پوز</Link></p>
+                    <p className="rounded-lg bg-amber-50 p-3 text-xs leading-6 text-amber-800">هنوز پوزی به کیوسک و حساب بانکی متصل نشده. در تنظیمات هر کارتخوان، کانال «کیوسک» و حساب تسویه را فعال کنید. <Link href="/dashboard/devices" className="font-bold underline">رفتن به تنظیمات پوز</Link></p>
                   ) : (
                     <>
-                      <Field label="دستگاه کارتخوان این کیوسک"><Select value={String(cfg.posDeviceId ?? "")} onChange={(e) => set({ posDeviceId: e.target.value ? Number(e.target.value) : undefined })}><option value="">هر دستگاه پوز متصل</option>{posDevs.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.code}){live(d) ? " — آنلاین" : " — آفلاین"}</option>)}</Select></Field>
+                      {posDevs.length > 1 && <Field label="پوز متصل به کیوسک"><Select value={String(selectedPosId ?? "")} onChange={(e) => set({ posDeviceId: e.target.value ? Number(e.target.value) : undefined })}>{posDevs.map((d) => <option key={d.id} value={d.id}>{d.name}{d.terminalNumber ? ` · شماره ${d.terminalNumber}` : ""}{d.bankName ? ` · ${d.bankName}` : ""}{live(d) ? " — آنلاین" : " — آفلاین"}</option>)}</Select></Field>}
+                      {posDevs.length === 1 && sel && <p className="text-xs text-stone-600">پوز متصل: <b>{sel.name}</b>{sel.terminalNumber ? ` · شماره ${sel.terminalNumber}` : ""}{sel.bankName ? ` · ${sel.bankName}` : ""}</p>}
                       <p className={cn("rounded-lg p-3 text-xs font-semibold", anyLive ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700")}>{anyLive ? "● برنامه‌ی پل متصل است؛ گزینه‌ی کارتخوان در کیوسک نمایش داده می‌شود." : "○ برنامه‌ی پل متصل نیست؛ تا زمان اتصال، گزینه‌ی کارتخوان در کیوسک غیرفعال است."}</p>
                     </>
                   )}

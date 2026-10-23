@@ -47,7 +47,7 @@ test('orders page records tender breakdown and ordinary status API cannot mark u
   assert.match(page, /ثبت پرداخت/);
   assert.match(page, /action: "settle"/);
   assert.match(page, /ثبت باقیمانده در دفتر بدهکاران/);
-  assert.match(cashier, /createPosRequest\(auth\.business, orderId, plan\.posDeviceId, plan\)/);
+  assert.match(cashier, /createPosRequest\(auth\.business, orderId, plan\.posDeviceId, plan, "cashier"\)/);
   assert.match(route, /b\.status === "paid" && existing\.paymentStatus !== "paid"/);
   assert.match(accounting, /refType: "pos"/);
   assert.match(accounting, /مانده در دفتر بدهکاران سفارش/);
@@ -55,17 +55,22 @@ test('orders page records tender breakdown and ordinary status API cannot mark u
   assert.match(report, /کارتخوان — \$\{terminal\.name\}/);
 });
 
-test('cashier POS choices and accounting use the terminal number without exposing the device token', () => {
+test('cashier POS settings bind a settlement bank and use the terminal number without exposing its connection token', () => {
   const options = source('src/app/api/orders/settlement-options/route.ts');
   const hardware = source('src/modules/hardware.tsx');
   const accounting = source('src/lib/accounting.ts');
   const ledger = source('src/lib/registry-a.ts');
   const migration = source('src/db/migrations/0046_order_tender_settlement.sql');
-  assert.match(hardware, /label="شماره ترمینال پوز"/);
-  assert.match(hardware, /saveTerminalNumber/);
-  assert.match(hardware, /method: "PATCH", body: \{ terminalNumber: value \}/);
+  assert.match(hardware, /حساب بانکی تسویهٔ این پوز/);
+  assert.match(hardware, /cashierEnabled/);
+  assert.match(hardware, /kioskEnabled/);
+  assert.match(hardware, /settlementBankAccountId: bankId \? Number\(bankId\) : null/);
   assert.match(options, /terminalNumber: devices\.terminalNumber/);
   assert.doesNotMatch(options, /code: devices\.code/);
+  assert.match(options, /requireFeature\(auth, \["cashier_pos", "tablet_pos"\]\)/);
+  assert.match(options, /settlementBankAccountId: devices\.settlementBankAccountId/);
+  assert.doesNotMatch(source('src/modules/orders.tsx'), /حساب بانکی تسویهٔ این پوز/);
+  assert.match(source('src/modules/orders.tsx'), /cashierPosDevices\.find\(\(device\) => device\.online\)/);
   assert.match(accounting, /شماره \$\{device\.terminalNumber\}/);
   assert.match(ledger, /شماره \$\{terminal\.terminalNumber\}/);
   assert.match(migration, /ADD COLUMN terminal_number text NOT NULL DEFAULT ''/);

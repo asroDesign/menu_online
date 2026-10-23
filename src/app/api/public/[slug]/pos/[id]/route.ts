@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { businesses, orders, posRequests } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
 import { featuresOf } from "@/lib/entitlements";
-import { cancelHeldOrder, cancelPendingRequests, createPosRequest, expirePosRequests, POS_TIMEOUT_MS, posOnline, releaseHeldOrder } from "@/lib/pos";
+import { cancelHeldOrder, cancelPendingRequests, createPosRequest, expirePosRequests, POS_TIMEOUT_MS, posDeviceForChannel, posOnline, releaseHeldOrder } from "@/lib/pos";
 import type { Settings } from "@/lib/plans";
 import { isReadOnlyDemoSlug } from "@/lib/demo-mode";
 
@@ -50,9 +50,10 @@ export async function POST(req: Request, ctx: Ctx) {
       if (busy) throw new HttpError(409, "پرداخت روی دستگاه در حال انجام است");
       if (o.status !== "awaiting_payment") throw new HttpError(400, "این سفارش دیگر قابل پرداخت نیست");
       const kst = ((biz.settings ?? {}) as Settings).kiosk;
-      if (!(await posOnline(biz.id, kst?.posDeviceId))) throw new HttpError(503, "کارتخوان در دسترس نیست");
+      const terminal = await posDeviceForChannel(biz.id, "kiosk", kst?.posDeviceId);
+      if (!terminal || !(await posOnline(biz.id, terminal.id))) throw new HttpError(503, "کارتخوان در دسترس نیست");
       await cancelPendingRequests(o.id, "جایگزین درخواست جدید شد");
-      const { req: nr } = await createPosRequest(biz, o.id, kst?.posDeviceId);
+      const { req: nr } = await createPosRequest(biz, o.id, terminal.id, undefined, "kiosk");
       return Response.json({ ...view(nr, o), token: nr.token });
     }
     if (busy) throw new HttpError(409, "پرداخت روی دستگاه در حال انجام است؛ برای لغو، تراکنش را روی خود کارتخوان لغو کنید");

@@ -40,7 +40,7 @@ test('orders collect an explicit payment split and cannot confirm a card transfe
   assert.match(module, /AmountInput value=\{posAmount\}/);
   assert.match(module, /ثبت باقیمانده در دفتر بدهکاران/);
   assert.match(cashier, /action === "settle"/);
-  assert.match(cashier, /createPosRequest\(auth\.business, orderId, plan\.posDeviceId, plan\)/);
+  assert.match(cashier, /createPosRequest\(auth\.business, orderId, plan\.posDeviceId, plan, "cashier"\)/);
   assert.match(route, /برای ثبت پرداخت، مبلغ نقدی، بانکی، کارتخوان/);
   assert.match(route, /b\.status === "paid" && existing\.paymentStatus !== "paid"/);
 });

@@ -4,7 +4,7 @@ import { businesses } from "@/db/schema";
 import { errorResponse, HttpError, readJson } from "@/lib/auth";
 import { featuresOf } from "@/lib/entitlements";
 import { createOrder, parseOrderInput, settleOrder, startOnlinePayment } from "@/lib/orders";
-import { cancelHeldOrder, createPosRequest, posOnline } from "@/lib/pos";
+import { cancelHeldOrder, createPosRequest, posDeviceForChannel, posOnline } from "@/lib/pos";
 import { hasAny, type Settings } from "@/lib/plans";
 import { isOpenAt } from "@/lib/business-time";
 import { activeTransferCards } from "@/lib/card-transfer";
@@ -54,13 +54,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     const transfer = st.cardTransfer;
     const transferCards = activeTransferCards(transfer);
     const cardTransferReady = can("card_transfer") && transferCards.length > 0;
+    let kioskPosDeviceId: number | null = null;
     if (!["cash", "ipg", "pos", "card_to_card"].includes(pay)) throw new HttpError(400, "این روش پرداخت پشتیبانی نمی‌شود");
     if (pay === "ipg" && !(can("ipg") && st.ipg?.merchantId)) throw new HttpError(403, "پرداخت آنلاین فعال نیست");
     if (pay === "card_to_card" && (kiosk || !cardTransferReady)) throw new HttpError(403, "پرداخت کارت‌به‌کارت برای این رستوران فعال نیست");
     if (pay === "pos") {
       if (!kiosk) throw new HttpError(403, "پرداخت با کارتخوان فقط در کیوسک فعال است");
       if (!can("tablet_pos") || !st.kiosk?.allowPos) throw new HttpError(403, "پرداخت با کارتخوان در کیوسک فعال نیست");
-      if (!(await posOnline(biz.id, st.kiosk.posDeviceId))) throw new HttpError(503, "کارتخوان در دسترس نیست؛ لطفاً در صندوق پرداخت کنید");
+      const terminal = await posDeviceForChannel(biz.id, "kiosk", st.kiosk.posDeviceId);
+      if (!terminal || !(await posOnline(biz.id, terminal.id))) throw new HttpError(503, "کارتخوان کیوسک در دسترس نیست؛ لطفاً در صندوق پرداخت کنید");
+      kioskPosDeviceId = terminal.id;
     }
 
     const verifiedCustomerId = kiosk ? null : await publicCustomerId(slug, biz.id);
@@ -73,7 +76,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       if (order.total === 0) await settleOrder(biz, features, order.id, order.cashbackUsed > 0 ? "cashback" : "cash", false);
       else if (pay === "ipg") payUrl = await startOnlinePayment(biz, order.id, order.total, pay, originOf(req));
       else if (pay === "pos") {
-        const { req: pr } = await createPosRequest(biz, order.id, st.kiosk?.posDeviceId);
+        const { req: pr } = await createPosRequest(biz, order.id, kioskPosDeviceId, undefined, "kiosk");
         pos = { id: pr.id, token: pr.token };
       }
     } catch (e) {

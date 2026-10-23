@@ -23,6 +23,12 @@ GET/CRUD /api/r/dev_tablet؛ GET /api/r/posrequests (poll 4s)؛ POST /api/r/posr
 
 برای دستگاه‌های `kind=pos`، فیلد اختیاری `terminalNumber` شمارهٔ واقعی ترمینال بانکی را نگه می‌دارد و هنگام ساخت یا ویرایش همان کارت دستگاه قابل ثبت است. این مقدار از `code` اتصال جداست: شماره ترمینال در انتخاب پوز، snapshot تسویه و تفصیلی/گزارش حسابداری استفاده می‌شود و کد اتصال در API انتخاب تسویه ارسال نمی‌شود. فیلد دیتابیس در migration `0046_order_tender_settlement.sql` افزوده شده است.
 
+روی هر کارت POS، بخش «تنظیم مقصد و محل استفاده» شماره ترمینال، حساب بانکی تسویه، و دو کانال مستقل «صندوق سفارش» و «کیوسک» را نگه می‌دارد. برای فعال کردن هر کانال حساب بانکی متعلق به همان کسب‌وکار الزامی است؛ دستگاه تازه و دستگاه‌های قبلی تا زمان تنظیم مدیر به هیچ‌کدام از کانال‌ها وصل نیستند. داده‌ها در ستون‌های `devices.settlement_bank_account_id`, `cashier_enabled`, `kiosk_enabled` ذخیره می‌شوند و migration `0047_pos_routing_settings.sql` آن‌ها را اضافه می‌کند. rollback فقط وقتی مجاز است که هیچ دستگاهی به حساب یا کانال متصل نباشد.
+
+`GET /api/orders/settlement-options` فقط شناسه و نام دستگاه، شماره ترمینال، نام بانک مقصد، وضعیت آنلاین و پرچم‌های کانال را در tenant نشست برمی‌گرداند؛ `devices.code` و رمز اتصال bridge هرگز جزو گزینه‌های پرداخت نیست. این endpoint برای ماژول تنظیم دستگاه با یکی از entitlementهای `tablet_pos` یا `cashier_pos` مجاز است. انتخاب/تغییر حساب و کانال از PATCH همان resource دستگاه انجام می‌شود و backend مالکیت حساب و الزام حساب برای کانال روشن را بررسی می‌کند.
+
+در فرم تنظیم کیوسک، فقط دستگاه‌های `kioskEnabled` و دارای حساب مقصد فهرست می‌شوند. اگر چند دستگاه وجود داشته باشد مدیر یکی را برای کیوسک ترجیح می‌دهد؛ زمان پرداخت، سرور در صورت آفلاین بودن ترجیح ذخیره‌شده به پوز آنلاین دیگری که برای کیوسک مجاز شده برمی‌گردد. در صورت نبود دستگاه مجاز یا آنلاین پرداخت کیوسکی رد می‌شود و سفارش بدون درخواست پرداخت ساخته/نگه‌داری نمی‌شود.
+
 - وضعیت‌های loading، خطا، داده خالی و موفقیت را جدا و قابل فهم نشان بده؛ خطا را با امکان تلاش مجدد مدیریت کن.
 - رابط فارسی و RTL، ارقام فارسی، پول تومان، و تاریخ‌های شمسی را مطابق ابزارهای مشترک پروژه نمایش بده.
 - layout را برای موبایل/تبلت/دسکتاپ بازسازی کن؛ فرم‌ها و جدول‌ها در عرض کم قابل استفاده بمانند و اکشن اصلی از دسترس خارج نشود.
@@ -35,7 +41,7 @@ GET/CRUD /api/r/dev_tablet؛ GET /api/r/posrequests (poll 4s)؛ POST /api/r/posr
 
 POS request list هر ۴s poll؛ statuses pending/approved/failed/canceled؛ pending را تأیید دستی (اختیاری refNo) یا failed کن؛ failed/canceled را نیز اگر پول واقعاً کسر شده تأیید دستی کن. این اقدام settlement است و نباید بدون رسید واقعی خودکار done شود.
 
-تسویهٔ `/dashboard/orders` می‌تواند علاوه بر legacy request کامل، plan تفکیکی نقد/بانک/POS/طلب را به `createPosRequest` بدهد. در plan جدید، `pos_requests.amount` فقط سهم POS است و `settlement_plan` مبلغ‌های نقد/بانک/بدهی، بانک مقصد، دستگاه مشخص و کلید idempotency را نگه می‌دارد. فقط دستگاهی که درخواست برایش ساخته شده می‌گیرد؛ order/ledger/receivable پس از callback `approved` نهایی می‌شوند. bridge باید برای آزمایش مبلغ را از `amountToman` بگیرد و ریال ارسالی را برابر همین سهم (`amountRial`) بسازد؛ جمع کل فاکتور را دوباره ارسال نکند.
+تسویهٔ `/dashboard/orders` می‌تواند علاوه بر legacy request کامل، plan تفکیکی نقد/بانک/POS/طلب را به `createPosRequest` بدهد. در plan جدید، `pos_requests.amount` فقط سهم POS است و `settlement_plan` مبلغ‌های نقد/بانک/بدهی، بانک مقصدی که از تنظیم خود دستگاه خوانده شده، دستگاه مشخص و کلید idempotency را نگه می‌دارد. فقط دستگاهی که درخواست برایش ساخته شده می‌گیرد؛ order/ledger/receivable پس از callback `approved` نهایی می‌شوند. bridge باید برای آزمایش مبلغ را از `amountToman` بگیرد و ریال ارسالی را برابر همین سهم (`amountRial`) بسازد؛ جمع کل فاکتور را دوباره ارسال نکند.
 
 `PosSetup` پروتکل‌ها: saman-ssp1126 over TCP/serial؛ HTTP محلی با URL/method/body/successPath/refPath؛ executable با args؛ raw TCP/serial با request frame, LRC, response end/regex. JSON config شامل server origin, pollSeconds=2 و devices است و باید طبق کنترل‌های همین UI ساخته/کپی شود. نوع serial/network روی browser انجام نمی‌شود؛ local bridge عامل اجرای config است. فایل `docs/DEVICES.md`/agent implementation را با source فعلی تطبیق بده.
 

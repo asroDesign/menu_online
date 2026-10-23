@@ -5,7 +5,7 @@ import { accAccounts, couriers, diningTables, orders, pagers, posRequests, stock
 import { accountStatement, accountTotals, ensureSupplierAccount, payFromAccountId, postDocument, C } from "@/lib/accounting";
 import { HttpError, hashPassword, readJson, withAuth } from "@/lib/auth";
 import { startOfDayTehran } from "@/lib/jalali";
-import { approvePosRequest, createPosRequest, expirePosRequests } from "@/lib/pos";
+import { approvePosRequest, createPosRequest, expirePosRequests, posDeviceForChannel } from "@/lib/pos";
 
 const J = (d: unknown, s = 200) => Response.json(d, { status: s });
 const str = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -197,7 +197,9 @@ export const registryC: Record<string, any> = {
     }, { feature: "tablet_pos" }),
     create: withAuth(async (req, { business }) => {
       const b = await readJson(req);
-      const { req: row, orderNumber } = await createPosRequest(business, Number(b.orderId), b.deviceId ? Number(b.deviceId) : null);
+      const device = await posDeviceForChannel(business.id, "cashier", b.deviceId ? Number(b.deviceId) : null);
+      if (!device) throw new HttpError(400, "هیچ کارتخوانی با حساب تسویه به صندوق سفارش متصل نیست");
+      const { req: row, orderNumber } = await createPosRequest(business, Number(b.orderId), device.id, undefined, "cashier");
       return J({ item: { ...row, orderNumber } }, 201);
     }, { feature: "tablet_pos", manager: true, roles: ["cashier", "waiter"] }),
     update: withAuth<{ id: string }>(async (req, auth, { id }) => {
