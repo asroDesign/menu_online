@@ -203,7 +203,7 @@ export async function addWalletEntry(
   return true;
 }
 
-export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number } = {}) {
+export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; deferPrint?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number } = {}) {
   if (input.useCashback && (source !== "customer" || !opts.verifiedCustomerId))
     throw new HttpError(403, "برای مصرف اعتبار کیف پول، از پروفایل مشتری با شمارهٔ تأییدشده وارد شوید");
   if (input.payNow === "credit") {
@@ -621,7 +621,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     }
     if (cashbackUsed > 0 && customerId)
       await addWalletEntry(biz.id, customerId, -cashbackUsed, "spend", created.id, `استفاده در سفارش #${number}`, `order:${created.id}:spend:initial`, tx);
-    if (!opts.hold) await queuePrintJobs(biz, created.id, features, false, undefined, tx);
+    if (!opts.hold && !opts.deferPrint) await queuePrintJobs(biz, created.id, features, false, undefined, tx);
     return created.id;
   };
   const orderId = opts.executor

@@ -49,7 +49,11 @@ export const POST = withAuth(
         await ensureAccounting(auth.business);
         return db.transaction(async (rawTx) => {
           const executor = rawTx as unknown as OrderTransaction;
-          const created = await createOrder(auth.business, input, source, auth.features, { actorId: auth.user.id, executor });
+          // Settlement below queues the creation/preparation workflow itself when
+          // it transitions the new order. Do not queue that same workflow here too.
+          const created = await createOrder(auth.business, input, source, auth.features, {
+            actorId: auth.user.id, executor, deferPrint: input.payNow !== "credit",
+          });
           await settleOrder(auth.business, auth.features, created.id, input.payNow!, false, {
             creditSale: input.payNow === "credit", creditDetails, actorId: auth.user.id, actorType: auth.role, executor,
           });

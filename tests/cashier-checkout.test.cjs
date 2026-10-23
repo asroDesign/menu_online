@@ -7,6 +7,7 @@ const ts = require('typescript');
 function checkout(failSettlement = false) {
   const committed = [];
   const effects = [];
+  const createOptions = [];
   let txCount = 0;
   const db = { transaction: async (fn) => {
     txCount++;
@@ -24,6 +25,7 @@ function checkout(failSettlement = false) {
     '@/lib/orders': {
       parseOrderInput: raw => raw,
       createOrder: async (_biz, _input, _source, _features, opts) => {
+        createOptions.push(opts);
         (opts.executor?.pending ?? committed).push('order', 'items', 'customer');
         effects.push('create');
         return { id: 1 };
@@ -40,7 +42,7 @@ function checkout(failSettlement = false) {
   const mod = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync('src/app/api/orders/route.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   vm.runInNewContext(code, { exports: mod.exports, module: mod, require: id => { if (!mocks[id]) throw new Error(id); return mocks[id]; }, Response, URL });
-  return { run: input => mod.exports.POST({ source: 'cashier', ...input }, { role: 'cashier', business: { id: 1 }, user: { id: 2 }, features: {} }), committed, effects, transactions: () => txCount };
+  return { run: input => mod.exports.POST({ source: 'cashier', ...input }, { role: 'cashier', business: { id: 1 }, user: { id: 2 }, features: {} }), committed, effects, createOptions, transactions: () => txCount };
 }
 
 for (const method of ['cash', 'pos', 'card', 'credit']) {
@@ -49,6 +51,7 @@ for (const method of ['cash', 'pos', 'card', 'credit']) {
     const response = await h.run({ payNow: method });
     assert.equal(response.status, 201);
     assert.equal(h.transactions(), 1);
+    assert.equal(h.createOptions[0].deferPrint, method !== 'credit', 'only a payment that transitions to preparation defers printing to settlement');
     assert.deepEqual(h.effects, ['chart', 'create']);
     assert.deepEqual(h.committed, ['order', 'items', 'customer', 'accounting', method === 'credit' ? 'debt' : 'payment']);
   });
@@ -61,6 +64,7 @@ for (const method of ['cash', 'pos', 'card', 'credit']) {
 test('register without payment creates an open order without financial settlement', async () => {
   const h = checkout();
   await h.run({ payNow: null });
+  assert.equal(h.createOptions[0].deferPrint, undefined, 'unpaid orders still print when first registered');
   assert.deepEqual(h.committed, ['order', 'items', 'customer']);
   assert.equal(h.transactions(), 0);
 });

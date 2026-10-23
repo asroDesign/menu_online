@@ -77,6 +77,8 @@ test('cashier credit checkout and receipt workflows are wired through the server
   assert.match(orderService, /receivableEvents/);
   assert.match(orderService, /postOrderSaleInTransaction\(tx, biz/);
   assert.match(orderService, /printOutputs\(settings, selectedMoment\)/);
+  assert.match(orderService, /if \(!opts\.hold && !opts\.deferPrint\) await queuePrintJobs/);
+  assert.match(cashierRoute, /deferPrint: input\.payNow !== "credit"/);
   assert.match(businessRoute, /printerSettings: "cloud_printer"/);
   assert.match(businessRoute, /validatePrinterSelection/);
   assert.match(orderStatusRoute, /set\.status === "ready"[\s\S]*queuePrintJobs\(business, oid, auth\.features, false, undefined, tx, "completed"\)/);
