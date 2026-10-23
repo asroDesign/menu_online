@@ -30,4 +30,6 @@
 - `node --test tests/*.test.cjs`: از ۱۶۹ آزمون، ۱۶۲ موفق و ۷ تست وابسته به PostgreSQL اجرا نشدند.
 - `npx tsc --noEmit --incremental false`، parse فایل workflow با Ruby YAML، و `git diff --check`: موفق.
 - ESLint فایل‌های تغییرکرده خطا نداشت؛ دو هشدار قبلی دربارهٔ `eslint-disable` بی‌مصرف در `src/modules/hardware.tsx` باقی است.
-- این محیط macOS فقط .NET SDK 7 دارد؛ build .NET 10 و Inno Setup محلی اجرا نشد. خروجی نهایی Windows باید در GitHub Actions بررسی شود. نصب واقعی سرویس و چاپ روی پرینتر نیز نیازمند Windows و دستگاه فیزیکی است.
+- GitHub Actions در اجرای [Windows printer service bridge](https://github.com/asroDesign/menu_online/actions/runs/40019914039) با موفقیت .NET 10 self-contained را ساخت، Inno Setup را اجرا کرد و installer را منتشر کرد.
+- Release پایدار `windows-printer-service-latest` دارای `MenuPeak-Printer-Service-Setup-x64.exe` با اندازهٔ ۳۴٬۱۴۷٬۱۸۰ بایت است؛ لینک مستقیم پاسخ HTTP 200 داد.
+- نصب واقعی سرویس، restart ویندوز، و چاپ روی پرینتر فیزیکی در این محیط macOS قابل آزمون نبود و به پذیرش روی Windows نیاز دارد.
