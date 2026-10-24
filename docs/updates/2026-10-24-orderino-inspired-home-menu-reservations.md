@@ -35,7 +35,7 @@
 
 ## فایل‌های اصلی و راهنماها
 
-`src/app/page.tsx`, `src/components/marketing/homepage-showcase.tsx`, `src/components/marketing/home.css`, `src/lib/plans.ts`, `src/lib/menu-templates.ts`, `src/lib/public-menu.ts`, `src/components/public-menu-showcase.tsx`, `src/components/menu-client.tsx`, `src/components/public-menu-navigation.tsx`, `src/app/dashboard/settings/page.tsx`, `src/app/api/business/route.ts`, `src/app/m/[slug]/reserve/page.tsx`, `src/components/reservation-form.tsx`, `src/app/api/public/[slug]/reservations/route.ts`, `src/lib/reservations.ts`, `src/db/schema.ts`, `src/modules/reservations.tsx`.
+`src/app/page.tsx`, `src/components/marketing/homepage-showcase.tsx`, `src/components/marketing/product-tour.tsx`, `src/components/marketing/home.css`, `src/lib/plans.ts`, `src/lib/menu-templates.ts`, `src/lib/public-menu.ts`, `src/components/public-menu-showcase.tsx`, `src/components/menu-client.tsx`, `src/components/public-menu-navigation.tsx`, `src/app/dashboard/settings/page.tsx`, `src/app/api/business/route.ts`, `src/app/m/[slug]/reserve/page.tsx`, `src/components/reservation-form.tsx`, `src/app/api/public/[slug]/reservations/route.ts`, `src/lib/reservations.ts`, `src/db/schema.ts`, `src/modules/reservations.tsx`.
 
 راهنماهای بازسازی و کاتالوگ: `docs/agents/home-page.md`, `docs/agents/core-pages/marketing-home.md`, `docs/agents/core-pages/public-menu.md`, `docs/agents/core-pages/public-reservation.md`, `docs/agents/modules/reservations.md`, `docs/agents/module-capabilities.md` و `docs/agents/README.md`.
 
