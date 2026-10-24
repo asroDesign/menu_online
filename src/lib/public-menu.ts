@@ -2,7 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, categories, deliveryZones, diningTables, inventoryItems, loyaltyWheelSettings, products, recipes, translations } from "@/db/schema";
 import { activeTrialOf, featuresOf } from "@/lib/entitlements";
-import { hasAny, type Settings } from "@/lib/plans";
+import { hasAny, type MenuGalleryItem, type Settings } from "@/lib/plans";
 import { activeScheduledCategoryIds, isOpenAt } from "@/lib/business-time";
 import { visibleMenuPromoBanners } from "@/lib/menu-banners";
 import { activeTransferCards } from "@/lib/card-transfer";
@@ -61,6 +61,12 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
     business: {
       name: biz.name, slug: biz.slug, description: biz.description, phone: biz.phone, address: biz.address,
       menuTemplate: isMenuTemplate(st.menuTemplate) ? st.menuTemplate : "classic",
+      menuGallery: (Array.isArray(st.menuGallery) ? st.menuGallery : []).flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const item = raw as MenuGalleryItem;
+        if (typeof item.url !== "string" || !/^\/api\/files\/[a-f0-9]{24}$/.test(item.url)) return [];
+        return [{ ...item, kind: item.kind === "video" ? "video" as const : "image" as const }];
+      }).slice(0, 8),
       promotionalBanners: visibleMenuPromoBanners(st.promoBanners),
       instagram: biz.instagram, lat: biz.lat, lng: biz.lng, accentColor: biz.accentColor, logoEmoji: biz.logoEmoji, logoUrl: biz.logoUrl, acceptOrders: biz.acceptOrders,
       taxPercent: biz.taxPercent, servicePercent: biz.servicePercent,

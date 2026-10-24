@@ -1091,6 +1091,132 @@
   font-size:9px}
 }
 
+/* Centered, animated product introduction inspired by modern restaurant SaaS sites. */
+.mp-home .mp-hero {
+  background:radial-gradient(ellipse at 50% 0%,#e9f0ff 0,transparent 48%),linear-gradient(180deg,#fbfdff,#f5f8ff 72%,#fff);
+  border-bottom:1px solid #e5eaf3}
+.mp-home .mp-hero-inner {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:38px;
+  padding-block:66px 38px}
+.mp-home .mp-hero-copy {
+  max-width:800px;
+  text-align:center}
+.mp-home .mp-hero-copy .mp-kicker {
+  justify-content:center;
+  margin-bottom:12px}
+.mp-home .mp-hero-copy h1 {
+  font-size:clamp(38px,5vw,62px);
+  line-height:1.38;
+  letter-spacing:-1.7px}
+.mp-home .mp-hero-copy>p {
+  max-width:690px;
+  margin:17px auto 0;
+  font-size:15px}
+.mp-home .mp-hero-copy .mp-actions,.mp-home .mp-hero-notes {
+  justify-content:center}
+.hp-showcase {
+  width:min(100%,880px);
+  padding:12px;
+  border:1px solid #e2e8f2;
+  border-radius:25px;
+  background:#ffffffc9;
+  box-shadow:0 30px 90px #274b8b18;
+  backdrop-filter:blur(14px)}
+.hp-showcase-tabs {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  overflow-x:auto;
+  padding:2px 0 12px}
+.hp-showcase-tabs button {
+  display:inline-flex;
+  min-height:38px;
+  flex:none;
+  align-items:center;
+  gap:7px;
+  border-radius:999px;
+  padding:7px 13px;
+  color:#53627a;
+  font-size:11px;
+  font-weight:700;
+  transition:background .2s,color .2s,transform .2s}
+.hp-showcase-tabs button:hover {transform:translateY(-1px);background:#edf2fb}
+.hp-showcase-tabs button.is-active {background:#eaf0ff;color:#2659a5;box-shadow:inset 0 0 0 1px #d7e3fa}
+.hp-dashboard {
+  overflow:hidden;
+  border:1px solid #e1e7f0;
+  border-radius:17px;
+  background:#fff;
+  animation:hp-panel-enter .45s cubic-bezier(.2,.8,.2,1) both}
+.hp-dashboard-top {
+  display:flex;
+  min-height:43px;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  border-bottom:1px solid #edf0f5;
+  padding:8px 15px;
+  color:#5b6a81;
+  font-size:10px}
+.hp-dashboard-brand,.hp-connection {display:inline-flex;align-items:center;gap:8px}
+.hp-dashboard-brand {font-weight:800;color:#24344d}
+.hp-dashboard-brand>span {display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:#edf3ff;color:#3167b5}
+.hp-connection {font-size:9px;color:#738096}
+.hp-connection i,.hp-dashboard-foot>span:first-child i {width:6px;height:6px;border-radius:50%;background:#32a979;box-shadow:0 0 0 3px #32a9791c}
+.hp-dashboard-body {display:grid;grid-template-columns:52px minmax(0,1fr);min-height:258px}
+.hp-dashboard-rail {display:flex;align-items:center;flex-direction:column;gap:22px;background:#f8faff;padding:18px 0;color:#8b99ae}
+.hp-dashboard-rail svg:first-child {color:#3167b5}
+.hp-dashboard-content {min-width:0;padding:22px 25px}
+.hp-dashboard-title {display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hp-dashboard-title small {color:#8994a6;font-size:9px}
+.mp-home .hp-dashboard-title h2 {margin-top:4px;color:#1f2f47;font-size:19px;line-height:1.5;letter-spacing:-.2px}
+.hp-dashboard-tag {display:inline-flex;align-items:center;gap:6px;max-width:55%;border-radius:999px;background:#eff5ff;padding:7px 10px;color:#315f9f;font-size:9px;font-weight:750}
+.hp-dashboard-subtitle {margin:5px 0 13px!important;font-size:10px!important;color:#78849a!important}
+.hp-dashboard-list {display:grid;gap:7px}
+.hp-dashboard-row {display:flex;min-width:0;align-items:center;gap:10px;border:1px solid #edf0f5;border-radius:11px;background:#fff;padding:9px 11px;animation:hp-row-enter .36s ease both}
+.hp-row-icon {display:grid;flex:none;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2f5fb;color:#5e76a0}
+.hp-dashboard-row b {min-width:0;flex:1;overflow:hidden;color:#35435a;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.hp-dashboard-row strong {color:#24344d;font-size:11px;white-space:nowrap}
+.hp-dashboard-foot {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;color:#7b879a;font-size:9px}
+.hp-dashboard-foot>span:first-child {display:inline-flex;align-items:center;gap:7px}
+.hp-dashboard-link {display:inline-flex;align-items:center;gap:3px;color:#3167b5;font-weight:750}
+.hp-showcase-caption {display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:14px;padding:13px 4px 1px;color:#65748a;font-size:9px;font-weight:700}
+.hp-showcase-caption span {display:inline-flex;align-items:center;gap:6px}
+.hp-showcase-caption svg {color:#5578b2}
+.hp-showcase-caption>i {width:3px;height:3px;border-radius:50%;background:#bec8d8}
+.mp-home .mp-hero .mp-audience {padding-top:27px}
+@keyframes hp-panel-enter {from {opacity:0;transform:translateY(8px)}to {opacity:1;transform:translateY(0)}}
+@keyframes hp-row-enter {from {opacity:0;transform:translateX(8px)}to {opacity:1;transform:translateX(0)}}
+@media(max-width:700px) {
+  .mp-home .mp-hero-inner {gap:27px;padding-block:42px 26px}
+  .mp-home .mp-hero-copy h1 {font-size:clamp(31px,8vw,43px);letter-spacing:-1px}
+  .mp-home .mp-hero-copy>p {font-size:13px;line-height:2}
+  .mp-home .mp-hero-copy .mp-actions {margin-top:20px}
+  .hp-showcase {padding:8px;border-radius:19px}
+  .hp-showcase-tabs {justify-content:flex-start;gap:4px;padding-bottom:8px}
+  .hp-showcase-tabs button {min-height:35px;padding:6px 10px;font-size:10px}
+  .hp-dashboard-body {grid-template-columns:38px minmax(0,1fr);min-height:242px}
+  .hp-dashboard-rail {gap:19px;padding-top:17px}
+  .hp-dashboard-rail svg {width:16px;height:16px}
+  .hp-dashboard-content {padding:17px 12px}
+  .mp-home .hp-dashboard-title h2 {font-size:16px}
+  .hp-dashboard-tag {font-size:8px;padding:6px 7px}
+  .hp-dashboard-row {gap:7px;padding:8px}
+  .hp-dashboard-row b {font-size:9px}
+  .hp-dashboard-row strong {font-size:9px}
+  .hp-dashboard-foot {font-size:8px}
+  .hp-showcase-caption {gap:9px;font-size:8px}
+  .hp-showcase-caption svg {width:13px;height:13px}
+}
+@media(prefers-reduced-motion:reduce) {
+  .hp-dashboard,.hp-dashboard-row {animation:none!important}
+  .hp-showcase-tabs button {transition:none!important}
+}
+
 @media(prefers-reduced-motion:reduce) {
   .mp-home * {
   scroll-behavior:auto!important;

@@ -47,6 +47,7 @@ export const GET = withAuth(async (req, auth) => {
 const SETTING_FEATURE: Record<string, string | null> = {
   menuTemplate: null,
   promoBanners: null,
+  menuGallery: null,
   miniSite: "mini_site",
   languages: "translation",
   pointsPerToman: "loyalty",
@@ -85,6 +86,22 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
       return normalizeTableQrDesign(v);
     case "promoBanners":
       return cleanMenuPromoBanners(v);
+    case "menuGallery": {
+      if (!Array.isArray(v)) throw new HttpError(400, "گالری منو نامعتبر است");
+      return v.slice(0, 8).flatMap((raw, index) => {
+        if (!raw || typeof raw !== "object") return [];
+        const item = raw as Record<string, unknown>;
+        const url = s(item.url, 100);
+        if (url && !/^\/api\/files\/[a-f0-9]{24}$/.test(url)) return [];
+        const id = s(item.id, 40);
+        return [{
+          id: /^[a-zA-Z0-9_-]{1,40}$/.test(id) ? id : `gallery-${index + 1}`,
+          kind: item.kind === "video" ? "video" : "image",
+          url,
+          caption: s(item.caption, 80),
+        }];
+      });
+    }
     case "miniSite": {
       const custom = auth.features.mini_site === "custom";
       return {

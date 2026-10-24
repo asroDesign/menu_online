@@ -19,7 +19,7 @@ import { getPublicFaqs, getPublicPosts, getPublicTestimonials } from "@/lib/mark
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { Pricing } from "@/components/marketing/pricing";
-import { DashboardPreview } from "@/components/marketing/dashboard-preview";
+import { HomepageShowcase } from "@/components/marketing/homepage-showcase";
 import { DemoMenuGallery } from "@/components/marketing/demo-menu-gallery";
 import { PlatformEventBeacon } from "@/components/marketing/platform-event-beacon";
 import "@/components/marketing/marketing.css";
@@ -88,13 +88,13 @@ export default async function Home() {
     { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faqs.map(([question, answer]) => ({ "@type": "Question", name: question, acceptedAnswer: { "@type": "Answer", text: answer } })) },
   ];
   return <div className="marketing-site mp-home"><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}/><PlatformEventBeacon name="home_view"/><SiteHeader/><main>
-    <section className="mp-hero"><div className="market-container mp-hero-grid"><div className="mp-hero-copy">
+    <section className="mp-hero"><div className="market-container mp-hero-inner"><div className="mp-hero-copy">
       <span className="mp-kicker"><span className="mp-live-dot"/> از دل رستوران، برای رستوران</span>
-      <h1>طعم خوب از شما.<br/><em>مدیریت منظم،<br className="mp-desktop"/> همراه شما.</em></h1>
-      <p>{branding.siteName}؛ منوی دیجیتال، سفارش‌گیری و ابزارهای مدیریت رستوران در یک مسیر. ساخته‌شده با پشتوانهٔ <strong>بیش از ۲۰ سال تجربه در رستوران‌داری.</strong></p>
-      <div className="mp-actions"><Link href={auth ? "/dashboard" : "/register?trial=demo"} className="btn market-button">{auth ? "ورود به داشبورد" : `شروع ${days} روز رایگان`}<ArrowUpLeft size={18}/></Link><Link href="/preview" className="btn market-secondary"><Play size={16}/> دیدن ۵ منوی دمو</Link></div>
-      <div className="mp-hero-notes"><span><CheckCheck size={16}/> امکانات پرمیوم پلاس در دوره آزمایشی</span><Link href="#buying-guide">راهنمای شروع <ArrowLeft size={14}/></Link></div>
-    </div><div className="mp-hero-scene"><div className="mp-scene-label"><span><span className="mp-live-dot"/> یک نمای مشترک برای تیم شما</span><small>پیش‌نمایش نمایشی</small></div><DashboardPreview/><div className="mp-scene-footer"><span><QrCode size={19}/> منوی مشتری</span><i/><span><ReceiptText size={19}/> سفارش و صندوق</span><i/><span><Package size={19}/> مدیریت عملیات</span></div></div></div>
+      <h1>سفارش، پرداخت و فروش؛<br/><em>همه در یک پنل هوشمند.</em></h1>
+      <p>{branding.siteName} منوی QR، سفارش‌گیری، رزرو میز، مدیریت فروش و عملیات روزانه را یک‌جا جمع می‌کند؛ با تکیه بر <strong>بیش از ۲۰ سال تجربهٔ رستوران‌داری.</strong></p>
+      <div className="mp-actions"><Link href={auth ? "/dashboard" : "/register?trial=demo"} className="btn market-button">{auth ? "ورود به داشبورد" : `شروع ${days} روز رایگان`}<ArrowUpLeft size={18}/></Link><Link href="/preview" className="btn market-secondary"><Play size={16}/> دیدن منوهای نمونه</Link></div>
+      <div className="mp-hero-notes"><span><CheckCheck size={16}/> بدون نصب برنامه برای مشتری</span><Link href="#buying-guide">راهنمای شروع <ArrowLeft size={14}/></Link></div>
+    </div><HomepageShowcase/></div>
     <div className="market-container mp-audience"><span>برای شکل‌های مختلف مهمان‌نوازی</span><div>{[[Coffee,"کافه"],[UtensilsCrossed,"رستوران"],[ChefHat,"فست‌فود"],[Cookie,"قنادی"],[ReceiptText,"کترینگ و بیرون‌بر"]].map(([I,label])=>{const Icon=I as typeof Coffee;return <span key={String(label)}><Icon size={19}/>{String(label)}</span>})}</div></div></section>
 
     <DemoMenuGallery/>

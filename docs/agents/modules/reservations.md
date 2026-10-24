@@ -15,7 +15,7 @@
 
 ## داده و API
 
-GET /api/r/reservations؛ PATCH /api/r/reservations/:id؛ GET /api/business برای slug؛ ثبت عمومی /api/public/:slug/reservations.
+GET /api/r/reservations؛ PATCH /api/r/reservations/:id؛ GET /api/business برای slug؛ مسیر عمومی `GET/POST /api/public/:slug/reservations`. GET عمومی زمان و ظرفیت را می‌گیرد و میزهای `available` با ظرفیت کافی را پس از بررسی رزروهای `requested` و `confirmed` برمی‌گرداند. POST نوع رزرو و میز انتخابی را دریافت می‌کند؛ قفل و بررسی نهایی تداخل در transaction است.
 
 ## قواعدی که بازنویسی باید حفظ کند
 
@@ -29,11 +29,17 @@ GET /api/r/reservations؛ PATCH /api/r/reservations/:id؛ GET /api/business بر
 
 ## مشخصات سطح پیاده‌سازی
 
-Reservation fields: customerName/Phone, guestCount, startsAt, durationMinutes, tableName, status, depositAmount/depositStatus/depositMethod, note, optional `smsNotification`. فهرست poll هر ۳۰ ثانیه؛ وضعیت map: requested/confirmed/cancelled/completed/no_show. بالای صفحه CTA لینک `/m/:slug/reserve`، کپی URL مطلق و توضیح رزرو ظرفیت میز را تا پایان duration نگه می‌دارد.
+Reservation fields: customerName/Phone, guestCount, startsAt, durationMinutes, tableName, `reservationType` (`normal|occasion|business`), status, depositAmount/depositStatus/depositMethod, note, optional `smsNotification`. فهرست poll هر ۳۰ ثانیه؛ وضعیت map: requested/confirmed/cancelled/completed/no_show. بالای صفحه CTA لینک `/m/:slug/reserve`، کپی URL مطلق و توضیح رزرو ظرفیت میز را تا پایان duration نگه می‌دارد. فرم مشتری در سه گام اطلاعات/نوع رزرو، میز آزاد و تأیید است.
 
 کارت رزرو تاریخ/ساعت شمسی، تعداد نفر/مدت، میز، مبلغ/وضعیت پیش‌پرداخت، note و روش cash/bank/card را نشان می‌دهد. transition: اگر deposit pending باشد action «ثبت دریافت و تأیید» patch `{depositPaid:true,depositMethod:"cash"}`؛ اگر پرداخت لازم نیست و status هنوز confirmed نیست، «تأیید رزرو»؛ confirmed می‌تواند completed یا no_show شود؛ requested می‌تواند reject/cancel شود. update پاسخ `smsNotification` دارد؛ اگر ارسال failed/skipped، رزرو ذخیره شده اما toast علت شکست را نشان دهد.
 
 **پذیرش:** بدون slug لینک disabled، clipboard fail، deposit pending مانع تأیید خودکار، terminal statuses بدون actions، پیامک موفق/ناموفق، و reload داده بعد از mutation. بررسی ظرفیت/تداخل از UI انجام نمی‌شود و باید در API عمومی/مدیریتی enforce شود.
+
+### تغییرات جاری — ۲۰۲۶-۱۰-۲۴
+
+- فیلد `reservations.reservation_type` با مقدار پیش‌فرض `normal` در schema و migration `0049_reservation_type.sql` اضافه شده است؛ برچسب آن در پنل فهرست رزروها نمایش داده می‌شود.
+- API عمومی availability را با GET و limit جداگانه می‌دهد. درخواست ایجاد فقط از یک جدول همان کسب‌وکار، دارای ظرفیت کافی و آزاد برای بازه می‌تواند موفق شود. همه میزها در transaction قفل می‌شوند تا دو درخواست هم‌زمان یک میز را نگیرند.
+- rollback ستون تازه را حذف می‌کند؛ اگر داده‌های نوع رزرو پس از migration ثبت شده باشند، rollback این برچسب‌ها را پاک می‌کند. migration اجرا نشده است.
 
 ## مرجع بازسازی
 

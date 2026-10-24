@@ -137,6 +137,13 @@ export type MenuPromoBanner = {
   enabled: boolean;
 };
 
+export type MenuGalleryItem = {
+  id: string;
+  kind: "image" | "video";
+  url: string;
+  caption: string;
+};
+
 export type TransferCard = {
   id: string;
   cardNumber: string;
@@ -148,6 +155,7 @@ export type TransferCard = {
 export type Settings = {
   menuTemplate?: MenuTemplateId;
   promoBanners?: MenuPromoBanner[];
+  menuGallery?: MenuGalleryItem[];
   miniSite?: MiniSite;
   languages?: string[];
   pointsPerToman?: number;

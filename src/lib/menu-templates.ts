@@ -8,6 +8,7 @@ export const MENU_TEMPLATE_OPTIONS = [
   { id: "softmenu-test", title: "کاشی دسته‌ها", subtitle: "صفحهٔ شروع با دسته‌های بزرگ" },
   { id: "captainm", title: "کاپیتان ام", subtitle: "هویت کیهانی با دسته‌های پیمایش‌پذیر و کارت‌های تیره" },
   { id: "haftkhan", title: "هفت‌خوان", subtitle: "دسته‌های آیکنی و شبکهٔ غذاها" },
+  { id: "orderino", title: "روایی", subtitle: "معرفی تصویری مجموعه، منو، رزرو و مسیر" },
 ] as const;
 
 export type MenuTemplateId = (typeof MENU_TEMPLATE_OPTIONS)[number]["id"];

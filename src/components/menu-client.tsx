@@ -21,6 +21,7 @@ import { ALLERGEN_TAGS, DIETARY_TAGS } from "@/lib/product-options";
 import { trackMenuEvent } from "@/lib/menu-analytics";
 import { rememberTrackedMenuOrder } from "@/lib/public-menu-orders";
 import captainmStyles from "@/components/captainm-theme.module.css";
+import { PublicMenuGallery, PublicMenuShowcase } from "@/components/public-menu-showcase";
 
 type Prod = PublicMenu["products"][number];
 type OType = "dine_in" | "takeaway" | "delivery";
@@ -51,6 +52,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   const softmenuTest = biz.menuTemplate === "softmenu-test";
   const captainm = biz.menuTemplate === "captainm";
   const haftkhan = biz.menuTemplate === "haftkhan";
+  const orderino = biz.menuTemplate === "orderino";
   const photoCards = editorial || bistro || softmenuTest || captainm || haftkhan;
   const horizontalPhotoCards = softmenuTest3;
   const wideMenu = editorial || bistro || softmenuTest3 || softmenuTest || captainm || haftkhan;
@@ -388,7 +390,11 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   return (
     <div dir={dir} style={{ ...accent, backgroundColor: menuBackground }} className={cn("mx-auto min-h-dvh pb-28 shadow-xl", wideMenu ? "max-w-7xl" : "max-w-2xl", captainm && captainmStyles.menuShell)}>
       {softmenuTest3 && <div className="px-4 py-2 text-center text-[11px] font-bold text-white" style={{ backgroundColor: biz.accentColor }}>{biz.isOpen ? "منوی دیجیتال · آمادهٔ پذیرایی" : "اکنون بسته است · می‌توانید منو را مرور کنید"}</div>}
-      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10 text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8", (softmenuTest || captainm || haftkhan) && "px-5 pb-8 pt-8 text-center", captainm && captainmStyles.hero)} style={{ background: captainm ? undefined : headerBackground }}>
+      {orderino
+        ? <PublicMenuShowcase business={biz} items={biz.menuGallery ?? []} reservations={caps.reservations} canOrder={canOrder} canDelivery={caps.delivery} readOnly={readOnlyDemo || readOnlyPreview} tableName={initialTable?.name} onOpenMenu={() => document.getElementById("menu-items")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+        : <PublicMenuGallery items={biz.menuGallery ?? []} name={biz.name} accent={biz.accentColor} />}
+      <header className={cn("relative overflow-hidden px-5 pb-8 pt-10", !orderino && "text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8", (softmenuTest || captainm || haftkhan) && "px-5 pb-8 pt-8 text-center", orderino && "mx-auto mt-3 flex max-w-3xl items-center justify-between rounded-2xl bg-white px-4 py-3 text-stone-900 shadow-sm ring-1 ring-stone-200", captainm && captainmStyles.hero)} style={{ background: captainm || orderino ? undefined : headerBackground }}>
+        {!orderino && <>
         <div className={cn("pointer-events-none absolute -end-10 -top-10 size-48 rounded-full bg-white/10", captainm && "hidden")} />
         <div className={cn("pointer-events-none absolute -bottom-16 start-10 size-40 rounded-full bg-white/10", captainm && "hidden")} />
         {captainm && <div className="relative mx-auto mb-5 flex max-w-5xl justify-center"><span className={captainmStyles.heroKicker}><Icon name="sparkles" className="size-3.5" /> CAPTAIN M <span className="opacity-45">·</span> COSMIC MENU</span></div>}
@@ -415,6 +421,8 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
         <IconText>{initialTableId && caps.selfOrder && tables.find((x) => x.id === initialTableId) && canOrder && (
           <div className="relative mt-5 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm font-semibold text-stone-800">{<EmojiIcon emoji="" />} {tables.find((x) => x.id === initialTableId)!.name}</div>
         )}</IconText>
+        </>}
+        {orderino && <><div className="flex min-w-0 items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-blue-50 text-brand-700"><Icon name="menu" className="size-4"/></span><div><h1 className="text-sm font-extrabold">منوی دیجیتال</h1><p className="mt-0.5 text-[10px] text-stone-500">{biz.isOpen ? "سفارش‌گیری فعال است" : "برای مرور منو در دسترس هستیم"}</p></div></div>{languages.length > 1 && <div className="flex gap-1" dir="ltr">{languages.map((l) => <button key={l} onClick={() => setLang(l)} className={cn("rounded-full px-2 py-1 text-[10px] font-bold", lang === l ? "bg-blue-700 text-white" : "bg-stone-100 text-stone-600")}>{LANGS[l]?.name ?? l}</button>)}</div>}{canOrder && <button type="button" onClick={() => { if (!count) return toast("سبد خرید شما خالی است"); openCheckout(); }} className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-white" style={{ backgroundColor: biz.accentColor }}><Icon name="cart" className="size-4"/>سبد{count > 0 && <span className="rounded-full bg-white/20 px-1.5">{toFa(count)}</span>}</button>}</>}
       </header>
 
       <div className={cn("sticky top-0 z-20 -mt-4 rounded-t-3xl pb-2 pt-4 backdrop-blur", captainm && captainmStyles.toolbar)} style={{ backgroundColor: captainm ? undefined : `${menuBackground}f2` }}>
@@ -427,7 +435,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
         )}
       </div>
 
-      <main className={cn("space-y-8 px-4 pt-4", editorial && "px-5 sm:px-8", captainm && "space-y-6")}>
+      <main id="menu-items" className={cn("scroll-mt-24 space-y-8 px-4 pt-4", editorial && "px-5 sm:px-8", captainm && "space-y-6")}>
         {!term && biz.promotionalBanners.length > 0 && <section aria-label="بنرهای تبلیغاتی" className="grid gap-3 sm:grid-cols-2">
           {biz.promotionalBanners.map((banner) => {
             const image = <div className="relative aspect-[2.8/1] overflow-hidden rounded-2xl bg-stone-100 shadow-sm ring-1 ring-stone-200/70">

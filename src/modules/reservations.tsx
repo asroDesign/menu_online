@@ -8,12 +8,14 @@ import { Badge, Button, Card, EmptyState, ErrorState, Icon, PageHeader, Skeleton
 
 type Reservation = {
   id: number; tableName: string | null; customerName: string; customerPhone: string; guestCount: number;
+  reservationType: "normal" | "occasion" | "business";
   startsAt: string; durationMinutes: number; status: string; depositAmount: number; depositStatus: string; depositMethod: string; note: string;
   smsNotification?: { status: "sent" | "failed" | "skipped"; detail: string };
 };
 const STATUS: Record<string, [string, string]> = {
   requested: ["در انتظار بررسی", "amber"], confirmed: ["تأییدشده", "emerald"], cancelled: ["لغوشده", "rose"], completed: ["انجام‌شده", "blue"], no_show: ["عدم حضور", "stone"],
 };
+const RESERVATION_TYPE: Record<string, string> = { normal: "عادی", occasion: "مناسبت", business: "کاری / رسمی" };
 
 export default function Reservations() {
   const col = useCollection<Reservation>("/api/r/reservations", { poll: 30_000 });
@@ -64,7 +66,7 @@ export default function Reservations() {
         const [label, color] = STATUS[row.status] ?? [row.status, "stone"];
         const closed = ["cancelled", "completed", "no_show"].includes(row.status);
         return <Card key={row.id} className="space-y-4 p-4 sm:p-5">
-          <div className="flex items-start justify-between gap-3"><div><p className="font-extrabold">{row.customerName}</p><a href={`tel:${row.customerPhone}`} dir="ltr" className="mt-1 block text-sm text-primary">{row.customerPhone}</a></div><Badge color={color}>{label}</Badge></div>
+          <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="font-extrabold">{row.customerName}</p><Badge color="blue">{RESERVATION_TYPE[row.reservationType] ?? "عادی"}</Badge></div><a href={`tel:${row.customerPhone}`} dir="ltr" className="mt-1 block text-sm text-primary">{row.customerPhone}</a></div><Badge color={color}>{label}</Badge></div>
           <div className="grid gap-2 text-sm sm:grid-cols-2">
             <p className="rounded-xl bg-base-200/60 px-3 py-2"><Icon name="calendar" className="me-1.5 size-4" />{formatDate(row.startsAt)} · {formatTime(row.startsAt)}</p>
             <p className="rounded-xl bg-base-200/60 px-3 py-2"><Icon name="users" className="me-1.5 size-4" />{toFa(row.guestCount)} نفر · {toFa(row.durationMinutes)} دقیقه</p>

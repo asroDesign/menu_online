@@ -1667,6 +1667,7 @@ export const reservations = pgTable(
     customerName: text("customer_name").notNull(),
     customerPhone: text("customer_phone").notNull(),
     guestCount: integer("guest_count").notNull(),
+    reservationType: text("reservation_type").notNull().default("normal"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     durationMinutes: integer("duration_minutes").notNull().default(90),
     status: text("status").notNull().default("requested"), // requested | confirmed | cancelled | completed | no_show

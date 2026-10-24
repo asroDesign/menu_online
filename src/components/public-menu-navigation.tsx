@@ -289,6 +289,7 @@ export function PublicMenuNavigation({
     "softmenu-test": "rounded-2xl border border-violet-950/15 bg-[#332344]/95 text-white shadow-[0_16px_40px_-18px_rgba(30,20,45,.5)] backdrop-blur-xl",
     captainm: "rounded-2xl border border-indigo-200/20 bg-[#101a32]/95 text-white shadow-[0_16px_36px_-16px_rgba(8,12,32,.7)] backdrop-blur-xl",
     haftkhan: "rounded-2xl border border-rose-950/15 bg-[#fffafa]/95 text-[#641c27] shadow-[0_12px_36px_-16px_rgba(100,28,39,.25)] backdrop-blur-xl",
+    orderino: "rounded-2xl border border-stone-200 bg-white/95 text-stone-700 shadow-[0_12px_36px_-16px_rgba(15,23,42,.28)] backdrop-blur-xl",
   } satisfies Record<Template, string>;
   const labels = navLabels[language] ?? navLabels.fa;
   const tabs = [

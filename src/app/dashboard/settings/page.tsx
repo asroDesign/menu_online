@@ -14,9 +14,11 @@ import { MapPicker } from "@/components/map-picker";
 import { CashbackSettingsCard } from "@/components/cashback-settings";
 import { BrandColorPicker } from "@/components/brand-color-picker";
 import { ImageUpload } from "@/components/image-upload";
+import { VideoUpload } from "@/components/video-upload";
 import { SettingsCenter } from "@/components/settings-center";
 import { AccountSecuritySettings } from "@/components/account-security-settings";
 import { MENU_TEMPLATE_OPTIONS, type MenuTemplateId } from "@/lib/menu-templates";
+import type { MenuGalleryItem } from "@/lib/plans";
 import { AmountInput, Button, Card, Field, Icon, Input, PageHeader, Select, Skeleton, Switch, Textarea, cn, useToast , EmojiIcon, IconText} from "@/components/ui";
 
 type Biz = {
@@ -55,6 +57,7 @@ function MenuTemplatePreview({ template, accent }: { template: MenuTemplateId; a
       : template === "softmenu-test" ? <div className="space-y-1.5 rounded-lg bg-[#332344] p-2"><div className="mx-auto h-3 w-1/2 rounded-full bg-white/60"/><div className="grid grid-cols-3 gap-1">{[0, 1, 2, 3, 4, 5].map((i) => <span key={i} className="h-8 rounded-lg border border-white/20 bg-white/10"/>)}</div></div>
       : template === "captainm" ? <div className="relative isolate space-y-1.5 overflow-hidden rounded-lg bg-[#090d20] p-2"><span className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_18%_18%,rgba(167,139,250,.55),transparent_27%),radial-gradient(circle_at_82%_30%,rgba(34,211,238,.4),transparent_22%)]"/><div className="mx-auto h-5 w-2/3 rounded-full border border-cyan-200/20 bg-indigo-100/15 shadow-[0_0_14px_rgba(103,232,249,.22)]"/><div className="grid grid-cols-3 gap-1">{[0, 1, 2, 3, 4, 5].map((i) => <span key={i} className="h-6 rounded-md border border-indigo-100/15 bg-indigo-100/10"/>)}</div><div className="h-2 rounded-full bg-cyan-200/30"/></div>
       : template === "haftkhan" ? <div className="space-y-1.5 rounded-lg bg-[#fcf2f3] p-2"><div className="mx-auto h-3 w-1/3 rounded-full bg-rose-950/20"/><div className="grid grid-cols-4 gap-1">{[0, 1, 2, 3, 4, 5, 6, 7].map((i) => <span key={i} className="grid h-7 place-items-center rounded-full" style={{ backgroundColor: i === 0 ? accent : "#fff", border: "1px solid #eadcdd" }}><span className="size-2 rounded-full bg-rose-900/30"/></span>)}</div><div className="grid grid-cols-3 gap-1"><span className={`h-8 rounded-md ${photo}`}/><span className={`h-8 rounded-md ${photo}`}/><span className={`h-8 rounded-md ${photo}`}/></div></div>
+      : template === "orderino" ? <div className="space-y-1.5 rounded-lg bg-[#f7faf8] p-1.5"><div className="relative h-12 overflow-hidden rounded-lg bg-gradient-to-br from-emerald-950/70 via-emerald-800/50 to-stone-200"><span className="absolute inset-x-1 bottom-1 grid h-2 grid-cols-4 gap-1">{[0, 1, 2, 3].map((i) => <i key={i} className="rounded-full bg-white/80"/>)}</span></div><div className="rounded-lg bg-white p-2"><div className="mb-1 h-2 w-1/3 rounded-full" style={{ backgroundColor: `${accent}88` }}/><div className="flex gap-1"><span className="h-4 flex-1 rounded-md bg-stone-100"/><span className="h-4 flex-1 rounded-md bg-amber-50"/></div></div></div>
       : <div className="space-y-1.5">{[0, 1].map((i) => <div key={i} className="flex items-center gap-2 rounded-lg bg-stone-50 p-1.5"><span className={`size-9 shrink-0 rounded-md ${photo}`} /><div className="flex-1 space-y-1.5"><div className={`${line} w-1/2`} /><div className={`${line} w-3/4 opacity-60`} /></div><span className="size-4 rounded-md" style={{ backgroundColor: `${accent}50` }} /></div>)}</div>}
     <div className="mt-2 flex items-center justify-around rounded-lg border border-stone-100 bg-white px-2 py-1"><span className="h-1 w-4 rounded-full" style={{ backgroundColor: accent }} /><span className="h-1 w-4 rounded-full bg-stone-200" /><span className="h-1 w-4 rounded-full bg-stone-200" /><span className="h-1 w-4 rounded-full bg-stone-200" /></div>
   </div>;
@@ -94,6 +97,7 @@ export default function SettingsPage() {
   const hourDays = hours.days?.length ? hours.days : DEFAULT_HOURS;
   const menus = biz.settings.scheduledMenus?.length ? biz.settings.scheduledMenus : DEFAULT_MENUS;
   const banners = biz.settings.promoBanners ?? [];
+  const menuGallery = biz.settings.menuGallery ?? [];
   const reservation = { enabled: true, requireDeposit: false, depositPerGuest: 0, durationMinutes: 90, ...biz.settings.reservations };
   const cardTransfer = { enabled: false, cardNumber: "", accountHolder: "", bankName: "", instructions: "", ...biz.settings.cardTransfer };
   const transferCards = cardTransfer.cards ?? (cardTransfer.cardNumber || cardTransfer.accountHolder ? [{ id: "primary", cardNumber: cardTransfer.cardNumber, accountHolder: cardTransfer.accountHolder, bankName: cardTransfer.bankName, instructions: cardTransfer.instructions }] : []);
@@ -204,6 +208,20 @@ export default function SettingsPage() {
                 </Field>
                 <Link href={`/m/${biz.slug}?template=${biz.settings.menuTemplate ?? "classic"}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-xl bg-stone-900 px-4 text-sm font-bold text-white transition hover:bg-stone-800">پیش‌نمایش منوی واقعی با این قالب</Link>
               </div>
+              <section className="space-y-4 rounded-2xl border border-stone-200 bg-stone-50/70 p-4 sm:p-5" aria-labelledby="menu-gallery-title">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><h3 id="menu-gallery-title" className="font-bold">گالری بالای منوی مشتری</h3><p className="mt-1 max-w-2xl text-xs leading-6 text-stone-500">تصویر، GIF متحرک یا ویدیوی معرفی را اضافه کنید. ترتیب فهرست، ترتیب نمایش گالری است و مورد اول به‌عنوان تصویر اصلی باز می‌شود. حداکثر ۸ فایل.</p></div>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" variant="secondary" disabled={menuGallery.length >= 8} onClick={() => setSettings({ menuGallery: [...menuGallery, { id: crypto.randomUUID(), kind: "image", url: "", caption: "" }] })}><Icon name="image" className="size-4"/> تصویر یا GIF</Button>
+                    <Button type="button" size="sm" variant="secondary" disabled={menuGallery.length >= 8} onClick={() => setSettings({ menuGallery: [...menuGallery, { id: crypto.randomUUID(), kind: "video", url: "", caption: "" }] })}><Icon name="play" className="size-4"/> ویدیو</Button>
+                  </div>
+                </div>
+                {menuGallery.length === 0 ? <p className="rounded-xl border border-dashed border-stone-300 bg-white px-4 py-6 text-center text-xs leading-6 text-stone-500">گالری هنوز خالی است. تصویر یا ویدیوی اول در بالای منوی مشتری نمایش داده می‌شود.</p> : <div className="space-y-4">{menuGallery.map((item, index) => <div key={item.id} className="space-y-3 rounded-2xl bg-white p-3 ring-1 ring-stone-200 sm:p-4">
+                  <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-blue-50 text-brand-700"><Icon name={item.kind === "video" ? "play" : "image"} className="size-4"/></span><b className="text-xs">{item.kind === "video" ? "ویدیو" : "تصویر / GIF"} · {toFa(index + 1)}</b></div><Button type="button" size="sm" variant="ghost" className="text-rose-600" onClick={() => setSettings({ menuGallery: menuGallery.filter((_, itemIndex) => itemIndex !== index) })}>حذف از گالری</Button></div>
+                  <Field label="متن روی تصویر (اختیاری)"><Input maxLength={80} value={item.caption} onChange={(event) => setSettings({ menuGallery: menuGallery.map((current, itemIndex) => itemIndex === index ? { ...current, caption: event.target.value } : current) })} placeholder="مثلاً فضای دنج کافه"/></Field>
+                  {item.kind === "video" ? <VideoUpload value={item.url} onChange={(url) => setSettings({ menuGallery: menuGallery.map((current, itemIndex) => itemIndex === index ? { ...current, url } : current) })} /> : <ImageUpload value={item.url} emoji={biz.logoEmoji} label="تصویر گالری" description="JPG، PNG، WebP یا GIF؛ GIFهای کوچک حرکت خود را حفظ می‌کنند." onChange={(url) => setSettings({ menuGallery: menuGallery.map((current, itemIndex) => itemIndex === index ? { ...current, url } : current) })} />}
+                </div>)}</div>}
+              </section>
               <BrandColorPicker
                 value={biz.accentColor}
                 onChange={(color) => set("accentColor", color)}
