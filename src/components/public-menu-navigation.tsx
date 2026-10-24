@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { formatPrice, toFa } from "@/lib/format";
 import { readTrackedMenuOrders, trackedMenuOrdersUpdateEvent, type TrackedMenuOrder } from "@/lib/public-menu-orders";
 import { Button, cn, Icon, Input, Modal } from "@/components/ui";
+import { LoyaltyWheelGraphic } from "@/components/loyalty-wheel-graphic";
+import { wheelLandingRotation } from "@/lib/wheel-geometry";
 import { OtpCodeInput } from "@/components/otp-code-input";
 import type { Settings } from "@/lib/plans";
 import type { CustomerRewardSnapshot } from "@/lib/loyalty-rewards-core";
@@ -158,7 +160,7 @@ export function PublicMenuNavigation({
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const animationMs = reducedMotion ? 350 : 5_200;
       setWheelAnimationMs(animationMs);
-      setWheelRotation((current) => current + 360 * (reducedMotion ? 1 : 7) + ((360 - sectorCenter) % 360));
+      setWheelRotation((current) => wheelLandingRotation(current, sectorCenter, reducedMotion ? 0 : 7));
       animating = true;
       window.setTimeout(() => {
         setWheelResult(result.spin);
@@ -316,16 +318,9 @@ export function PublicMenuNavigation({
       {!profile ? <div className="space-y-4 text-center"><div className="mx-auto grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-violet-100 to-amber-100 text-violet-700"><Icon name="sparkles" className="size-8" /></div><p className="text-sm leading-7 text-stone-600">برای جلوگیری از چرخش‌های تکراری و نگهداری امن جایزه، ابتدا شماره موبایل خود را تأیید کنید.</p><Button className="w-full" onClick={() => setProfileOpen(true)}><Icon name="phone" className="size-4" /> ورود یا ثبت‌نام با شماره موبایل</Button></div>
         : wheelLoading ? <div className="grid min-h-72 place-items-center"><span className="loading loading-spinner loading-lg text-primary" /></div>
         : <div className="space-y-4">
-          <div className="relative mx-auto grid size-[min(78vw,20rem)] place-items-center rounded-full bg-gradient-to-br from-violet-100 via-fuchsia-50 to-amber-100 p-2 shadow-[0_24px_60px_-22px_rgba(91,33,182,.45)] ring-1 ring-violet-200/80">
-            <div className="absolute -top-1 z-20 text-rose-600 drop-shadow-md"><svg viewBox="0 0 28 36" className="h-9 w-7" aria-hidden="true"><path d="M14 35 1 2l13 7L27 2 14 35Z" fill="currentColor" stroke="white" strokeWidth="2" /></svg></div>
-            {wheelSegments.length ? <div className="relative size-full overflow-hidden rounded-full border-[5px] border-white shadow-inner" style={{ background: `conic-gradient(${wheelSegments.map((segment, index) => { const total = wheelSegments.reduce((sum, entry) => sum + entry.weight, 0); const start = wheelSegments.slice(0, index).reduce((sum, entry) => sum + entry.weight, 0) / total * 360; const end = start + segment.weight / total * 360; const colors = ["#6d28d9", "#db2777", "#ea580c", "#ca8a04", "#059669", "#0284c7", "#4f46e5", "#c026d3"]; return `${colors[index % colors.length]} ${start}deg ${end}deg`; }).join(",")})`, transform: `rotate(${wheelRotation}deg)`, transition: wheelBusy ? `transform ${wheelAnimationMs}ms cubic-bezier(.12,.78,.12,1)` : "none" }}>
-              {(() => { const total = wheelSegments.reduce((sum, item) => sum + item.weight, 0); let cursor = 0; return wheelSegments.map((segment, index) => { const center = ((cursor + segment.weight / 2) / total) * 360; cursor += segment.weight; return <span key={segment.id} className="absolute left-1/2 top-1/2 w-[34%] -translate-x-1/2 -translate-y-1/2 text-center text-[9px] font-extrabold leading-3 text-white drop-shadow [text-shadow:0_1px_2px_rgba(0,0,0,.65)] sm:text-[10px]" style={{ transform: `translate(-50%,-50%) rotate(${center}deg) translateY(-7rem) rotate(${-center}deg)` }}>{segment.title}</span>; }); })()}
-              <span className="absolute inset-[39%] grid place-items-center rounded-full border-4 border-white bg-white text-violet-800 shadow-lg"><Icon name="sparkles" className="size-7" /></span>
-            </div> : <div className="grid size-full place-items-center rounded-full border-[5px] border-white bg-white/70 text-center"><p className="max-w-48 text-sm font-bold leading-6 text-stone-600">گردونه فعلاً جایزهٔ فعالی ندارد</p></div>}
-            {wheelBusy && <span className="pointer-events-none absolute inset-0 rounded-full ring-4 ring-amber-300/70 motion-safe:animate-pulse" />}
-          </div>
+          <LoyaltyWheelGraphic segments={wheelSegments} rotation={wheelRotation} duration={wheelAnimationMs} spinning={wheelBusy} won={wheelResult?.status === "active"} resultKey={wheelResult?.id} />
           {wheelResult ? <div role="status" className="motion-safe:animate-pop relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-fuchsia-50 p-4 text-center shadow-sm">
-            {wheelResult.status !== "no_prize" && <div aria-hidden="true" className="pointer-events-none absolute inset-0">{Array.from({ length: 14 }, (_, index) => <i key={index} className="motion-safe:animate-bounce absolute top-0 h-2 w-1.5 rounded-sm" style={{ left: `${5 + index * 6.8}%`, top: `${(index % 4) * 13}%`, backgroundColor: ["#7c3aed", "#db2777", "#f59e0b", "#0ea5e9"][index % 4], animationDelay: `${(index % 5) * 110}ms` }} />)}</div>}
+
             <div className="pointer-events-none absolute inset-x-8 top-0 flex justify-between text-amber-400"><Icon name="sparkles" className="size-5"/><Icon name="sparkles" className="mt-3 size-4 text-fuchsia-400"/><Icon name="sparkles" className="size-5 text-violet-400"/></div>
             <Icon name={wheelResult.status === "no_prize" ? "circleX" : "award"} className={cn("mx-auto size-8", wheelResult.status === "no_prize" ? "text-stone-400" : "text-amber-500")} />
             <p className="mt-2 text-xs font-bold text-stone-500">{wheelResult.status === "no_prize" ? "این بار شانست نگرفت" : wheelResult.status === "message" ? "پیام ویژهٔ رستوران" : "تبریک! برنده شدی"}</p>
