@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { BellRing, CalendarDays, ChartNoAxesCombined, Check, ChefHat, ChevronLeft, CircleCheck, Coffee, Leaf, Pizza, QrCode, ReceiptText, ShoppingBag, Sparkles, TrendingUp, UsersRound, Weight } from "lucide-react";
+import Image from "next/image";
+import { Beef, BellRing, CalendarDays, ChartNoAxesCombined, Check, ChefHat, ChevronLeft, CircleCheck, Coffee, Leaf, Milk, Pizza, QrCode, ReceiptText, ShoppingBag, Sparkles, TrendingUp, UsersRound, Weight, Wheat } from "lucide-react";
 import { cn } from "@/components/ui";
 
 const scenes = [
@@ -52,32 +53,60 @@ function LiveSalesScene({ total, orders, pulse, toast }: { total: number; orders
   </div>;
 }
 
+type CostPhase = "weighing" | "dough" | "meat" | "cheese" | "seasoning" | "profit" | "price" | "photo" | "phone";
+
 const ingredients = [
-  { name: "سبزی تازه", amount: "۸۰ گرم", cost: "۲۴٬۰۰۰", icon: Leaf, color: "mint" },
-  { name: "گوشت", amount: "۱۸۰ گرم", cost: "۱۲۶٬۰۰۰", icon: ChefHat, color: "rose" },
-  { name: "ادویه", amount: "۱۲ گرم", cost: "۸٬۵۰۰", icon: Sparkles, color: "amber" },
-  { name: "پنیر", amount: "۱۲۰ گرم", cost: "۶۳٬۷۰۰", icon: Coffee, color: "cream" },
+  { key: "dough", name: "خمیر پیتزا", amount: "۲۵۰ گرم", cost: "۱۲٬۰۰۰", icon: Wheat, color: "cream" },
+  { key: "meat", name: "گوشت مزه‌دار", amount: "۱۸۰ گرم", cost: "۱۲۶٬۰۰۰", icon: Beef, color: "rose" },
+  { key: "cheese", name: "پنیر موزارلا", amount: "۱۲۰ گرم", cost: "۷۵٬۷۰۰", icon: Milk, color: "gold" },
+  { key: "seasoning", name: "ادویه و سبزی معطر", amount: "۱۲ گرم", cost: "۸٬۵۰۰", icon: Leaf, color: "mint" },
 ];
 
-function IngredientPricingScene({ phase }: { phase: string }) {
-  const phaseLabel = phase === "weighing" ? "۱ · وزن‌کشی دقیق مواد" : phase === "pouring" ? "۲ · افزودن مواد به پیتزا" : phase === "ratio" ? "۳ · محاسبهٔ بهای تمام‌شده" : "۴ · ثبت قیمت در منو";
+const costPhaseProgress: Record<CostPhase, number> = { weighing: 0, dough: 1, meat: 2, cheese: 3, seasoning: 4, profit: 4, price: 4, photo: 4, phone: 4 };
+const costPhaseLabels: Record<CostPhase, string> = {
+  weighing: "۱ · وزن‌کشی مواد",
+  dough: "۲ · خمیر وارد ظرف می‌شود",
+  meat: "۳ · گوشت اضافه می‌شود",
+  cheese: "۴ · پنیر روی مواد می‌نشیند",
+  seasoning: "۵ · ادویه و سبزی معطر",
+  profit: "۶ · جمع هزینه و حاشیه سود",
+  price: "۷ · پیشنهاد قیمت فروش",
+  photo: "۸ · افزودن عکس پیتزا به منو",
+  phone: "۹ · نمایش آیتم در منوی موبایل",
+};
+
+function IngredientPricingScene({ phase }: { phase: CostPhase }) {
+  const completedCount = costPhaseProgress[phase];
+  const activeIngredient = phase === "dough" || phase === "meat" || phase === "cheese" || phase === "seasoning" ? phase : null;
   return <div className={cn("hp-cost-scene", `is-${phase}`)}>
-    <div className="hp-cost-heading"><div><span className="hp-cost-kicker"><Weight size={13}/> تحلیل خودکار مواد اولیه</span><h2>از انبار تا قیمت منو</h2></div><span className="hp-cost-step">{phaseLabel}</span></div>
+    <div className="hp-cost-heading"><div><span className="hp-cost-kicker"><Weight size={13}/> تحلیل خودکار مواد اولیه</span><h2>از انبار تا قیمت منو</h2></div><span className="hp-cost-step">{costPhaseLabels[phase]}</span></div>
     <div className="hp-cost-workspace">
       <div className="hp-ingredient-list" aria-label="مواد اولیه در حال وزن‌کشی">
-        {ingredients.map(({ name, amount, cost, icon: IngredientIcon, color }, index) => <div key={name} className={`hp-ingredient-row hp-ingredient-${color}`} style={{ animationDelay: `${index * 170}ms` }}>
-          <span className="hp-ingredient-icon"><IngredientIcon size={15}/></span><span className="hp-ingredient-copy"><b>{name}</b><small>بهای سهم · {cost} تومان</small></span><strong>{amount}</strong><span className="hp-weight-check"><Check size={12}/></span>
-        </div>)}
+        {ingredients.map(({ key, name, amount, cost, icon: IngredientIcon, color }, index) => {
+          const added = index < completedCount;
+          const activeIngredientRow = key === activeIngredient;
+          return <div key={key} className={cn("hp-ingredient-row", `hp-ingredient-${color}`, added && "is-added", activeIngredientRow && "is-active")}>
+            <span className="hp-ingredient-icon"><IngredientIcon size={15}/></span><span className="hp-ingredient-copy"><b>{name}</b><small>بهای سهم · {cost} تومان</small></span><strong>{amount}</strong><span className="hp-weight-check"><Check size={12}/></span>
+          </div>;
+        })}
         <div className="hp-cost-total"><span>بهای هر پیتزا</span><b>۲۲۲٬۲۰۰ <small>تومان</small></b></div>
       </div>
-      <div className="hp-pizza-workbench">
-        <span className="hp-workbench-label"><ChefHat size={13}/> میز آماده‌سازی</span>
-        <div className="hp-pizza-bowl"><div className="hp-pizza-crust"><div className="hp-pizza-sauce"/><i/><i/><i/><i/><i/><i/><i/><i/></div><div className="hp-pour-particles"><i/><i/><i/><i/><i/><i/><i/><i/></div><span className="hp-pizza-steam"><i/><i/><i/></span></div>
-        <span className="hp-pizza-bowl-caption">پیتزا چهار فصل · ۱ عدد</span>
+      <div className="hp-pizza-workbench" data-phase={phase}>
+        <span className="hp-workbench-label"><ChefHat size={13}/>{phase === "phone" ? "منوی مشتری" : phase === "photo" ? "تصویر محصول" : "میز آماده‌سازی"}</span>
+        {(phase === "weighing" || phase === "dough" || phase === "meat" || phase === "cheese" || phase === "seasoning" || phase === "profit" || phase === "price") && <>
+          <div className="hp-pizza-bowl" data-phase={phase} data-progress={completedCount}>
+            <div className="hp-pizza-dough"><span className="hp-pizza-sauce"/><span className="hp-pizza-meat-layer"><i/><i/><i/><i/><i/></span><span className="hp-pizza-cheese-layer"><i/><i/><i/><i/><i/><i/><i/></span><span className="hp-pizza-herb-layer"><i/><i/><i/><i/><i/></span></div>
+            {(phase === "meat" || phase === "cheese" || phase === "seasoning") && <div key={phase} className={`hp-falling-food hp-falling-${phase}`} aria-hidden="true"><i/><i/><i/><i/><i/><i/></div>}
+          </div>
+          <span className="hp-pizza-bowl-caption">پیتزا چهار فصل · ۱ عدد</span>
+        </>}
         <div className="hp-cost-output">
-          {phase === "ratio" && <div className="hp-ratio-reveal"><strong>۳۵٪</strong><span>سهم بهای مواد از قیمت فروش</span><small>حاشیهٔ سود هدف: ۶۵٪</small></div>}
-          {phase === "menu" && <div className="hp-menu-price-reveal"><span className="hp-menu-mini-pizza"><Pizza size={18}/></span><span className="hp-menu-price-name"><b>پیتزا چهار فصل</b><small>قیمت پیشنهادی با بهای روز مواد</small></span><strong>۶۳۵٬۰۰۰ <small>تومان</small></strong><CircleCheck size={16}/></div>}
-          {(phase === "weighing" || phase === "pouring") && <span className="hp-cost-hint">{phase === "weighing" ? "ترازو مواد را دقیق ثبت می‌کند…" : "مواد با دستور تهیه ترکیب می‌شوند…"}</span>}
+          {phase === "profit" && <div className="hp-profit-reveal"><div><span>بهای مواد</span><b>۲۲۲٬۲۰۰</b><small>۳۵٪ قیمت فروش</small></div><i><span>+</span></i><div><span>حاشیه سود هدف</span><b>۴۱۲٬۸۰۰</b><small>۶۵٪ قیمت فروش</small></div></div>}
+          {phase === "price" && <div className="hp-price-zoom"><span>قیمت پیشنهادی منو</span><strong>۶۳۵٬۰۰۰ <small>تومان</small></strong><small>هزینه مواد + حاشیه سود هدف</small></div>}
+          {phase === "photo" && <article className="hp-photo-menu-card"><div className="hp-photo-menu-image"><Image src="/images/marketing/pizza-four-seasons.webp" alt="پیتزای چهار فصل آماده برای منوی رستوران" width={260} height={170} sizes="(max-width: 640px) 35vw, 250px"/></div><div className="hp-photo-menu-copy"><span><CircleCheck size={12}/> عکس محصول ثبت شد</span><b>پیتزا چهار فصل</b><strong>۶۳۵٬۰۰۰ <small>تومان</small></strong></div></article>}
+          {phase === "phone" && <div className="hp-cost-phone-wrap" aria-label="پیش‌نمایش آیتم پیتزا در منوی موبایل"><div className="hp-cost-phone"><div className="hp-cost-phone-camera"><i/></div><div className="hp-cost-phone-screen"><div className="hp-cost-phone-header"><span className="hp-cost-phone-logo"><Coffee size={10}/></span><span><b>کافه نارون</b><small>منوی آنلاین</small></span><ShoppingBag size={11}/></div><div className="hp-cost-phone-section"><span>پیشنهاد امروز</span><b>پیتزاها</b></div><article className="hp-cost-phone-product"><Image src="/images/marketing/pizza-four-seasons.webp" alt="پیتزای چهار فصل در منوی موبایل" width={230} height={130} sizes="140px"/><div><b>پیتزا چهار فصل</b><small>گوشت · موزارلا · ادویهٔ معطر</small><span><strong>۶۳۵٬۰۰۰</strong><i>+</i></span></div></article><div className="hp-cost-phone-bottom"><span>منو</span><span>سبد خرید</span><span>پروفایل</span></div></div></div></div>}
+          {phase === "weighing" && <span className="hp-cost-hint">ترازو وزن هر ماده را ثبت می‌کند…</span>}
+          {activeIngredient && <span className="hp-cost-hint">{activeIngredient === "dough" ? "خمیر داخل ظرف پهن می‌شود…" : activeIngredient === "meat" ? "گوشت روی خمیر پخش می‌شود…" : activeIngredient === "cheese" ? "پنیر روی لایهٔ گوشت می‌نشیند…" : "ادویه و سبزی معطر اضافه می‌شود…"}</span>}
         </div>
       </div>
     </div>
@@ -117,7 +146,7 @@ function DigitalMenuScene({ phase, onOrder }: { phase: MenuPhase; onOrder: () =>
           <div className="hp-phone-scroll-area"><div className="hp-phone-scroll-content">
             <div className="hp-phone-welcome"><span>طعم خوب، حال خوب</span><b>چی میل دارید؟</b></div>
             <div className="hp-phone-category"><span>پیشنهاد امروز</span><span>پیتزا</span><span>نوشیدنی</span></div>
-            <article className="hp-phone-product"><span className="hp-phone-food-art"><Pizza size={27}/></span><span><b>پیتزا چهار فصل</b><small>سبزی تازه · پنیر · گوشت</small><strong>۶۳۵٬۰۰۰ تومان</strong></span><span className="hp-phone-add">+</span></article>
+            <article className="hp-phone-product"><span className="hp-phone-food-art"><Image src="/images/marketing/pizza-four-seasons.webp" alt="" width={84} height={84} sizes="42px"/></span><span><b>پیتزا چهار فصل</b><small>گوشت · موزارلا · ادویهٔ معطر</small><strong>۶۳۵٬۰۰۰ تومان</strong></span><span className="hp-phone-add">+</span></article>
             <article className="hp-phone-product hp-phone-product-second"><span className="hp-phone-food-art hp-phone-drink"><Coffee size={23}/></span><span><b>آیس لاته</b><small>اسپرسو · شیر · یخ</small><strong>۱۲۸٬۰۰۰ تومان</strong></span><span className="hp-phone-add">+</span></article>
             <button type="button" className="hp-phone-order" onClick={onOrder}><ShoppingBag size={12}/> ثبت سفارش</button>
           </div></div>
@@ -151,13 +180,13 @@ export function HomepageShowcase() {
   const [orders, setOrders] = useState(128);
   const [salesPulse, setSalesPulse] = useState(0);
   const [saleToast, setSaleToast] = useState<{ id: number; amount: number; number: number; name: string } | null>(null);
-  const [costPhase, setCostPhase] = useState("weighing");
+  const [costPhase, setCostPhase] = useState<CostPhase>("weighing");
   const [menuPhase, setMenuPhase] = useState<MenuPhase>("browse");
   const saleSequence = useRef(0);
 
   useEffect(() => {
     if (prefersReducedMotion) return;
-    const timer = window.setTimeout(() => setActive((current) => (current + 1) % scenes.length), 10_000);
+    const timer = window.setTimeout(() => setActive((current) => (current + 1) % scenes.length), 22_000);
     return () => window.clearTimeout(timer);
   }, [active, prefersReducedMotion]);
 
@@ -187,14 +216,19 @@ export function HomepageShowcase() {
     const cycle = () => {
       setCostPhase("weighing");
       const timers = [
-        window.setTimeout(() => setCostPhase("pouring"), 2_100),
-        window.setTimeout(() => setCostPhase("ratio"), 4_250),
-        window.setTimeout(() => setCostPhase("menu"), 6_350),
+        window.setTimeout(() => setCostPhase("dough"), 1_200),
+        window.setTimeout(() => setCostPhase("meat"), 3_000),
+        window.setTimeout(() => setCostPhase("cheese"), 4_800),
+        window.setTimeout(() => setCostPhase("seasoning"), 6_600),
+        window.setTimeout(() => setCostPhase("profit"), 8_400),
+        window.setTimeout(() => setCostPhase("price"), 10_000),
+        window.setTimeout(() => setCostPhase("photo"), 11_600),
+        window.setTimeout(() => setCostPhase("phone"), 13_200),
       ];
       return timers;
     };
     let timers = cycle();
-    const loop = window.setInterval(() => { timers.forEach((timer) => window.clearTimeout(timer)); timers = cycle(); }, 9_200);
+    const loop = window.setInterval(() => { timers.forEach((timer) => window.clearTimeout(timer)); timers = cycle(); }, 18_000);
     return () => { window.clearInterval(loop); timers.forEach((timer) => window.clearTimeout(timer)); };
   }, [active, prefersReducedMotion]);
 
@@ -232,7 +266,7 @@ export function HomepageShowcase() {
     </div>
     <div id="hp-showcase-panel" role="tabpanel" aria-labelledby={`hp-tab-${scene.id}`} className="hp-dashboard" key={scene.id}>
       <div className="hp-dashboard-top"><span className="hp-dashboard-brand"><span><ShoppingBag size={15}/></span> محیط مدیریت MenuPeak</span><span className="hp-connection"><i/> دادهٔ نمونه · اجرای زنده</span></div>
-      {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene phase={prefersReducedMotion ? "menu" : costPhase}/> : active === 2 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : <ReservationScene/>}
+      {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene phase={prefersReducedMotion ? "phone" : costPhase}/> : active === 2 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : <ReservationScene/>}
     </div>
     <div className="hp-showcase-caption"><span><QrCode size={16}/> منوی مشتری</span><i/><span><ReceiptText size={16}/> سفارش و صندوق</span><i/><span><CalendarDays size={16}/> رزرو و سالن</span><i/><span><ChartNoAxesCombined size={16}/> گزارش مدیریت</span></div>
   </section>;
