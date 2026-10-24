@@ -105,8 +105,8 @@
 | [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه، تنظیم برند، و ناوبری موبایل بدون نوار هدر سراسری |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
-| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، ده قالب قابل انتخاب، گالری عکس/GIF/ویدیو، درخواست گارسون و جلوگیری از افزودن محصول رایگان |
-| [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو میز سمت مشتری |
+| [core-pages/public-menu.md](core-pages/public-menu.md) | منوی عمومی، نوار مشتری، پروفایل OTP، ده قالب قابل انتخاب، گالری عکس/GIF/ویدیو، درخواست گارسون و رزرو منوی نمونه فقط در محدودهٔ entitlement |
+| [core-pages/public-reservation.md](core-pages/public-reservation.md) | رزرو سه‌مرحله‌ای سمت مشتری، تاریخ شمسی، ظرفیت/میز آزاد، پیش‌پرداخت و API عمومی محدودشده |
 | [core-pages/kiosk-client.md](core-pages/kiosk-client.md) | کیوسک مشتری و کنترل قیمت محصول در سبد و سرور |
 | [core-pages/kitchen-display.md](core-pages/kitchen-display.md) | نمایشگر آشپزخانه |
 | [core-pages/courier-app.md](core-pages/courier-app.md) | اپلیکیشن پیک |

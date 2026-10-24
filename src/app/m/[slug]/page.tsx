@@ -12,7 +12,9 @@ type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ table?
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  if (slug === DEMO_SLUG) { if (!DEMO_ENABLED) notFound(); await ensureDemoData(); }
+  // Demo mode controls sample-account seeding/login, not access to an already
+  // provisioned public menu such as /m/niloofar.
+  if (slug === DEMO_SLUG && DEMO_ENABLED) await ensureDemoData();
   const data = await getPublicMenu(slug);
   return { title: data ? `منوی ${data.business.name}` : "منو پیدا نشد" };
 }
@@ -20,7 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function PublicMenuPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const { table, template, reward } = await searchParams;
-  if (slug === DEMO_SLUG) { if (!DEMO_ENABLED) notFound(); await ensureDemoData(); }
+  if (slug === DEMO_SLUG && DEMO_ENABLED) await ensureDemoData();
   const data = await getPublicMenu(slug);
   if (!data) notFound();
   const tableId = table && data.tables.some((t) => t.id === Number(table)) ? Number(table) : null;

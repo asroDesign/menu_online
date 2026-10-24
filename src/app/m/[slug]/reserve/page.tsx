@@ -3,13 +3,11 @@ import { notFound } from "next/navigation";
 import { getPublicMenu } from "@/lib/public-menu";
 import { ReservationForm } from "@/components/reservation-form";
 import { Icon } from "@/components/ui";
-import { DEMO_SLUG } from "@/lib/demo-mode";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReservePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  if (slug === DEMO_SLUG) notFound();
   const data = await getPublicMenu(slug);
   if (!data || !data.caps.reservations) notFound();
   return (

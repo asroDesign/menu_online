@@ -2,7 +2,7 @@
 const value = (process.env.DEMO_MODE ?? process.env.NEXT_PUBLIC_DEMO_MODE ?? "false").trim().toLowerCase();
 export const DEMO_ENABLED = ["true", "1", "on", "enabled", "yes"].includes(value);
 
-/** Reserved sample tenant slug. Checkout and reservations are blocked; waiter requests remain available for demonstration. */
+/** Reserved public sample tenant slug. Checkout remains read-only; reservations follow the tenant entitlement/settings. */
 export const DEMO_SLUG = "niloofar";
 
 export function isReadOnlyDemoSlug(slug: string) {

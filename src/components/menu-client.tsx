@@ -109,6 +109,9 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   const rewardAttemptRef = useRef("");
 
   const canOrder = !readOnlyDemo && !readOnlyPreview && biz.acceptOrders && (caps.selfOrder || caps.delivery);
+  // Keep a real reservation path available on the public sample menu while
+  // leaving checkout and order creation in preview-only mode.
+  const canReserve = caps.reservations && (!readOnlyPreview || readOnlyDemo);
   const initialTable = initialTableId ? tables.find((table) => table.id === initialTableId) : undefined;
   useEffect(() => { if (!readOnlyDemo) trackMenuEvent(biz.slug, "menu_view"); }, [biz.slug, readOnlyDemo]);
   const term = q.trim();
@@ -391,7 +394,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
     <div dir={dir} style={{ ...accent, backgroundColor: menuBackground }} className={cn("mx-auto min-h-dvh pb-28 shadow-xl", wideMenu ? "max-w-7xl" : "max-w-2xl", captainm && captainmStyles.menuShell)}>
       {softmenuTest3 && <div className="px-4 py-2 text-center text-[11px] font-bold text-white" style={{ backgroundColor: biz.accentColor }}>{biz.isOpen ? "منوی دیجیتال · آمادهٔ پذیرایی" : "اکنون بسته است · می‌توانید منو را مرور کنید"}</div>}
       {orderino
-        ? <PublicMenuShowcase business={biz} items={biz.menuGallery ?? []} reservations={caps.reservations} canOrder={canOrder} canDelivery={caps.delivery} readOnly={readOnlyDemo || readOnlyPreview} tableName={initialTable?.name} onOpenMenu={() => document.getElementById("menu-items")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+        ? <PublicMenuShowcase business={biz} items={biz.menuGallery ?? []} reservations={caps.reservations} canReserve={canReserve} canOrder={canOrder} canDelivery={caps.delivery} readOnly={readOnlyDemo || readOnlyPreview} tableName={initialTable?.name} onOpenMenu={() => document.getElementById("menu-items")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         : <PublicMenuGallery items={biz.menuGallery ?? []} name={biz.name} accent={biz.accentColor} />}
       <header className={cn("relative overflow-hidden px-5 pb-8 pt-10", !orderino && "text-white", editorial && "rounded-b-[2.5rem] px-8 pb-10 text-center", bistro && "rounded-b-[2rem] px-6 pb-8 pt-8", minimal && "pb-6 pt-8", (softmenuTest || captainm || haftkhan) && "px-5 pb-8 pt-8 text-center", orderino && "mx-auto mt-3 flex max-w-3xl items-center justify-between rounded-2xl bg-white px-4 py-3 text-stone-900 shadow-sm ring-1 ring-stone-200", captainm && captainmStyles.hero)} style={{ background: captainm || orderino ? undefined : headerBackground }}>
         {!orderino && <>
@@ -413,10 +416,10 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
           {biz.address && lang === "fa" && <span className={cn("flex max-w-full items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)}><Icon name="pin" className="size-3.5 shrink-0" /><span className="truncate">{biz.address}</span></span>}
           {biz.instagram && <a href={`https://instagram.com/${biz.instagram}`} target="_blank" className={cn("rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)} dir="ltr">@{biz.instagram}</a>}
           <span className={cn("rounded-full bg-white/15 px-3 py-1.5 backdrop-blur", captainm && captainmStyles.heroPill)}>{biz.isOpen ? "اکنون باز است" : "اکنون بسته است"}</span>
-          {caps.reservations && !readOnlyDemo && !readOnlyPreview && <Link href={`/m/${biz.slug}/reserve`} className="rounded-full bg-white px-3 py-1.5 font-bold text-stone-900 shadow-sm">رزرو میز</Link>}
+          {canReserve && <Link href={`/m/${biz.slug}/reserve`} className="rounded-full bg-white px-3 py-1.5 font-bold text-stone-900 shadow-sm">رزرو میز</Link>}
           <IconText>{caps.miniSite && <a href={`/s/${biz.slug}`} className="rounded-full bg-white/15 px-3 py-1.5 backdrop-blur">{<EmojiIcon emoji="" />} وب‌سایت ما</a>}</IconText>
         </div>
-        {readOnlyDemo && <p className={cn("relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6", captainm && captainmStyles.notice)}>این منو نمایشی است؛ ثبت سفارش و رزرو میز فعال نیست، اما می‌توانید درخواست گارسون را آزمایش کنید.</p>}
+        {readOnlyDemo && <p className={cn("relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6", captainm && captainmStyles.notice)}>{canReserve ? "این منوی نمونه است؛ سفارش آنلاین غیرفعال است، اما می‌توانید رزرو میز را ثبت کنید و منو را بررسی کنید." : "این منوی نمونه است؛ سفارش آنلاین و رزرو میز در پلن فعلی فعال نیست، اما می‌توانید منو را بررسی کنید."}</p>}
         {readOnlyPreview && <p className={cn("relative mt-4 rounded-xl bg-white/15 px-3 py-2 text-xs leading-6", captainm && captainmStyles.notice)}>این پیش‌نمایش فقط برای بررسی قالب است؛ ثبت سفارش و رزرو از این صفحه انجام نمی‌شود.</p>}
         <IconText>{initialTableId && caps.selfOrder && tables.find((x) => x.id === initialTableId) && canOrder && (
           <div className="relative mt-5 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm font-semibold text-stone-800">{<EmojiIcon emoji="" />} {tables.find((x) => x.id === initialTableId)!.name}</div>

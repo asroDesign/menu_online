@@ -47,9 +47,9 @@ export function PublicMenuGallery({ items, name, accent }: { items: MenuGalleryI
 }
 
 export function PublicMenuShowcase({
-  business, items, reservations, canOrder, canDelivery, readOnly, tableName, onOpenMenu,
+  business, items, reservations, canReserve, canOrder, canDelivery, readOnly, tableName, onOpenMenu,
 }: {
-  business: Business; items: MenuGalleryItem[]; reservations: boolean; canOrder: boolean; canDelivery: boolean;
+  business: Business; items: MenuGalleryItem[]; reservations: boolean; canReserve: boolean; canOrder: boolean; canDelivery: boolean;
   readOnly: boolean; tableName?: string; onOpenMenu: () => void;
 }) {
   const { accentColor, name, address, phone, description, logoEmoji, logoUrl, isOpen, operatingHours, lat, lng } = business;
@@ -71,7 +71,7 @@ export function PublicMenuShowcase({
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
         <button type="button" onClick={onOpenMenu} className="col-span-2 flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-sm font-extrabold text-white shadow-sm transition hover:brightness-105 active:scale-[.99] sm:col-span-1" style={{ backgroundColor: accentColor }}><ShoppingBag className="size-4"/> مشاهده منو <ArrowDown className="size-3.5"/></button>
-        {reservations && !readOnly && <Link href={`/m/${business.slug}/reserve`} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-amber-50 px-3 text-sm font-extrabold text-amber-950 ring-1 ring-amber-100 transition hover:bg-amber-100"><CalendarDays className="size-4"/> رزرو میز</Link>}
+        {canReserve && <Link href={`/m/${business.slug}/reserve`} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-amber-50 px-3 text-sm font-extrabold text-amber-950 ring-1 ring-amber-100 transition hover:bg-amber-100"><CalendarDays className="size-4"/> رزرو میز</Link>}
         {phone && <a href={`tel:${phone}`} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-3 text-sm font-bold text-stone-700 ring-1 ring-stone-200 transition hover:bg-stone-50"><Phone className="size-4"/> تماس</a>}
       </div>
       {(canDelivery || reservations) && <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-stone-600">
