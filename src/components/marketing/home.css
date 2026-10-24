@@ -1149,13 +1149,13 @@
 .hp-showcase-caption>i {width:3px;height:3px;border-radius:50%;background:#bec8d8}
 
 /* Live sales report */
-.hp-live-scene,.hp-cost-scene,.hp-digital-scene,.hp-reservation-scene {padding:17px 22px 13px}
+.hp-live-scene,.hp-cost-scene,.hp-digital-scene,.hp-reservation-scene,.hp-loyalty-scene,.hp-accounting-scene {padding:17px 22px 13px}
 .hp-live-scene {position:relative}
-.hp-live-heading,.hp-cost-heading,.hp-digital-heading,.hp-reservation-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px}
+.hp-live-heading,.hp-cost-heading,.hp-digital-heading,.hp-reservation-heading,.hp-loyalty-heading,.hp-accounting-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px}
 .hp-live-heading>div:first-child {min-width:0;flex:1}
 .hp-live-kicker,.hp-cost-kicker,.hp-menu-kicker,.hp-reservation-kicker {display:inline-flex;align-items:center;gap:6px;color:#5775ad;font-size:9px;font-weight:800}
 .hp-live-kicker i {width:6px;height:6px;border-radius:50%;background:#2bc485;box-shadow:0 0 0 4px #2bc48520;animation:hp-live-pulse 1.6s ease-in-out infinite}
-.mp-home .hp-live-heading h2,.mp-home .hp-cost-heading h2,.mp-home .hp-digital-heading h2,.mp-home .hp-reservation-heading h2 {margin-top:3px;color:#182d4a;font-size:16px;line-height:1.5;letter-spacing:-.25px}
+.mp-home .hp-live-heading h2,.mp-home .hp-cost-heading h2,.mp-home .hp-digital-heading h2,.mp-home .hp-reservation-heading h2,.mp-home .hp-loyalty-heading h2,.mp-home .hp-accounting-heading h2 {margin-top:3px;color:#182d4a;font-size:16px;line-height:1.5;letter-spacing:-.25px}
 .hp-live-window,.hp-reservation-day {display:inline-flex;align-items:center;gap:4px;border:1px solid #e5ebf4;border-radius:9px;background:#fff;padding:6px 8px;color:#65748b;font-size:9px;font-weight:750}
 .hp-live-stats {display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:9px;margin-bottom:11px}
 .hp-live-stat {display:grid;min-width:0;gap:4px;border:1px solid #e7edf6;border-radius:12px;background:#fff;padding:10px 12px}
@@ -1334,6 +1334,103 @@
 .hp-booking-confirm {position:absolute;inset-inline-end:8px;top:50%;display:flex;align-items:center;gap:3px;transform:translateY(-50%);border-radius:999px;background:#e6f6ed;padding:4px 6px;color:#23845a;font-size:7px;font-weight:800}
 .hp-reservation-foot {margin-top:6px}
 
+/* Customer loyalty: show a real purchase-to-reward journey and the returning-customer signal. */
+.hp-loyalty-scene {--loyalty:#248565;--loyalty-soft:#eff9f4}
+.hp-loyalty-heading {margin-bottom:10px}
+.hp-loyalty-kicker {display:inline-flex;align-items:center;gap:6px;color:#32856b;font-size:9px;font-weight:800}
+.hp-loyalty-phase,.hp-accounting-phase {display:inline-flex;max-width:48%;align-items:center;gap:6px;border:1px solid #d9eee5;border-radius:999px;background:#f2faf6;padding:7px 9px;color:#43836e;font-size:8px;font-weight:800}
+.hp-loyalty-phase i,.hp-accounting-phase i {width:6px;height:6px;flex:none;border-radius:50%;background:#27b47a;box-shadow:0 0 0 3px #27b47a1c}
+.hp-loyalty-stats {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.hp-loyalty-stats article {position:relative;display:grid;min-width:0;gap:3px;overflow:hidden;border:1px solid #e8edf4;border-radius:11px;background:linear-gradient(145deg,#fff,#fbfcff);padding:8px 10px}
+.hp-loyalty-stats article>span {overflow:hidden;padding-inline-end:24px;color:#7b899c;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.hp-loyalty-stats article>b {color:#263b56;font-size:14px;font-weight:900;white-space:nowrap}
+.hp-loyalty-stats article>b small {color:#8794a6;font-size:7px;font-weight:600}
+.hp-loyalty-stat-icon {position:absolute;inset-block-start:8px;inset-inline-end:8px;display:grid;width:22px;height:22px;place-items:center;border-radius:7px}
+.hp-stat-blue {background:#edf3ff;color:#4c78cc}.hp-stat-green {background:#eaf8f0;color:#299166}.hp-stat-gold {background:#fff6e2;color:#bd8a27}
+.hp-loyalty-workspace {display:grid;grid-template-columns:1.03fr .97fr;gap:9px;align-items:stretch}
+.hp-member-card,.hp-loyalty-journey {min-width:0;border:1px solid #e5eee9;border-radius:13px;background:#fff;padding:10px}
+.hp-member-card {display:grid;align-content:start;gap:8px;box-shadow:0 6px 18px #1d68400b}
+.hp-member-top {display:flex;min-width:0;align-items:center;gap:7px}
+.hp-member-avatar {display:grid;width:31px;height:31px;flex:none;place-items:center;border-radius:10px;background:linear-gradient(145deg,#d9f2e4,#c0e7d2);color:#217650;font-size:13px;font-weight:900}
+.hp-member-top>span:nth-child(2) {display:grid;min-width:0;flex:1;gap:2px}.hp-member-top b {overflow:hidden;color:#30445b;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.hp-member-top small {color:#879486;font-size:7px}
+.hp-member-tier {display:inline-flex;align-items:center;gap:3px;border:1px solid #f1dfb4;border-radius:999px;background:#fff9e9;padding:4px 6px;color:#a77920;font-size:7px;font-weight:800;white-space:nowrap}
+.hp-member-order {display:flex;min-width:0;align-items:center;gap:7px;border:1px solid #edf1ef;border-radius:9px;background:#fbfdfc;padding:7px}
+.hp-member-order-icon {display:grid;width:25px;height:25px;flex:none;place-items:center;border-radius:8px;background:#edf4ff;color:#5480cf}
+.hp-member-order>span:nth-child(2) {display:grid;min-width:0;flex:1;gap:2px}.hp-member-order b {overflow:hidden;color:#405169;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.hp-member-order small {overflow:hidden;color:#8c98a7;font-size:7px;text-overflow:ellipsis;white-space:nowrap}
+.hp-member-order-check {display:grid;width:19px;height:19px;flex:none;place-items:center;border-radius:50%;background:#eaf8f0;color:#269364}
+.hp-points-wallet {display:grid;gap:6px;border:1px solid #dcefe5;border-radius:10px;background:linear-gradient(135deg,#f3fbf6,#fff);padding:7px 8px}
+.hp-points-wallet-head,.hp-points-caption {display:flex;align-items:center;justify-content:space-between;gap:6px}
+.hp-points-wallet-head>span {display:inline-flex;align-items:center;gap:4px;color:#698376;font-size:7px;font-weight:750}
+.hp-points-wallet-head>b {color:#218357;font-size:10px;font-weight:900;white-space:nowrap}.hp-points-wallet-head>b small {font-size:6px}
+.hp-points-wallet-head .hp-points-pop {animation:hp-number-pop .55s cubic-bezier(.2,.8,.2,1) both}
+.hp-points-progress {height:6px;overflow:hidden;border-radius:999px;background:#e4eee8;direction:rtl}
+.hp-points-progress i {display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#42bd86,#168153);transition:width .85s cubic-bezier(.2,.8,.2,1)}
+.hp-points-caption {color:#839286;font-size:6px}
+.hp-loyalty-journey {display:flex;flex-direction:column;justify-content:center;background:radial-gradient(ellipse at 50% 0,#f1faf5,#fff 72%)}
+.hp-loyalty-journey-title {margin-bottom:12px;color:#536a61;font-size:8px;font-weight:850}
+.hp-loyalty-steps {display:flex;align-items:flex-start;justify-content:space-between;gap:3px;direction:rtl}
+.hp-loyalty-steps>div {display:grid;min-width:35px;justify-items:center;gap:4px;color:#96a49c;font-size:6px;font-weight:750;transition:color .3s}
+.hp-loyalty-steps>div>i {display:grid;width:27px;height:27px;place-items:center;border:1px solid #e2eae5;border-radius:9px;background:#fff;color:#9ba99f;font-style:normal;transition:transform .35s,border-color .35s,background .35s,color .35s,box-shadow .35s}
+.hp-loyalty-steps>div.is-complete,.hp-loyalty-steps>div.is-current {color:#277b57}
+.hp-loyalty-steps>div.is-complete>i,.hp-loyalty-steps>div.is-current>i {border-color:#cbeada;background:#eaf8f0;color:#258358}
+.hp-loyalty-steps>div.is-current>i {transform:scale(1.12);box-shadow:0 0 0 4px #40a9781c}
+.hp-loyalty-connector {height:2px;min-width:7px;flex:1;margin-top:13px;border-radius:3px;background:#e4ebe7;transition:background .4s}
+.hp-loyalty-steps>div.is-complete + .hp-loyalty-connector {background:#66bd8c}
+.hp-loyalty-event {display:flex;min-height:46px;align-items:center;gap:8px;margin-top:13px;border:1px solid #e9eee9;border-radius:10px;background:#fff;padding:7px 8px;color:#768578;animation:hp-panel-enter .45s ease both}
+.hp-loyalty-event>span:nth-child(2) {display:grid;min-width:0;flex:1;gap:3px}.hp-loyalty-event b {color:#465c4f;font-size:7px}.hp-loyalty-event small {color:#8a998e;font-size:6px}
+.hp-loyalty-event>svg {flex:none;color:#45936a}
+.hp-loyalty-event-icon {display:grid;width:27px;height:27px;flex:none;place-items:center;border-radius:8px;background:#eff6ff;color:#5680c6}
+.hp-loyalty-event.is-points {border-color:#d5eee1;background:#f5fbf7}.hp-loyalty-event.is-points .hp-loyalty-event-icon {background:#e6f8ee;color:#198856}.hp-loyalty-event.is-points>svg {color:#dba735;animation:hp-sparkle-tick .8s ease-in-out infinite alternate}
+.hp-loyalty-event.is-return {border-color:#d7e8ff;background:#f5f9ff}.hp-loyalty-event.is-return .hp-loyalty-event-icon {background:#eaf1ff;color:#4d79c9}
+.hp-loyalty-event.is-reward {border-color:#f0dfb7;background:#fffbef}.hp-loyalty-event.is-reward .hp-loyalty-event-icon {background:#fff3d0;color:#b78726}.hp-loyalty-event.is-reward>svg {color:#c08f2d;animation:hp-reward-bob 1.2s ease-in-out infinite}
+.hp-loyalty-foot,.hp-accounting-foot {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;color:#87948b;font-size:7px}
+.hp-loyalty-foot>span:first-child,.hp-accounting-foot>span:first-child {display:inline-flex;align-items:center;gap:7px}
+.hp-loyalty-foot>span:first-child i,.hp-accounting-foot>span:first-child i {width:5px;height:5px;flex:none;border-radius:50%;background:#29b87a;box-shadow:0 0 0 3px #29b87a1c}
+
+/* Split POS receipts into balanced bank, cash and sales journal lines. */
+.hp-accounting-scene {--accounting:#4875c7}
+.hp-accounting-heading {margin-bottom:9px}
+.hp-accounting-kicker {display:inline-flex;align-items:center;gap:6px;color:#5877b0;font-size:9px;font-weight:800}
+.hp-accounting-phase {border-color:#dfe8f6;background:#f4f7fc;color:#66799a}
+.hp-accounting-sale {display:flex;min-width:0;align-items:center;gap:8px;border:1px solid #e4eaf3;border-radius:10px;background:#fff;padding:7px 9px}
+.hp-accounting-sale-icon {display:grid;width:27px;height:27px;flex:none;place-items:center;border-radius:8px;background:#edf3ff;color:#4f78c6}
+.hp-accounting-sale>span:nth-child(2) {display:grid;min-width:0;flex:1;gap:2px}.hp-accounting-sale b {color:#354860;font-size:8px}.hp-accounting-sale small {color:#8794a5;font-size:6px}
+.hp-accounting-sale>strong {color:#274c88;font-size:11px;font-weight:900;white-space:nowrap}.hp-accounting-sale>strong small {font-size:6px}
+.hp-payment-split {display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) auto;align-items:center;gap:6px;margin-top:6px}
+.hp-payment-method {display:grid;min-width:0;gap:4px;border:1px solid #e8edf4;border-radius:9px;background:#fbfcfe;padding:6px 8px;transition:border-color .3s,background .3s,transform .3s,box-shadow .3s}
+.hp-payment-method>span {display:inline-flex;min-width:0;align-items:center;gap:4px;color:#758399;font-size:6px;font-weight:750;white-space:nowrap}.hp-payment-method>span svg {flex:none}
+.hp-payment-method>b {color:#3a4d68;font-size:9px;white-space:nowrap}.hp-payment-method>b small {font-size:6px;font-weight:600}
+.hp-payment-pos>span svg {color:#527bc4}.hp-payment-cash>span svg {color:#318c66}
+.hp-payment-flow {justify-self:center;color:#94a3b9;transition:color .3s;animation:hp-account-flow 1.4s ease-in-out infinite}
+.hp-payment-total {display:grid;justify-items:end;gap:3px;white-space:nowrap}.hp-payment-total>span {color:#8692a2;font-size:6px}.hp-payment-total>b {color:#283e5c;font-size:9px}.hp-payment-total>b small {font-size:6px;font-weight:600}
+.hp-accounting-scene[data-phase="routing"] .hp-payment-method,.hp-accounting-scene[data-phase="journal"] .hp-payment-method,.hp-accounting-scene[data-phase="balanced"] .hp-payment-method {border-color:#d1e8dc;background:#f4fbf7;box-shadow:0 3px 10px #20845710}
+.hp-accounting-scene[data-phase="routing"] .hp-payment-pos {transform:translateY(-2px);animation:hp-ledger-pulse .85s ease-in-out infinite alternate}
+.hp-accounting-scene[data-phase="routing"] .hp-payment-cash {transform:translateY(2px);animation:hp-ledger-pulse .85s .2s ease-in-out infinite alternate}
+.hp-accounting-scene[data-phase="routing"] .hp-payment-flow {color:#26845c}
+.hp-journal-card {overflow:hidden;margin-top:8px;border:1px solid #e4eaf2;border-radius:11px;background:#fff;box-shadow:0 5px 15px #31415a09}
+.hp-journal-head {display:flex;min-height:31px;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #eef1f5;background:#fafbfd;padding:5px 9px;color:#4a5c74;font-size:7px;font-weight:850}
+.hp-journal-head>span {display:inline-flex;align-items:center;gap:5px}.hp-journal-head>span svg {color:#6685bb}.hp-journal-head>b {color:#7d8ba0;font-size:6px}
+.hp-journal-columns,.hp-journal-row {display:grid;grid-template-columns:minmax(0,1fr) 66px 66px;align-items:center;gap:5px;padding-inline:9px}
+.hp-journal-columns {min-height:22px;border-bottom:1px solid #edf0f4;background:#fff;color:#8a96a7;font-size:6px;font-weight:750}.hp-journal-columns>span:not(:first-child) {text-align:center}
+.hp-journal-row {min-height:34px;border-bottom:1px solid #f0f2f6;opacity:.42;transform:translateY(3px);transition:opacity .35s,transform .35s,background .35s}
+.hp-journal-row>span:first-child {display:flex;min-width:0;align-items:center;gap:6px}.hp-journal-row>span:first-child>i {display:grid;width:22px;height:22px;flex:none;place-items:center;border-radius:7px;background:#eef4ff;color:#537cc1;font-style:normal}.hp-journal-row.is-debit>span:first-child>i {background:#edf8f2;color:#348a67}
+.hp-journal-row>span:first-child>span {display:grid;min-width:0;gap:2px}.hp-journal-row b {color:#42536a;font-size:7px;font-weight:800;text-align:center;white-space:nowrap}.hp-journal-row>span:first-child b {overflow:hidden;text-align:start;text-overflow:ellipsis;white-space:nowrap}.hp-journal-row small {overflow:hidden;color:#929dac;font-size:5px;text-overflow:ellipsis;white-space:nowrap}.hp-journal-row em {color:#a4adba;font-size:8px;font-style:normal;text-align:center}
+.hp-journal-row.is-credit {border-bottom:0;background:#fcfdfc}.hp-journal-row.is-credit>span:first-child>i {background:#f1edff;color:#7663b5}
+.hp-accounting-scene[data-phase="journal"] .hp-journal-row,.hp-accounting-scene[data-phase="balanced"] .hp-journal-row {opacity:1;transform:translateY(0)}
+.hp-accounting-scene[data-phase="journal"] .hp-journal-row:nth-of-type(3) {transition-delay:.08s}.hp-accounting-scene[data-phase="journal"] .hp-journal-row:nth-of-type(4) {transition-delay:.18s}.hp-accounting-scene[data-phase="journal"] .hp-journal-row:nth-of-type(5) {transition-delay:.28s}
+.hp-accounting-scene[data-phase="balanced"] .hp-journal-row {animation:hp-ledger-row .65s ease both}.hp-accounting-scene[data-phase="balanced"] .hp-journal-row:nth-of-type(4) {animation-delay:.1s}.hp-accounting-scene[data-phase="balanced"] .hp-journal-row:nth-of-type(5) {animation-delay:.2s}
+.hp-journal-foot {display:flex;min-height:28px;align-items:center;justify-content:space-between;gap:7px;background:#fafbfd;padding:5px 9px;color:#7d899a;font-size:6px}
+.hp-journal-foot>span {display:inline-flex;align-items:center;gap:4px;color:#aa8540}.hp-journal-foot>span.is-balanced {color:#218458}.hp-journal-foot>b {color:#52627a;font-size:6px;white-space:nowrap}.hp-journal-foot>b>i {display:inline-block;width:3px;height:3px;margin:0 3px;border-radius:50%;background:#9eabbb;vertical-align:middle}
+.hp-accounting-foot {margin-top:7px}
+.hp-accounting-scene[data-phase="balanced"] .hp-journal-card {border-color:#bee4ce;box-shadow:0 0 0 3px #34a66d12,0 8px 20px #286b4512}
+.hp-accounting-scene[data-phase="balanced"] .hp-journal-foot {background:#f3fbf6}
+
+@keyframes hp-sparkle-tick {to {transform:rotate(12deg) scale(1.18)}}
+@keyframes hp-reward-bob {50% {transform:translateY(-2px) rotate(-8deg)}}
+@keyframes hp-account-flow {50% {transform:translateY(3px);opacity:.55}}
+@keyframes hp-ledger-pulse {to {box-shadow:0 0 0 3px #34a66d1c}}
+@keyframes hp-ledger-row {0% {background:#eaf8ef}100% {background:#fff}}
+
 @keyframes hp-panel-enter {from {opacity:0;transform:translateY(8px)}to {opacity:1;transform:translateY(0)}}
 @keyframes hp-live-pulse {50% {box-shadow:0 0 0 7px #2bc48510}}
 @keyframes hp-number-pop {0% {opacity:.25;transform:translateY(7px) scale(.94)}65% {opacity:1;transform:translateY(-2px) scale(1.025)}100% {transform:translateY(0) scale(1)}}
@@ -1364,9 +1461,9 @@
   .hp-dashboard {min-height:340px;border-radius:15px}
   .hp-dashboard-top {min-height:37px;padding:5px 9px;font-size:8px}
   .hp-dashboard-brand>span {width:23px;height:23px}
-  .hp-live-scene,.hp-cost-scene,.hp-digital-scene,.hp-reservation-scene {padding:12px 10px 10px}
-  .hp-live-heading,.hp-cost-heading,.hp-digital-heading,.hp-reservation-heading {margin-bottom:9px}
-  .mp-home .hp-live-heading h2,.mp-home .hp-cost-heading h2,.mp-home .hp-digital-heading h2,.mp-home .hp-reservation-heading h2 {font-size:14px}
+  .hp-live-scene,.hp-cost-scene,.hp-digital-scene,.hp-reservation-scene,.hp-loyalty-scene,.hp-accounting-scene {padding:12px 10px 10px}
+  .hp-live-heading,.hp-cost-heading,.hp-digital-heading,.hp-reservation-heading,.hp-loyalty-heading,.hp-accounting-heading {margin-bottom:9px}
+  .mp-home .hp-live-heading h2,.mp-home .hp-cost-heading h2,.mp-home .hp-digital-heading h2,.mp-home .hp-reservation-heading h2,.mp-home .hp-loyalty-heading h2,.mp-home .hp-accounting-heading h2 {font-size:14px}
   .hp-live-kicker,.hp-cost-kicker,.hp-menu-kicker,.hp-reservation-kicker {font-size:8px}
   .hp-live-stats {gap:5px}
   .hp-live-stat {gap:3px;padding:7px 6px}
@@ -1429,6 +1526,28 @@
   .hp-reservation-summary b {font-size:12px}
   .hp-reservation-timeline {grid-template-columns:38px 1fr}
   .hp-reservation-line {min-height:51px;padding-inline-start:7px}
+  .hp-loyalty-stats {gap:5px;margin-bottom:7px}
+  .hp-loyalty-stats article {gap:2px;padding:7px 6px}
+  .hp-loyalty-stats article>span {padding-inline-end:19px;font-size:6px}
+  .hp-loyalty-stats article>b {font-size:11px}
+  .hp-loyalty-stat-icon {inset-block-start:7px;inset-inline-end:6px;width:18px;height:18px}
+  .hp-loyalty-stat-icon svg {width:11px;height:11px}
+  .hp-loyalty-workspace {grid-template-columns:1fr;gap:6px}
+  .hp-member-card,.hp-loyalty-journey {padding:8px}
+  .hp-member-card {gap:6px}
+  .hp-loyalty-journey-title {margin-bottom:7px}
+  .hp-loyalty-event {min-height:38px;margin-top:8px;padding:5px 7px}
+  .hp-loyalty-foot,.hp-accounting-foot {font-size:6px}
+  .hp-loyalty-phase,.hp-accounting-phase {max-width:44%;padding:5px 6px;font-size:6px}
+  .hp-payment-split {grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr) auto;gap:4px}
+  .hp-payment-method {padding:5px 5px}
+  .hp-payment-method>b {font-size:8px}
+  .hp-payment-total>b {font-size:8px}
+  .hp-journal-columns,.hp-journal-row {grid-template-columns:minmax(0,1fr) 54px 54px;gap:3px;padding-inline:6px}
+  .hp-journal-row>span:first-child {gap:4px}
+  .hp-journal-row>span:first-child>i {width:19px;height:19px}
+  .hp-journal-row b {font-size:6px}
+  .hp-journal-head,.hp-journal-foot {padding-inline:6px}
 }
 @media(max-width:390px) {
   .hp-showcase-intro {gap:5px}
@@ -1444,6 +1563,13 @@
   .hp-pizza-dough {width:62px;height:62px;border-width:5px}
   .hp-cost-phone {width:120px;height:158px}
   .hp-cost-phone-product>img {height:44px}
+  .hp-loyalty-steps>div {min-width:31px;font-size:5px}
+  .hp-loyalty-steps>div>i {width:24px;height:24px}
+  .hp-loyalty-connector {margin-top:11px}
+  .hp-payment-split {grid-template-columns:minmax(0,1fr) 13px minmax(0,1fr)}
+  .hp-payment-total {grid-column:1 / -1;display:flex;align-items:center;justify-content:flex-end;gap:6px}
+  .hp-journal-columns,.hp-journal-row {grid-template-columns:minmax(0,1fr) 45px 45px}
+  .hp-journal-row small {font-size:4px}
 }
 @media(prefers-reduced-motion:reduce) {
   .mp-home * {

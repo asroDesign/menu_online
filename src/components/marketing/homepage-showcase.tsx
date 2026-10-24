@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
-import { Beef, BellRing, CalendarDays, ChartNoAxesCombined, Check, ChefHat, ChevronLeft, CircleCheck, Coffee, Leaf, Milk, Pizza, QrCode, ReceiptText, ShoppingBag, Sparkles, TrendingUp, UsersRound, Weight, Wheat } from "lucide-react";
+import { ArrowDownUp, Banknote, Beef, BellRing, CalendarDays, ChartNoAxesCombined, Check, ChefHat, ChevronLeft, CircleCheck, Coffee, Gift, Heart, Landmark, Leaf, Milk, Pizza, QrCode, ReceiptText, ShoppingBag, Sparkles, Star, TrendingUp, UsersRound, WalletCards, Weight, Wheat } from "lucide-react";
 import { cn } from "@/components/ui";
 
 const scenes = [
   { id: "reports", label: "فروش زنده", icon: ChartNoAxesCombined },
   { id: "costing", label: "انبار و قیمت", icon: ChefHat },
+  { id: "loyalty", label: "باشگاه مشتریان", icon: Heart },
+  { id: "accounting", label: "حسابداری", icon: ReceiptText },
   { id: "menu", label: "منوی دیجیتال", icon: Coffee },
   { id: "reservation", label: "رزرو میز", icon: CalendarDays },
 ];
@@ -173,6 +175,70 @@ function ReservationScene() {
   </div>;
 }
 
+type LoyaltyPhase = "purchase" | "points" | "return" | "reward";
+
+const loyaltyPhaseLabels: Record<LoyaltyPhase, string> = {
+  purchase: "ثبت خرید مشتری",
+  points: "افزودن امتیاز به کیف پول",
+  return: "بازگشت مشتری",
+  reward: "استفاده از جایزه",
+};
+
+function LoyaltyScene({ phase }: { phase: LoyaltyPhase }) {
+  const progress = phase === "purchase" ? 98 : phase === "points" ? 100 : phase === "return" ? 87 : 67;
+  return <div className="hp-loyalty-scene" data-phase={phase}>
+    <div className="hp-loyalty-heading"><div><span className="hp-loyalty-kicker"><Heart size={13}/> باشگاه مشتریان</span><h2>هر خرید، دلیلی برای بازگشت</h2></div><span className="hp-loyalty-phase"><i/>{loyaltyPhaseLabels[phase]}</span></div>
+    <div className="hp-loyalty-stats">
+      <article><span>مشتری جدید این ماه</span><b>۱۲۸ <small>نفر</small></b><i className="hp-loyalty-stat-icon hp-stat-blue"><UsersRound size={13}/></i></article>
+      <article><span>مشتری برگشتی</span><b>۶۴٪ <small>از مشتریان</small></b><i className="hp-loyalty-stat-icon hp-stat-green"><TrendingUp size={13}/></i></article>
+      <article><span>مشتری معرفی‌شده</span><b>۳۴ <small>نفر</small></b><i className="hp-loyalty-stat-icon hp-stat-gold"><Gift size={13}/></i></article>
+    </div>
+    <div className="hp-loyalty-workspace">
+      <article className="hp-member-card">
+        <div className="hp-member-top"><span className="hp-member-avatar">م</span><span><b>مریم رضایی</b><small>مشتری وفادار · ۸ خرید</small></span><span className="hp-member-tier"><Star size={10}/> طلایی</span></div>
+        <div className="hp-member-order"><span className="hp-member-order-icon"><ShoppingBag size={13}/></span><span><b>{phase === "return" || phase === "reward" ? "مریم دوباره برگشت" : "پیتزا چهار فصل"}</b><small>{phase === "return" || phase === "reward" ? "سفارش تازه · همین الان" : "سفارش #۱۰۲۴ · ۶۳۵٬۰۰۰ تومان"}</small></span><span className="hp-member-order-check"><CircleCheck size={13}/></span></div>
+        <div className="hp-points-wallet"><div className="hp-points-wallet-head"><span><WalletCards size={12}/> کیف پول امتیاز</span><b key={phase} className={phase === "points" ? "hp-points-pop" : ""}>{phase === "purchase" ? "۱٬۱۸۰" : phase === "points" ? "۱٬۲۴۳" : phase === "return" ? "۱٬۳۰۶" : "۱٬۰۰۶"} <small>امتیاز</small></b></div><div className="hp-points-progress"><i style={{ width: `${progress}%` }}/></div><div className="hp-points-caption"><span>{phase === "purchase" ? "۲۰ امتیاز تا جایزه" : phase === "points" ? "جایزهٔ تخفیف آزاد شد" : phase === "return" ? "۱۹۴ امتیاز تا جایزهٔ بعدی" : "۴۹۴ امتیاز تا جایزهٔ بعدی"}</span><span>{phase === "reward" ? "۳۰۰ امتیاز کسر شد" : phase === "points" ? "تخفیف ۱۰۰٬۰۰۰ تومان" : phase === "return" ? "هدف بعدی: ۱٬۵۰۰" : "هدف: ۱٬۲۰۰ امتیاز"}</span></div></div>
+      </article>
+      <div className="hp-loyalty-journey">
+        <span className="hp-loyalty-journey-title">مسیر وفاداری مشتری</span>
+        <div className="hp-loyalty-steps">
+          <div className={phase !== "purchase" ? "is-complete" : "is-current"}><i><ShoppingBag size={12}/></i><span>خرید</span></div><span className="hp-loyalty-connector"/><div className={phase === "points" ? "is-current" : phase === "purchase" ? "" : "is-complete"}><i><Star size={12}/></i><span>امتیاز</span></div><span className="hp-loyalty-connector"/><div className={phase === "return" ? "is-current" : phase === "reward" ? "is-complete" : ""}><i><UsersRound size={12}/></i><span>بازگشت</span></div><span className="hp-loyalty-connector"/><div className={phase === "reward" ? "is-current" : ""}><i><Gift size={12}/></i><span>جایزه</span></div>
+        </div>
+        {phase === "purchase" && <div className="hp-loyalty-event"><span className="hp-loyalty-event-icon"><ShoppingBag size={14}/></span><span><b>سفارش مشتری ثبت شد</b><small>امتیاز خرید پس از تسویه محاسبه می‌شود</small></span></div>}
+        {phase === "points" && <div key={phase} className="hp-loyalty-event is-points"><span className="hp-loyalty-event-icon"><Star size={14}/></span><span><b>+۶۳ امتیاز به کیف پول</b><small>بر اساس مبلغ خرید · ثبت خودکار</small></span><Sparkles size={15}/></div>}
+        {phase === "return" && <div key={phase} className="hp-loyalty-event is-return"><span className="hp-loyalty-event-icon"><Heart size={14}/></span><span><b>مشتری برگشتی شناسایی شد</b><small>خرید نهم مریم در باشگاه ثبت شد</small></span><CircleCheck size={15}/></div>}
+        {phase === "reward" && <div key={phase} className="hp-loyalty-event is-reward"><span className="hp-loyalty-event-icon"><Gift size={14}/></span><span><b>جایزه روی سفارش اعمال شد</b><small>تخفیف ۱۰۰٬۰۰۰ تومان · کسر ۳۰۰ امتیاز</small></span><Gift size={15}/></div>}
+      </div>
+    </div>
+    <div className="hp-loyalty-foot"><span><i/> خرید، امتیاز، بازگشت و جایزه در یک مسیر</span><span>دادهٔ نمونهٔ نمایشی</span></div>
+  </div>;
+}
+
+type AccountingPhase = "payment" | "routing" | "journal" | "balanced";
+
+const accountingPhaseLabels: Record<AccountingPhase, string> = {
+  payment: "دریافت مبلغ سفارش",
+  routing: "تفکیک کارت و نقد",
+  journal: "ثبت خودکار سند",
+  balanced: "سند متوازن و نهایی",
+};
+
+function AccountingScene({ phase }: { phase: AccountingPhase }) {
+  return <div className="hp-accounting-scene" data-phase={phase}>
+    <div className="hp-accounting-heading"><div><span className="hp-accounting-kicker"><ReceiptText size={13}/> حسابداری متصل به فروش</span><h2>هر دریافت، سند خودش را دارد</h2></div><span className="hp-accounting-phase"><i/>{accountingPhaseLabels[phase]}</span></div>
+    <div className="hp-accounting-payment"><div className="hp-accounting-sale"><span className="hp-accounting-sale-icon"><ShoppingBag size={14}/></span><span><b>فاکتور #۱۰۲۴</b><small>پیتزا چهار فصل · یک سفارش</small></span><strong>۶۳۵٬۰۰۰ <small>تومان</small></strong></div><div className="hp-payment-split"><div className="hp-payment-method hp-payment-pos"><span><Landmark size={13}/> کارتخوان POS-02</span><b>۴۵۰٬۰۰۰ <small>تومان</small></b></div><ArrowDownUp className="hp-payment-flow" size={15}/><div className="hp-payment-method hp-payment-cash"><span><Banknote size={13}/> صندوق نقدی</span><b>۱۸۵٬۰۰۰ <small>تومان</small></b></div><div className="hp-payment-total"><span>جمع دریافت</span><b>۶۳۵٬۰۰۰ <small>تومان</small></b></div></div></div>
+    <div className="hp-journal-card">
+      <div className="hp-journal-head"><span><ReceiptText size={13}/> سند حسابداری خودکار</span><b>سند شماره ۰۰۸۴</b></div>
+      <div className="hp-journal-columns"><span>حساب / شرح</span><span>بدهکار</span><span>بستانکار</span></div>
+      <div className="hp-journal-row is-debit"><span><i><Landmark size={11}/></i><span><b>بانک · کارتخوان POS-02</b><small>واریز به حساب تسویهٔ دستگاه</small></span></span><b>۴۵۰٬۰۰۰</b><em>—</em></div>
+      <div className="hp-journal-row is-debit"><span><i><Banknote size={11}/></i><span><b>صندوق · دریافت نقدی</b><small>فروش سفارش #۱۰۲۴</small></span></span><b>۱۸۵٬۰۰۰</b><em>—</em></div>
+      <div className="hp-journal-row is-credit"><span><i><ArrowDownUp size={11}/></i><span><b>درآمد فروش غذا</b><small>ثبت خودکار درآمد سفارش</small></span></span><em>—</em><b>۶۳۵٬۰۰۰</b></div>
+      <div className="hp-journal-foot"><span className={phase === "balanced" || phase === "journal" ? "is-balanced" : ""}><CircleCheck size={13}/>{phase === "payment" || phase === "routing" ? "در انتظار تکمیل دریافت" : "سند متوازن شد"}</span><b>بدهکار ۶۳۵٬۰۰۰ <i/> بستانکار ۶۳۵٬۰۰۰</b></div>
+    </div>
+    <div className="hp-accounting-foot"><span><i/> تفکیک بانک، صندوق و شمارهٔ کارتخوان در سند</span><span>ثبت نمونهٔ نمایشی</span></div>
+  </div>;
+}
+
 export function HomepageShowcase() {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [active, setActive] = useState(0);
@@ -181,6 +247,8 @@ export function HomepageShowcase() {
   const [salesPulse, setSalesPulse] = useState(0);
   const [saleToast, setSaleToast] = useState<{ id: number; amount: number; number: number; name: string } | null>(null);
   const [costPhase, setCostPhase] = useState<CostPhase>("weighing");
+  const [loyaltyPhase, setLoyaltyPhase] = useState<LoyaltyPhase>("purchase");
+  const [accountingPhase, setAccountingPhase] = useState<AccountingPhase>("payment");
   const [menuPhase, setMenuPhase] = useState<MenuPhase>("browse");
   const saleSequence = useRef(0);
 
@@ -236,6 +304,40 @@ export function HomepageShowcase() {
     if (active !== 2) return;
     if (prefersReducedMotion) return;
     const cycle = () => {
+      setLoyaltyPhase("purchase");
+      const timers = [
+        window.setTimeout(() => setLoyaltyPhase("points"), 2_400),
+        window.setTimeout(() => setLoyaltyPhase("return"), 5_000),
+        window.setTimeout(() => setLoyaltyPhase("reward"), 7_600),
+      ];
+      return timers;
+    };
+    let timers = cycle();
+    const loop = window.setInterval(() => { timers.forEach((timer) => window.clearTimeout(timer)); timers = cycle(); }, 11_000);
+    return () => { window.clearInterval(loop); timers.forEach((timer) => window.clearTimeout(timer)); };
+  }, [active, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (active !== 3) return;
+    if (prefersReducedMotion) return;
+    const cycle = () => {
+      setAccountingPhase("payment");
+      const timers = [
+        window.setTimeout(() => setAccountingPhase("routing"), 2_000),
+        window.setTimeout(() => setAccountingPhase("journal"), 4_300),
+        window.setTimeout(() => setAccountingPhase("balanced"), 6_500),
+      ];
+      return timers;
+    };
+    let timers = cycle();
+    const loop = window.setInterval(() => { timers.forEach((timer) => window.clearTimeout(timer)); timers = cycle(); }, 10_000);
+    return () => { window.clearInterval(loop); timers.forEach((timer) => window.clearTimeout(timer)); };
+  }, [active, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (active !== 4) return;
+    if (prefersReducedMotion) return;
+    const cycle = () => {
       setMenuPhase("browse");
       const timers = [
         window.setTimeout(() => setMenuPhase("scrolling"), 1_300),
@@ -260,14 +362,14 @@ export function HomepageShowcase() {
 
   const scene = scenes[active];
   return <section className="hp-showcase" aria-label="پیش‌نمایش امکانات MenuPeak">
-    <div className="hp-showcase-intro"><div><span className="hp-showcase-eyebrow"><Sparkles size={14}/> محصول را در عمل ببینید</span><h2>پیش‌نمایش امکانات MenuPeak</h2><p>از ثبت سفارش تا تحلیل سود؛ یک تجربهٔ زنده از کار روزانهٔ رستوران</p></div><span className="hp-preview-pill"><i/> محیط آزمایشی تعاملی</span></div>
+    <div className="hp-showcase-intro"><div><span className="hp-showcase-eyebrow"><Sparkles size={14}/> محصول را در عمل ببینید</span><h2>پیش‌نمایش امکانات MenuPeak</h2><p>از ثبت سفارش تا حسابداری و وفاداری مشتری؛ یک تجربهٔ زنده از کار روزانهٔ رستوران</p></div><span className="hp-preview-pill"><i/> محیط آزمایشی تعاملی</span></div>
     <div className="hp-showcase-tabs" role="tablist" aria-label="مشاهدهٔ بخش‌های مختلف">
       {scenes.map(({ id, label, icon: SceneIcon }, index) => <button key={id} id={`hp-tab-${id}`} type="button" role="tab" aria-selected={active === index} aria-controls="hp-showcase-panel" onClick={() => setActive(index)} className={cn(active === index && "is-active")}><SceneIcon size={16}/><span>{label}</span></button>)}
     </div>
     <div id="hp-showcase-panel" role="tabpanel" aria-labelledby={`hp-tab-${scene.id}`} className="hp-dashboard" key={scene.id}>
       <div className="hp-dashboard-top"><span className="hp-dashboard-brand"><span><ShoppingBag size={15}/></span> محیط مدیریت MenuPeak</span><span className="hp-connection"><i/> دادهٔ نمونه · اجرای زنده</span></div>
-      {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene phase={prefersReducedMotion ? "phone" : costPhase}/> : active === 2 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : <ReservationScene/>}
+      {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene phase={prefersReducedMotion ? "phone" : costPhase}/> : active === 2 ? <LoyaltyScene phase={prefersReducedMotion ? "reward" : loyaltyPhase}/> : active === 3 ? <AccountingScene phase={prefersReducedMotion ? "balanced" : accountingPhase}/> : active === 4 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : <ReservationScene/>}
     </div>
-    <div className="hp-showcase-caption"><span><QrCode size={16}/> منوی مشتری</span><i/><span><ReceiptText size={16}/> سفارش و صندوق</span><i/><span><CalendarDays size={16}/> رزرو و سالن</span><i/><span><ChartNoAxesCombined size={16}/> گزارش مدیریت</span></div>
+    <div className="hp-showcase-caption"><span><QrCode size={16}/> منوی مشتری</span><i/><span><ReceiptText size={16}/> حسابداری و صندوق</span><i/><span><Heart size={16}/> باشگاه مشتریان</span><i/><span><CalendarDays size={16}/> رزرو و سالن</span><i/><span><ChartNoAxesCombined size={16}/> گزارش مدیریت</span></div>
   </section>;
 }
