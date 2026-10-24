@@ -573,6 +573,20 @@ export const productReviews = pgTable("product_reviews", {
   index("product_reviews_product_status_created_idx").on(t.businessId, t.productId, t.status, t.createdAt),
 ]);
 
+export const customerFeedback = pgTable("customer_feedback", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // suggestion | complaint
+  message: text("message").notNull(),
+  status: text("status").notNull().default("open"), // open | in_progress | resolved
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("customer_feedback_business_status_created_idx").on(t.businessId, t.status, t.createdAt),
+  index("customer_feedback_customer_created_idx").on(t.businessId, t.customerId, t.createdAt),
+]);
+
 export const customerPointEntries = pgTable("customer_point_entries", {
   id: serial("id").primaryKey(),
   businessId: bizId(),

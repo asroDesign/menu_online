@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { BellRing, X } from "lucide-react";
 import { formatPrice, toFa } from "@/lib/format";
 import { readTrackedMenuOrders, trackedMenuOrdersUpdateEvent, type TrackedMenuOrder } from "@/lib/public-menu-orders";
 import { publicMenuNotificationChanges, type PublicMenuNotificationSnapshot } from "@/lib/public-menu-notifications";
-import { Button, cn, Icon, Input, Modal } from "@/components/ui";
+import { Button, cn, Icon, Input, Modal, Select, Textarea } from "@/components/ui";
 import { LoyaltyWheelGraphic } from "@/components/loyalty-wheel-graphic";
 import { wheelLandingRotation } from "@/lib/wheel-geometry";
 import { OtpCodeInput } from "@/components/otp-code-input";
@@ -30,6 +30,7 @@ export type PublicCustomerProfile = {
   recentOrders: { number: number; status: string; paymentStatus: string; deliveryStatus: string; total: number; type: string; createdAt: string }[];
   recentReservations: { id: number; status: string; depositStatus: string; depositAmount: number; guestCount: number; startsAt: string; tableName: string | null }[];
 };
+type CustomerFeedbackItem = { id: number; type: "suggestion" | "complaint"; message: string; status: "open" | "in_progress" | "resolved"; createdAt: string };
 
 const statusNames: Record<string, string> = { awaiting_payment: "در انتظار پرداخت", pending: "ثبت‌شده", preparing: "در حال آماده‌سازی", ready: "آماده تحویل", served: "تحویل‌شده", paid: "تکمیل‌شده", canceled: "لغوشده" };
 const paymentNames: Record<string, string> = { unpaid: "پرداخت‌نشده", pending: "در انتظار تأیید", paid: "پرداخت‌شده", failed: "پرداخت ناموفق", refunded: "بازپرداخت‌شده" };
@@ -79,6 +80,7 @@ export function PublicMenuNavigation({
   onProfileRequestHandled,
   wheelEnabled = false,
   onWheelRewardChange,
+  customerFeedbackEnabled = false,
 }: {
   slug: string;
   accent: string;
@@ -95,6 +97,7 @@ export function PublicMenuNavigation({
   onProfileRequestHandled?: () => void;
   wheelEnabled?: boolean;
   onWheelRewardChange?: (reward: ActiveWheelReward | null) => void;
+  customerFeedbackEnabled?: boolean;
 }) {
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -136,6 +139,13 @@ export function PublicMenuNavigation({
   const [wheelAnimationMs, setWheelAnimationMs] = useState(5_200);
   const [wheelNextSpinAt, setWheelNextSpinAt] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
+  const [feedbackItems, setFeedbackItems] = useState<CustomerFeedbackItem[]>([]);
+  const [feedbackType, setFeedbackType] = useState<CustomerFeedbackItem["type"]>("suggestion");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackSuccess, setFeedbackSuccess] = useState("");
 
   useEffect(() => {
     if (!wheelOpen || !wheelNextSpinAt) return;
@@ -219,6 +229,20 @@ export function PublicMenuNavigation({
     window.addEventListener(trackedMenuOrdersUpdateEvent(), refreshRecent);
     return () => { live = false; window.removeEventListener(trackedMenuOrdersUpdateEvent(), refreshRecent); };
   }, [slug, readOnly, onProfileChange, onWheelRewardChange, refreshWheel]);
+
+  useEffect(() => {
+    const profileId = profile?.id;
+    if (!profileOpen || !profileId || !customerFeedbackEnabled || readOnly) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setFeedbackLoading(true);
+      customerRequest<{ items: CustomerFeedbackItem[] }>(`/api/public/${encodeURIComponent(slug)}/customer/feedback`)
+        .then((result) => { if (active) { setFeedbackItems(result.items); setFeedbackError(""); } })
+        .catch((cause) => { if (active) setFeedbackError((cause as Error).message); })
+        .finally(() => { if (active) setFeedbackLoading(false); });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [profileOpen, profile?.id, customerFeedbackEnabled, readOnly, slug]);
 
   useEffect(() => {
     if (!profile) {
@@ -375,6 +399,21 @@ export function PublicMenuNavigation({
     finally { setRedeemBusy(false); }
   }
 
+  async function submitCustomerFeedback(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile || feedbackBusy) return;
+    setFeedbackBusy(true);
+    setFeedbackError("");
+    setFeedbackSuccess("");
+    try {
+      const result = await customerRequest<{ item: CustomerFeedbackItem; message: string }>(`/api/public/${encodeURIComponent(slug)}/customer/feedback`, "POST", { type: feedbackType, message: feedbackMessage });
+      setFeedbackItems((current) => [result.item, ...current].slice(0, 10));
+      setFeedbackMessage("");
+      setFeedbackSuccess(result.message);
+    } catch (cause) { setFeedbackError((cause as Error).message); }
+    finally { setFeedbackBusy(false); }
+  }
+
   async function openOrders() {
     setOrdersOpen(true);
     if (!readOnly) await refreshProfile().catch(() => setProfile(null));
@@ -485,6 +524,24 @@ export function PublicMenuNavigation({
           <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-blue-900">دعوت از دوستان</p><p className="mt-1 text-[11px] leading-5 text-blue-800/70">با لینک خودتان، معرفی مشتری در باشگاه ثبت می‌شود.</p></div><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-blue-700 shadow-sm"><Icon name="users" className="size-5" /></span></div>
           <div className="mt-3 flex items-center gap-2"><code dir="ltr" className="min-w-0 flex-1 truncate rounded-xl bg-white px-3 py-2.5 text-center text-sm font-extrabold tracking-widest text-blue-950 ring-1 ring-blue-100">{profile.referralCode}</code><Button type="button" size="sm" variant="secondary" onClick={async () => { const inviteUrl = `${window.location.origin}/m/${encodeURIComponent(slug)}?ref=${encodeURIComponent(profile.referralCode)}`; try { await navigator.clipboard.writeText(inviteUrl); setInviteCopied(true); window.setTimeout(() => setInviteCopied(false), 2200); } catch { setInviteCopied(false); } }}>{inviteCopied ? "کپی شد" : "کپی لینک"}</Button></div>
         </div>
+        {customerFeedbackEnabled && <section className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 to-white p-4">
+          <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-sky-700 shadow-sm"><Icon name="message" className="size-5" /></span><div><h3 className="text-sm font-extrabold text-sky-950">پیشنهاد و شکایت</h3><p className="mt-1 text-[11px] leading-5 text-sky-900/70">نظر یا مشکلی را مستقیم برای مدیریت رستوران بفرستید.</p></div></div>
+          <form className="mt-3 space-y-2.5" onSubmit={(event) => void submitCustomerFeedback(event)}>
+            <label className="block space-y-1 text-xs font-semibold text-stone-600">موضوع پیام
+              <Select className="w-full bg-white" value={feedbackType} onChange={(event) => setFeedbackType(event.target.value as CustomerFeedbackItem["type"])}><option value="suggestion">پیشنهاد</option><option value="complaint">شکایت</option></Select>
+            </label>
+            <label className="block space-y-1 text-xs font-semibold text-stone-600">متن پیام
+              <Textarea className="min-h-24 bg-white text-sm" value={feedbackMessage} onChange={(event) => setFeedbackMessage(event.target.value)} minLength={10} maxLength={1500} placeholder="پیام خود را بنویسید (۱۰ تا ۱۵۰۰ نویسه)" required />
+            </label>
+            <div className="flex items-center justify-between gap-2"><span className="text-[10px] text-stone-400">{toFa(feedbackMessage.length)} / {toFa(1500)}</span><Button type="submit" size="sm" loading={feedbackBusy} disabled={feedbackBusy || feedbackMessage.trim().length < 10}><Icon name="arrowRight" className="size-3.5" /> ارسال پیام</Button></div>
+          </form>
+          {feedbackSuccess && <p role="status" className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">{feedbackSuccess}</p>}
+          {feedbackError && <p role="alert" className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">{feedbackError}</p>}
+          {feedbackLoading ? <p className="mt-3 text-xs text-stone-500">در حال دریافت پیام‌های شما…</p> : feedbackItems.length > 0 && <div className="mt-3 space-y-2 border-t border-sky-100 pt-3">
+            <p className="text-[11px] font-bold text-stone-600">پیام‌های قبلی شما</p>
+            {feedbackItems.map((item) => <article key={item.id} className="rounded-xl border border-stone-100 bg-white p-3"><div className="flex items-center justify-between gap-2"><b className="text-xs">{item.type === "complaint" ? "شکایت" : "پیشنهاد"}</b><span className="text-[10px] text-stone-400">{item.status === "resolved" ? "رسیدگی‌شده" : item.status === "in_progress" ? "در حال پیگیری" : "دریافت شد"}</span></div><p className="mt-1 whitespace-pre-wrap break-words text-xs leading-6 text-stone-600">{item.message}</p></article>)}
+          </div>}
+        </section>}
         <Button type="button" variant="secondary" className="w-full" onClick={() => { void signOut(); }}>خروج از پروفایل</Button>
       </div> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void (challengeId ? verifyCode() : requestCode()); }}>
         {!challengeId ? <>

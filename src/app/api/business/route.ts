@@ -45,6 +45,7 @@ export const GET = withAuth(async (req, auth) => {
 });
 
 const SETTING_FEATURE: Record<string, string | null> = {
+  customerFeedbackEnabled: null,
   menuTemplate: null,
   promoBanners: null,
   menuGallery: null,
@@ -80,6 +81,8 @@ const s = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, 
 function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<string, unknown>): unknown {
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
   switch (key) {
+    case "customerFeedbackEnabled":
+      return Boolean(v);
     case "menuTemplate":
       return isMenuTemplate(v) ? v : "classic";
     case "tableQr":

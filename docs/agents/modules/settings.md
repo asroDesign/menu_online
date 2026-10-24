@@ -52,6 +52,10 @@ dirty state با saved snapshot مقایسه؛ فقط قسمت‌های مجاز
 
 در گروه «مشتریان» لینک «جایزه‌های وفاداری با QR» به `/dashboard/customers` می‌رود. طرح‌ها در کارت مدیریت وفاداری همان صفحه ساخته می‌شوند و شامل QR قابل چاپ، تخفیف درصدی یا آیتم رایگان، مهلت پس از فعال‌سازی و سقف claim هستند. مسیر بازسازی و قواعد مصرف در [باشگاه مشتریان](customers.md#جایزههای-qr-یکبارمصرف) ثبت شده است.
 
+### پیشنهادها و شکایت‌های مشتریان
+
+کارت `#customer-feedback-settings` در صفحهٔ تنظیمات، مقدار boolean `settings.customerFeedbackEnabled` را با `PATCH /api/business` ذخیره می‌کند. مقدار پیش‌فرض صریحاً خاموش است. وقتی روشن باشد، پروفایل OTP مشتری در منوی آنلاین فرم پیشنهاد/شکایت و پیام‌های قبلی را نشان می‌دهد؛ در حالت خاموش UI عمومی و ارسال API هر دو خاموش‌اند. پیوند کارت، مدیر را به `/dashboard/customer-feedback` می‌برد. مدیریت صندوق به owner/manager محدود است و entitlement جدا ندارد؛ کنترل‌های فهرست و تغییر وضعیت در API اجرا می‌شوند. جزئیات داده، متن، نرخ ارسال و migration را در [راهنمای پیشنهاد و شکایت](customer-feedback.md) ببین.
+
 صفحه بالای فرم یک مرکز responsive پنج‌گروهی دارد: پروفایل و هویت، منوی دیجیتال، فروش و سفارش، مشتریان، و تنظیمات پیشرفته. این مرکز فقط shortcut نیست؛ هر پیوند به کنترل واقعی این صفحه یا صفحهٔ موجود همان قابلیت می‌رود. مقصدهای فعلی عبارت‌اند از اطلاعات کسب‌وکار، لوگو/رنگ، ساعت کاری، قالب، URL/QR منو، بنرها، گردش سفارش، انبار، پیامک، پرینترها، کارت تسویه، مشتریان/سطح‌های عضویت، پلن، امنیت و کارکنان. entitlement و مجوز هر مقصد در route/API اصلی خودش enforce می‌شود.
 
 ### بنرهای منوی عمومی
@@ -75,7 +79,7 @@ dirty state با saved snapshot مقایسه؛ فقط قسمت‌های مجاز
 
 ### مرجع کد و آزمون
 
-مرکز در `src/components/settings-center.tsx` است؛ فرم بنر در `src/app/dashboard/settings/page.tsx`، مدل در `src/lib/plans.ts`، پاک‌سازی در `src/lib/menu-banners.ts`، API کسب‌وکار در `src/app/api/business/route.ts`، خروجی عمومی در `src/lib/public-menu.ts` و رندر در `src/components/menu-client.tsx` هستند. امنیت از `src/components/account-security-settings.tsx` و `src/app/api/business/security/route.ts` استفاده می‌کند؛ کارت چندگانه در `src/lib/card-transfer.ts` با پوشش `tests/card-transfer.test.cjs` است. `tests/menu-banners.test.cjs` سقف پنج بنر، فقط مسیر تصویر بارگذاری‌شده، مقصد امن، و حذف بنر خاموش از خروجی عمومی را می‌سنجد. هنگام بازسازی هر مسیر، deep link/hash، حالت بدون تصویر/بنر، خطای API، ذخیره/بازگشت فرم و viewport موبایل را نیز بررسی کن.
+مرکز در `src/components/settings-center.tsx` است؛ فرم بنر در `src/app/dashboard/settings/page.tsx`، مدل در `src/lib/plans.ts`، پاک‌سازی در `src/lib/menu-banners.ts`، API کسب‌وکار در `src/app/api/business/route.ts`، خروجی عمومی در `src/lib/public-menu.ts` و رندر در `src/components/menu-client.tsx` هستند. امنیت از `src/components/account-security-settings.tsx` و `src/app/api/business/security/route.ts` استفاده می‌کند؛ کارت چندگانه در `src/lib/card-transfer.ts` با پوشش `tests/card-transfer.test.cjs` است. بازخورد مشتری در `customerFeedbackEnabled` و migration 0050 نگه‌داری می‌شود؛ رفتار کامل در راهنمای ماژول آن مستند است. `tests/menu-banners.test.cjs` سقف پنج بنر، فقط مسیر تصویر بارگذاری‌شده، مقصد امن، و حذف بنر خاموش از خروجی عمومی را می‌سنجد. هنگام بازسازی هر مسیر، deep link/hash، حالت بدون تصویر/بنر، خطای API، ذخیره/بازگشت فرم و viewport موبایل را نیز بررسی کن.
 
 ### تنظیمات کامل پرینتر
 

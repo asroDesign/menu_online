@@ -74,6 +74,7 @@ export async function buildPublicMenu(biz: typeof businesses.$inferSelect) {
       operatingHours: st.operatingHours ?? null,
       reservationsEnabled: can("reservations") && st.reservations?.enabled !== false,
       customerRewards: { pointValueToman: rewards.pointValueToman },
+      customerFeedbackEnabled: st.customerFeedbackEnabled === true,
       loyaltyWheelEnabled: can("loyalty") && wheelSettings?.isEnabled === true,
       reservationSettings: can("reservations") && st.reservations?.enabled !== false
         ? { requireDeposit: !!st.reservations?.requireDeposit, depositPerGuest: st.reservations?.depositPerGuest ?? 0, durationMinutes: st.reservations?.durationMinutes ?? 90 }

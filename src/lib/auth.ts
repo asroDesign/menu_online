@@ -178,6 +178,7 @@ export function errorResponse(e: unknown) {
   let isWaiterServiceRequestSchemaError = false;
   let isCustomerReferralSchemaError = false;
   let isLoyaltyWheelSchemaError = false;
+  let isCustomerFeedbackSchemaError = false;
   for (let depth = 0; depth < 4 && cause; depth++) {
     const current = cause as { code?: unknown; message?: unknown; cause?: unknown };
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /staff_(?:schedules|leave_requests|shift_templates|shift_swap_requests|attendance)/i.test(String(current.message ?? ""))) {
@@ -194,6 +195,10 @@ export function errorResponse(e: unknown) {
     }
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /loyalty_wheel_(?:settings|prizes|spins)/i.test(String(current.message ?? ""))) {
       isLoyaltyWheelSchemaError = true;
+      break;
+    }
+    if (["42P01", "42703"].includes(String(current.code ?? "")) && /customer_feedback/i.test(String(current.message ?? ""))) {
+      isCustomerFeedbackSchemaError = true;
       break;
     }
     cause = current.cause;
@@ -213,6 +218,10 @@ export function errorResponse(e: unknown) {
   if (isLoyaltyWheelSchemaError) {
     logError("api.loyalty_wheel_migration_required", e);
     return Response.json({ error: "ساختار گردونهٔ شانس به‌روز نیست؛ migration 0048 را روی همین پایگاه داده اجرا کنید." }, { status: 503 });
+  }
+  if (isCustomerFeedbackSchemaError) {
+    logError("api.customer_feedback_migration_required", e);
+    return Response.json({ error: "ساختار پیشنهادها و شکایت‌ها به‌روز نیست؛ migration 0050 را روی پایگاه داده اجرا کنید." }, { status: 503 });
   }
   logError("api.unhandled_error", e);
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });

@@ -35,6 +35,8 @@ APIهای dashboard عموماً با `withAuth` wrap می‌شوند. این ل
 
 `/api/public/:slug/*` برای menu مشتری است و session مدیر لازم ندارد؛ هر handler باید slug را به business فعال resolve کند و فقط داده عمومی برگرداند. customer lookup، discount validation، recommendations، reservation، public order و POS polling مسیرهای جدا دارند.
 
+`GET/POST /api/public/:slug/customer/feedback` به تنظیم `customerFeedbackEnabled` وابسته است و فقط با نشست OTP معتبر همان کسب‌وکار کار می‌کند؛ فهرست فقط پیام‌های همان customer را می‌دهد، ارسال به ۵ پیام در روز و متن ۱۰ تا ۱۵۰۰ نویسه محدود است. صندوق مدیر از resource `customer_feedback` استفاده می‌کند؛ فهرست و تغییر status فقط برای owner/manager و tenant جاری مجازند. migration افزایشی `0050` جدول را می‌سازد.
+
 `GET /api/public/:slug/customer?phone=` فقط پاسخ ثابت «نیاز به تأیید مالکیت» می‌دهد؛ شماره خام به‌تنهایی هویت یا مجوز مصرف اعتبار نیست و balance/عضویت افشا نمی‌شود. مصرف cashback در سفارش عمومی تا جریان OTP و token محدود به tenant غیرفعال است.
 
 در پنل احرازشده، `GET /api/business?membershipPreview=1&phone=&subtotal=` فقط برای مدیر/صندوق با entitlement `loyalty` و rate limit است؛ مشتری را با tenant نشست محدود می‌کند و صرفاً preview تخفیف را بدون نام/شماره برمی‌گرداند. اعمال تخفیف از `POST /api/orders` دوباره داخل transaction محاسبه و با actor/snapshot سفارش ذخیره می‌شود؛ فقط source صندوق مجاز است. `settings.orderWorkflowPreset` از `PATCH /api/business` عدد ۱ تا ۴ می‌گیرد و فقط UI جزئیات سفارش آن را می‌خواند.

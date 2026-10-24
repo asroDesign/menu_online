@@ -47,6 +47,7 @@
 | `/dashboard/tables` | [modules/tables.md](modules/tables.md) — مدیریت میزها |
 | `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارکنان |
 | `/dashboard/customers` | [modules/customers.md](modules/customers.md) — CRM، تحلیل خرید/معرفی، دفتر امتیاز و کیف پول، صف تأیید نظر، تنظیم پاداش معرفی و جایزهٔ QR قابل چاپ با claim احرازشده، انقضا و مصرف یک‌باره در سفارش بعدی |
+| `/dashboard/customer-feedback` | [modules/customer-feedback.md](modules/customer-feedback.md) — صندوق tenant-scoped پیشنهادها و شکایت‌های ثبت‌شده از پروفایل OTP منوی آنلاین |
 | `/dashboard/loyalty-wheel` | [modules/loyalty-wheel.md](modules/loyalty-wheel.md) — پیکربندی گردونهٔ منوی مشتری، وزن احتمال، مبلغ/کد تخفیف/چند محصول رایگان/پوچ/پیام، cooldown و مصرف OTP-bound یک‌باره در سفارش بعدی |
 | `/dashboard/cashback` | [modules/cashback.md](modules/cashback.md) — اعتبار وفاداری |
 | `/dashboard/discounts` | [modules/discounts.md](modules/discounts.md) — کدهای تخفیف |
@@ -92,7 +93,7 @@
 | `/dashboard/products` | [modules/products.md](modules/products.md) — فهرست محصولات؛ دکمهٔ ویرایش به فرم کامل مشترک create/edit می‌رود |
 | `/dashboard/products/create` | [modules/products.md](modules/products.md) — فرم یکپارچهٔ ساخت/ویرایش، قیمت/تنوع/افزودنی، تصویر/ویدیوی محصول، recipe و آنالیز مواد؛ منوی مشتری جزئیات و نظرهای تأییدشده را نشان می‌دهد |
 | `/dashboard/categories` | [modules/categories.md](modules/categories.md) — جدول دسته‌ها، جستجو، ایجاد گروهی، تصویر/والد/توضیحات و ترتیب نمایش |
-| `/dashboard/settings` | [modules/settings.md](modules/settings.md) — مرکز پنج‌گروهی تنظیمات کافه، هویت، ساعت/منو، بنر، سفارش/تسویه و امنیت |
+| `/dashboard/settings` | [modules/settings.md](modules/settings.md) — مرکز پنج‌گروهی تنظیمات کافه، هویت، ساعت/منو، بنر، سفارش/تسویه، بازخورد مشتریان و امنیت |
 | راهنمای راه‌اندازی | [modules/onboarding-tour.md](modules/onboarding-tour.md) — تور نخستین ورود مالک و گام‌های متناسب با پلن |
 
 ## صفحه اصلی و صفحات عملیاتی

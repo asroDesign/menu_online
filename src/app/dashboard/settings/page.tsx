@@ -304,6 +304,20 @@ export default function SettingsPage() {
           </Card>
 
           <CashbackSettingsCard />
+          <div id="customer-feedback-settings" className="scroll-mt-24"><Card className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><Icon name="message" className="size-5" /></span>
+                <div>
+                  <h2 className="font-bold">پیشنهادها و شکایت‌های مشتریان</h2>
+                  <p className="mt-1 text-xs leading-6 text-stone-500">در صورت فعال‌بودن، مشتری واردشده از پروفایل منوی آنلاین پیام می‌فرستد. پیام‌ها در پنل مدیریت کسب‌وکار قابل پیگیری هستند.</p>
+                  <Link href="/dashboard/customer-feedback" className="mt-2 inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-sky-800 hover:text-sky-950"><Icon name="external" className="size-3.5" /> صندوق پیام‌های مشتریان</Link>
+                </div>
+              </div>
+              <Switch checked={biz.settings.customerFeedbackEnabled === true} onChange={(enabled) => setSettings({ customerFeedbackEnabled: enabled })} label="فعال‌سازی پیشنهادها و شکایت‌ها" />
+            </div>
+            <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-[11px] leading-5 text-stone-500">{biz.settings.customerFeedbackEnabled === true ? "فعال است؛ پس از ذخیره، این بخش در پروفایل مشتری منوی آنلاین نمایش داده می‌شود." : "غیرفعال است؛ این بخش در منوی مشتری دیده نمی‌شود و API هم ارسال پیام را نمی‌پذیرد."}</div>
+          </Card></div>
         </div>
 
         <div className="space-y-5">

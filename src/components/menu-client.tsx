@@ -684,6 +684,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
         canOrder={canOrder}
         readOnly={readOnlyDemo || readOnlyPreview}
         wheelEnabled={biz.loyaltyWheelEnabled && !readOnlyDemo && !readOnlyPreview}
+        customerFeedbackEnabled={biz.customerFeedbackEnabled && !readOnlyDemo && !readOnlyPreview}
         profileRequest={profileRequest}
         onProfileChange={handleCustomerProfileChange}
         onWheelRewardChange={handleWheelRewardChange}

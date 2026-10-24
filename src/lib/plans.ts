@@ -153,6 +153,7 @@ export type TransferCard = {
 };
 
 export type Settings = {
+  customerFeedbackEnabled?: boolean;
   menuTemplate?: MenuTemplateId;
   promoBanners?: MenuPromoBanner[];
   menuGallery?: MenuGalleryItem[];

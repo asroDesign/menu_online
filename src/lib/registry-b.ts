@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  suppliers, campaigns, categories, customers, inventoryItems, orderItems, orders, payments, products, recipes,
+  suppliers, campaigns, categories, customers, customerFeedback, inventoryItems, orderItems, orders, payments, products, recipes,
   stockMovements, stockReceipts, ticketMessages, tickets, transactions, translations, walletEntries, bankAccounts, devices, crossSellRules,
 } from "@/db/schema";
 import { HttpError, readJson, withAuth, can, type AuthContext } from "@/lib/auth";
@@ -12,6 +12,7 @@ import { addWalletEntry, normPhone, settingsOf } from "@/lib/orders";
 import { parseSalesReportRange, reportCalendarKeys } from "@/lib/sales-report-range";
 import { endOfDayTehran, startOfDayTehran } from "@/lib/jalali";
 import { calculateRecipeCost, currentRecipeMaterialCost } from "@/lib/price-target-core";
+import { isCustomerFeedbackStatus } from "@/lib/customer-feedback-core";
 
 const tehranDay = (d: Date | number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(new Date(d));
 const tehranHour = (d: Date) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", hour12: false }).format(d)) % 24;
@@ -166,6 +167,29 @@ const translationsH = {
     },
     { feature: "translation", manager: true },
   ),
+};
+
+const customerFeedbackH = {
+  list: withAuth(async (_req, { business }) => {
+    const rows = await db.select({
+      item: customerFeedback,
+      customerName: customers.name,
+      customerPhone: customers.phone,
+    }).from(customerFeedback)
+      .innerJoin(customers, and(eq(customers.id, customerFeedback.customerId), eq(customers.businessId, business.id)))
+      .where(eq(customerFeedback.businessId, business.id))
+      .orderBy(desc(customerFeedback.createdAt), desc(customerFeedback.id)).limit(300);
+    return J({ items: rows.map(({ item, customerName, customerPhone }) => ({ ...item, customerName, customerPhone })) });
+  }, { manager: true }),
+  update: withAuth<{ id: string }>(async (req, { business }, { id }) => {
+    const body = await readJson(req);
+    if (!isCustomerFeedbackStatus(body.status)) throw new HttpError(400, "وضعیت انتخاب‌شده معتبر نیست");
+    const [item] = await db.update(customerFeedback).set({ status: body.status, updatedAt: new Date() })
+      .where(and(eq(customerFeedback.id, Number(id)), eq(customerFeedback.businessId, business.id)))
+      .returning();
+    if (!item) throw new HttpError(404, "پیام مشتری پیدا نشد");
+    return J({ item });
+  }, { manager: true }),
 };
 
 const stock = {
@@ -529,6 +553,7 @@ export const registryB: Record<string, any> = {
   bale: messaging("bale"),
   walletlog,
   tickets: ticketsH,
+  customer_feedback: customerFeedbackH,
   translations: translationsH,
   stock,
   stockcount,
