@@ -14,6 +14,30 @@ const reservationTypes: { id: ReservationType; label: string; caption: string; i
   { id: "business", label: "کاری / رسمی", caption: "جلسه و قرار", icon: "building" },
 ];
 
+function ReservationTableVisual({ capacity, selected }: { capacity: number; selected: boolean }) {
+  const roundTable = capacity <= 4;
+  const seatCount = Math.min(12, Math.max(2, capacity));
+  const seats = Array.from({ length: seatCount }, (_, index) => {
+    const angle = (index / seatCount) * Math.PI * 2 - Math.PI / 2;
+    const x = 60 + Math.cos(angle) * 39;
+    const y = 44 + Math.sin(angle) * 27;
+    return { x, y, angle: (angle * 180) / Math.PI + 90 };
+  });
+
+  return (
+    <span aria-hidden="true" className={cn("mx-auto grid h-[5.25rem] w-full max-w-36 place-items-center rounded-2xl transition", selected ? "bg-white/70" : "bg-emerald-50/70")}>
+      <svg viewBox="0 0 120 88" className="h-[4.75rem] w-full max-w-32 overflow-visible">
+        <ellipse cx="60" cy="45" rx="48" ry="35" fill={selected ? "#dbeafe" : "#dcefe6"} opacity=".52" />
+        {seats.map((seat, index) => (
+          <rect key={index} x={seat.x - 5.5} y={seat.y - 4} width="11" height="8" rx="3.5" transform={`rotate(${seat.angle} ${seat.x} ${seat.y})`} fill={selected ? "#2563eb" : "#4d8b70"} opacity=".78" />
+        ))}
+        {roundTable ? <circle cx="60" cy="44" r="17" fill={selected ? "#2563eb" : "#4d8b70"} /> : <rect x="34" y="29" width="52" height="32" rx="11" fill={selected ? "#2563eb" : "#4d8b70"} />}
+        {roundTable ? <circle cx="60" cy="44" r="5" fill="white" opacity=".45" /> : <path d="M43 37h34M43 43h34M43 49h22" stroke="white" strokeWidth="2" strokeLinecap="round" opacity=".55" />}
+      </svg>
+    </span>
+  );
+}
+
 export function ReservationForm({ slug, businessName, settings, accentColor }: { slug: string; businessName: string; settings: Settings; accentColor: string }) {
   const [step, setStep] = useState(1);
   const [reservationType, setReservationType] = useState<ReservationType>("normal");
@@ -104,8 +128,16 @@ export function ReservationForm({ slug, businessName, settings, accentColor }: {
     </section>}
 
     {step === 2 && <section className="space-y-4" aria-labelledby="reservation-table-heading">
-      <div className="flex items-start justify-between gap-3"><div><h2 id="reservation-table-heading" className="text-lg font-black">انتخاب میز</h2><p className="mt-1 text-xs leading-6 text-stone-500">میزهای مناسب تعداد نفرات شما در این ساعت نمایش داده می‌شوند.</p></div><button type="button" onClick={() => setStep(1)} className="rounded-lg px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">تغییر زمان</button></div>
-      <div className="grid gap-2 sm:grid-cols-2">{tables.map((table) => <button key={table.id} type="button" aria-pressed={tableId === table.id} onClick={() => setTableId(table.id)} className={cn("flex items-center gap-3 rounded-2xl border p-3 text-start transition", tableId === table.id ? "border-blue-500 bg-blue-50 ring-2 ring-blue-500/15" : "border-stone-200 bg-white hover:border-stone-300")}><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-stone-100 text-stone-600"><Icon name="table" className="size-5"/></span><span className="min-w-0 flex-1"><b className="block text-sm">{table.name}</b><span className="mt-1 block text-[10px] text-stone-500">{table.zone || "سالن"} · ظرفیت {toFa(table.capacity)} نفر</span></span><span className={cn("grid size-5 place-items-center rounded-full border", tableId === table.id ? "border-blue-600 bg-blue-600 text-white" : "border-stone-300")}>{tableId === table.id && <Icon name="check" className="size-3"/>}</span></button>)}</div>
+      <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h2 id="reservation-table-heading" className="text-lg font-black">میز خود را انتخاب کنید</h2><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-extrabold text-emerald-800">{toFa(tables.length)} میز آزاد</span></div><p className="mt-1 text-xs leading-6 text-stone-500">میزهای آزاد این زمان با ظرفیت مناسب برای {toFa(guestCount)} نفر نمایش داده شده‌اند.</p></div><button type="button" onClick={() => setStep(1)} className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">تغییر زمان</button></div>
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">{tables.map((table) => {
+        const selected = tableId === table.id;
+        return <button key={table.id} type="button" aria-pressed={selected} onClick={() => setTableId(table.id)} className={cn("group min-w-0 rounded-2xl border p-2.5 text-start transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:p-3", selected ? "border-blue-500 bg-blue-50 shadow-sm ring-2 ring-blue-500/15" : "border-stone-200 bg-white hover:border-emerald-300")}>
+          <span className="flex items-center justify-between gap-2"><b className="min-w-0 truncate rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-extrabold text-stone-800 ring-1 ring-stone-200/70">{table.name}</b><span className={cn("grid size-5 shrink-0 place-items-center rounded-full border transition", selected ? "border-blue-600 bg-blue-600 text-white" : "border-stone-300 bg-white text-transparent group-hover:border-emerald-500")}>{selected && <Icon name="check" className="size-3"/>}</span></span>
+          <ReservationTableVisual capacity={table.capacity} selected={selected}/>
+          <span className="mt-1 flex min-w-0 items-end justify-between gap-1"><span className="min-w-0"><b className="block truncate text-xs font-extrabold text-stone-900">ظرفیت {toFa(table.capacity)} نفر</b><span className="mt-1 block truncate text-[9px] text-stone-500">{table.zone || "سالن اصلی"}</span></span><span className={cn("shrink-0 rounded-full px-2 py-1 text-[9px] font-bold", settings.requireDeposit ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800")}>{settings.requireDeposit ? formatPrice(deposit) : "رایگان"}</span></span>
+        </button>;
+      })}</div>
+      <p className="rounded-xl bg-stone-50 px-3 py-2 text-[10px] leading-5 text-stone-500">مبلغ روی کارت، پیش‌پرداخت همین رزرو بر اساس تعداد نفرات و تنظیم رستوران است؛ هزینهٔ اختصاصی برای هر میز در تنظیمات فعلی تعریف نشده است.</p>
     </section>}
 
     {step === 3 && <section className="space-y-4" aria-labelledby="reservation-confirm-heading">
@@ -123,7 +155,7 @@ export function ReservationForm({ slug, businessName, settings, accentColor }: {
     </section>}
 
     {error && <p role="alert" className="mt-4 rounded-xl bg-error/10 px-3 py-2 text-sm text-error">{error}</p>}
-    <div className="mt-5 flex gap-2 border-t border-stone-100 pt-4">
+    <div className="sticky bottom-0 z-10 mt-5 flex gap-2 border-t border-stone-100 bg-white/95 py-3 backdrop-blur-sm">
       {step > 1 && <Button type="button" variant="secondary" className="flex-1" disabled={busy || checkingTables} onClick={() => { setError(""); setStep((current) => Math.max(1, current - 1)); }}>بازگشت</Button>}
       {step === 1 && <Button type="button" size="lg" className="w-full" loading={checkingTables} onClick={() => void continueToTables()} style={{ backgroundColor: accentColor, borderColor: accentColor }}>ادامه و انتخاب میز <Icon name="chevronLeft" className="size-4"/></Button>}
       {step === 2 && <Button type="button" size="lg" className="flex-1" disabled={!tableId} onClick={() => { setError(""); setStep(3); }} style={{ backgroundColor: accentColor, borderColor: accentColor }}>ادامه رزرو <Icon name="chevronLeft" className="size-4"/></Button>}

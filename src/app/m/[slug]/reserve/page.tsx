@@ -12,7 +12,7 @@ export default async function ReservePage({ params }: { params: Promise<{ slug: 
   if (!data || !data.caps.reservations) notFound();
   return (
     <main dir="rtl" className="min-h-dvh bg-[#f4f7fb] px-3 py-4 text-base-content sm:px-5 sm:py-8">
-      <div className="mx-auto max-w-2xl">
+      <div className="mx-auto max-w-lg">
         <Link href={`/m/${slug}`} className="inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-bold text-primary transition hover:bg-white"><Icon name="arrowRight" className="size-4"/>بازگشت به منوی {data.business.name}</Link>
         <div className="mt-4 overflow-hidden rounded-[1.8rem] bg-white shadow-[0_24px_70px_-38px_rgba(15,23,42,.35)] ring-1 ring-base-300">
           <div className="relative overflow-hidden px-5 py-6 text-white sm:px-8 sm:py-8" style={{ background: `linear-gradient(125deg, ${data.business.accentColor}, ${data.business.accentColor}dd 55%, #172554)` }}>
