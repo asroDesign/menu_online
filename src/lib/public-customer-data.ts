@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { customers, customerRewardClaims, orders } from "@/db/schema";
+import { customers, customerRewardClaims, diningTables, orders, reservations } from "@/db/schema";
 import { normalizeRewardClaim } from "@/lib/loyalty-rewards-core";
 
 export async function publicCustomerData(businessId: number, customerId: number, pointValueToman = 0) {
@@ -29,5 +29,17 @@ export async function publicCustomerData(businessId: number, customerId: number,
   }).from(orders)
     .where(and(eq(orders.businessId, businessId), eq(orders.customerId, customer.id), isNull(orders.deletedAt)))
     .orderBy(desc(orders.createdAt)).limit(20);
-  return { ...customer, pointValueToman, pointsValueToman: Math.min(Number.MAX_SAFE_INTEGER, customer.points * pointValueToman), recentOrders, activeReward };
+  const recentReservations = await db.select({
+    id: reservations.id,
+    status: reservations.status,
+    depositStatus: reservations.depositStatus,
+    depositAmount: reservations.depositAmount,
+    guestCount: reservations.guestCount,
+    startsAt: reservations.startsAt,
+    tableName: diningTables.name,
+  }).from(reservations)
+    .leftJoin(diningTables, and(eq(diningTables.id, reservations.tableId), eq(diningTables.businessId, reservations.businessId)))
+    .where(and(eq(reservations.businessId, businessId), eq(reservations.customerPhone, customer.phone)))
+    .orderBy(desc(reservations.startsAt)).limit(20);
+  return { ...customer, pointValueToman, pointsValueToman: Math.min(Number.MAX_SAFE_INTEGER, customer.points * pointValueToman), recentOrders, recentReservations, activeReward };
 }

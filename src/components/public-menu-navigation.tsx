@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BellRing, X } from "lucide-react";
 import { formatPrice, toFa } from "@/lib/format";
 import { readTrackedMenuOrders, trackedMenuOrdersUpdateEvent, type TrackedMenuOrder } from "@/lib/public-menu-orders";
+import { publicMenuNotificationChanges, type PublicMenuNotificationSnapshot } from "@/lib/public-menu-notifications";
 import { Button, cn, Icon, Input, Modal } from "@/components/ui";
 import { LoyaltyWheelGraphic } from "@/components/loyalty-wheel-graphic";
 import { wheelLandingRotation } from "@/lib/wheel-geometry";
@@ -26,10 +28,13 @@ export type PublicCustomerProfile = {
   referralCode: string;
   activeReward: CustomerRewardSnapshot | null;
   recentOrders: { number: number; status: string; paymentStatus: string; deliveryStatus: string; total: number; type: string; createdAt: string }[];
+  recentReservations: { id: number; status: string; depositStatus: string; depositAmount: number; guestCount: number; startsAt: string; tableName: string | null }[];
 };
 
 const statusNames: Record<string, string> = { awaiting_payment: "در انتظار پرداخت", pending: "ثبت‌شده", preparing: "در حال آماده‌سازی", ready: "آماده تحویل", served: "تحویل‌شده", paid: "تکمیل‌شده", canceled: "لغوشده" };
 const paymentNames: Record<string, string> = { unpaid: "پرداخت‌نشده", pending: "در انتظار تأیید", paid: "پرداخت‌شده", failed: "پرداخت ناموفق", refunded: "بازپرداخت‌شده" };
+const reservationNames: Record<string, string> = { requested: "درخواست‌شده", confirmed: "تأییدشده", cancelled: "لغوشده", completed: "انجام‌شده", no_show: "عدم مراجعه" };
+const depositNames: Record<string, string> = { not_required: "بدون پیش‌پرداخت", pending: "پیش‌پرداخت در انتظار", paid: "پیش‌پرداخت‌شده", waived: "پیش‌پرداخت بخشیده‌شده" };
 const navLabels: Record<string, { menu: string; cart: string; orders: string; profile: string; wheel: string }> = {
   fa: { menu: "منو", cart: "سبد خرید", orders: "سفارش‌ها", profile: "پروفایل", wheel: "گردونه شانس" },
   en: { menu: "Menu", cart: "Cart", orders: "Orders", profile: "Profile", wheel: "Lucky wheel" },
@@ -47,6 +52,15 @@ async function customerRequest<T>(url: string, method = "GET", body?: unknown): 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof result.error === "string" ? result.error : "درخواست انجام نشد");
   return result as T;
+}
+
+function initialNotificationPermission(): NotificationPermission | "unsupported" {
+  if (typeof window === "undefined" || !window.isSecureContext || !("Notification" in window)) return "unsupported";
+  return window.Notification.permission;
+}
+
+function notificationSnapshot(profile: PublicCustomerProfile): PublicMenuNotificationSnapshot {
+  return { walletBalance: profile.walletBalance, recentOrders: profile.recentOrders, recentReservations: profile.recentReservations };
 }
 
 export function PublicMenuNavigation({
@@ -85,6 +99,15 @@ export function PublicMenuNavigation({
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profile, setProfile] = useState<PublicCustomerProfile | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(initialNotificationPermission);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationDismissed, setNotificationDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return window.localStorage.getItem(`public-menu-notifications-dismissed:${slug}`) === "1"; } catch { return false; }
+  });
+  const [notificationError, setNotificationError] = useState("");
+  const notificationBaselineRef = useRef<PublicMenuNotificationSnapshot | null>(null);
+  const notificationOwnerRef = useRef("");
   const [recent, setRecent] = useState<TrackedMenuOrder[]>([]);
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
@@ -198,6 +221,84 @@ export function PublicMenuNavigation({
   }, [slug, readOnly, onProfileChange, onWheelRewardChange, refreshWheel]);
 
   useEffect(() => {
+    if (!profile) {
+      notificationOwnerRef.current = "";
+      notificationBaselineRef.current = null;
+      return;
+    }
+    const owner = `${slug}:${profile.id}`;
+    if (notificationOwnerRef.current !== owner) {
+      notificationOwnerRef.current = owner;
+      notificationBaselineRef.current = notificationSnapshot(profile);
+    }
+  }, [slug, profile]);
+
+  useEffect(() => {
+    if (!profile || notificationPermission !== "granted" || readOnly) return;
+    let active = true;
+    let polling = false;
+    const checkChanges = async () => {
+      if (!active || polling || document.visibilityState === "hidden") return;
+      polling = true;
+      try {
+        const result = await customerRequest<{ profile: PublicCustomerProfile }>(`/api/public/${encodeURIComponent(slug)}/customer/session`);
+        if (!active) return;
+        const previous = notificationBaselineRef.current;
+        const next = notificationSnapshot(result.profile);
+        const changes = previous ? publicMenuNotificationChanges(previous, next) : [];
+        notificationBaselineRef.current = next;
+        setProfile(result.profile);
+        onProfileChange?.(result.profile);
+        for (const change of changes) {
+          const title = change.kind === "wallet" ? "تغییر اعتبار کیف پول" : change.kind === "order" ? `سفارش #${toFa(change.number)}` : `رزرو میز #${toFa(change.id)}`;
+          const body = change.kind === "wallet"
+            ? `${change.current > change.previous ? "اعتبار کیف پول افزایش یافت" : "اعتبار کیف پول کاهش یافت"}؛ موجودی جدید ${formatPrice(change.current)} است.`
+            : change.kind === "order"
+              ? change.isNew
+                ? `سفارش شما ثبت شد؛ وضعیت ${statusNames[change.status] ?? change.status}، ${paymentNames[change.paymentStatus] ?? change.paymentStatus}.`
+                : `وضعیت ${statusNames[change.status] ?? change.status}؛ پرداخت ${paymentNames[change.paymentStatus] ?? change.paymentStatus}${change.deliveryStatus ? `؛ ارسال ${statusNames[change.deliveryStatus] ?? change.deliveryStatus}` : ""}.`
+              : change.isNew
+                ? `درخواست رزرو شما ثبت شد؛ وضعیت ${reservationNames[change.status] ?? change.status}.`
+                : `وضعیت رزرو ${reservationNames[change.status] ?? change.status}؛ ${depositNames[change.depositStatus] ?? change.depositStatus}.`;
+          try {
+            const notice = new window.Notification(title, { body, tag: `menupeak:${slug}:${change.kind}:${change.kind === "wallet" ? "wallet" : change.kind === "order" ? change.number : change.id}`, dir: "rtl", lang: "fa" });
+            notice.onclick = () => {
+              window.focus();
+              if (change.kind === "wallet") setProfileOpen(true);
+              else setOrdersOpen(true);
+              notice.close();
+            };
+          } catch { /* notification permission may change between polling and display */ }
+        }
+      } catch { /* profile and menu remain usable during a temporary polling failure */ }
+      finally { polling = false; }
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") void checkChanges(); };
+    const timer = window.setInterval(() => void checkChanges(), 45_000);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [profile, notificationPermission, readOnly, slug, onProfileChange]);
+
+  async function enableNotifications() {
+    if (notificationPermission === "unsupported" || !window.isSecureContext || !("Notification" in window)) return;
+    setNotificationBusy(true);
+    setNotificationError("");
+    try {
+      const permission = await window.Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === "granted" && profile) notificationBaselineRef.current = notificationSnapshot(profile);
+      else if (permission === "denied") setNotificationError("اجازهٔ اعلان در مرورگر مسدود شد؛ آن را از تنظیمات سایت فعال کنید.");
+    } catch {
+      setNotificationError("فعال‌سازی اعلان در این مرورگر ممکن نشد.");
+    } finally { setNotificationBusy(false); }
+  }
+
+  function dismissNotificationPrompt() {
+    setNotificationDismissed(true);
+    try { window.localStorage.setItem(`public-menu-notifications-dismissed:${slug}`, "1"); } catch { /* dismissal still applies for this page session */ }
+  }
+
+  useEffect(() => {
     if (!challengeId) return;
     const update = () => {
       setSeconds(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
@@ -301,6 +402,24 @@ export function PublicMenuNavigation({
   ];
 
   return <>
+    {profile && !readOnly && (notificationPermission === "default" || !!notificationError) && !notificationDismissed && <div dir="rtl" className="pointer-events-none fixed inset-x-3 top-[max(1rem,env(safe-area-inset-top))] z-[90] mx-auto grid max-w-lg">
+      <section className="pointer-events-auto w-full rounded-2xl border border-[#BFE3D0] bg-white/95 p-3 text-right shadow-[0_18px_45px_rgba(3,97,65,0.16)] backdrop-blur" aria-label="فعال‌سازی اعلان سفارش و رزرو">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F0FAF5] text-[#036141]"><BellRing className="size-5" aria-hidden="true" /></span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div><p className="text-sm font-bold text-[#14342A]">اعلان سفارش و رزرو</p><p className="mt-1 text-xs leading-6 text-[#6B8178]">وقتی وضعیت سفارش، رزرو یا کیف پول تغییر کند خبرتان می‌کنیم.</p></div>
+              <button type="button" onClick={dismissNotificationPrompt} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#F4F7F6] text-[#587269]" aria-label="بعداً"><X className="size-4" aria-hidden="true" /></button>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => void enableNotifications()} disabled={notificationBusy || notificationPermission === "denied"} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#036141] px-4 text-xs font-bold text-white transition hover:bg-[#087653] disabled:cursor-wait disabled:opacity-70"><BellRing className="size-4" aria-hidden="true" />{notificationBusy ? "در حال فعال‌سازی…" : notificationPermission === "denied" ? "فعال‌سازی از تنظیمات مرورگر" : "فعال‌سازی اعلان"}</button>
+              <button type="button" onClick={dismissNotificationPrompt} className="h-10 rounded-xl border border-[#DDE9E5] bg-white px-4 text-xs font-bold text-[#587269]">بعداً</button>
+            </div>
+            {notificationError && <p role="alert" className="mt-2 text-[11px] leading-5 text-rose-700">{notificationError}</p>}
+          </div>
+        </div>
+      </section>
+    </div>}
     <nav aria-label="ناوبری منوی مشتری" className={cn("fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl px-3 pb-[max(.5rem,env(safe-area-inset-bottom))]", template === "compact" && "max-w-none px-0 pb-0")}>
       <div className={cn("grid p-1.5", tabs.length === 5 ? "grid-cols-5" : "grid-cols-4", navShell[template], template === "editorial" && "mx-2 rounded-full p-1", template === "compact" && "p-1")}>
         {tabs.map((tab) => <button key={tab.key} type="button" onClick={tab.action} aria-label={tab.key === "cart" && cartCount ? `${tab.label}، ${toFa(cartCount)} قلم، ${formatPrice(subtotal)}` : tab.label} className={cn("relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-semibold transition active:scale-95 sm:min-h-14 sm:text-[11px]", template === "editorial" && "rounded-full", (template === "bistro" || template === "softmenu-test" || template === "captainm") && "text-white/75", template === "haftkhan" && "text-[#641c27]", template === "minimal" && "rounded-lg", template === "compact" && "min-h-11")}>
