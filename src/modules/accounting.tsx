@@ -14,11 +14,11 @@ import {
 type Acc = { id: number; code: string; name: string; level: "kol" | "moein" | "tafsili"; parentId: number | null; type: string; nature: string; isSystem: boolean; isActive: boolean };
 type Year = { id: number; title: string; startDate: string; endDate: string; isClosed: boolean };
 type Doc = { id: number; number: number; date: string; kind: string; source: string; description: string; status: string; reversed: boolean; reversedOf: number | null; totalAmount: number; createdBy: string };
-type DocLine = { id?: number; accountId: number; code: string; name: string; level: string; kol: string; moein: string; debit: number; credit: number; description: string };
+type DocLine = { id?: number; accountId: number; code: string; name: string; level: string; kol: string; moein: string; moeinCode?: string; tafsili?: string; debit: number; credit: number; description: string };
 type DocFull = Doc & { yearTitle: string; yearClosed: boolean; lines: DocLine[] };
 
 const KIND: Record<string, string> = { general: "عمومی", opening: "افتتاحیه", closing: "اختتامیه" };
-const SRC: Record<string, [string, string]> = { manual: ["دستی", "stone"], order: ["فروش", "emerald"], inventory: ["انبار", "blue"], expense: ["درآمد/هزینه", "amber"], cheque: ["دفتر چک", "blue"], reversal: ["برگشتی", "rose"], system: ["سیستمی", "violet"] };
+const SRC: Record<string, [string, string]> = { manual: ["دستی", "stone"], order: ["فروش", "emerald"], inventory: ["انبار", "blue"], expense: ["درآمد/هزینه", "amber"], cheque: ["دفتر چک", "blue"], reversal: ["برگشتی", "rose"], system: ["سیستمی", "violet"], payroll: ["حقوق و دستمزد", "violet"], receivable: ["مطالبات", "blue"], receivable_reversal: ["برگشت وصول", "rose"] };
 const TYPE: Record<string, string> = { asset: "دارایی", liability: "بدهی", equity: "حقوق صاحبان سرمایه", revenue: "درآمد", expense: "هزینه" };
 const faToEn = (s: string) => s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "");
 const num = (n: number) => (n ? formatNumber(n) : "—");
@@ -105,7 +105,7 @@ export function Accounting() {
       </section>
       {!range.year ? <Skeleton className="h-64 rounded-2xl" /> : (
         <>
-          {tab === "docs" && <DocsTab key={version} range={range} accounts={accounts} year={year} openDoc={setViewId} changed={bump} />}
+          {tab === "docs" && <DocsTab key={`${version}:${qs(range)}`} range={range} accounts={accounts} year={year} openDoc={setViewId} changed={bump} />}
           {tab === "chart" && <ChartTab accounts={accounts} reload={loadMeta} />}
           {tab === "journal" && <JournalTab range={range} version={version} openDoc={setViewId} />}
           {tab === "ledger" && <LedgerTab range={range} accounts={accounts} openDoc={setViewId} />}
@@ -123,60 +123,97 @@ export function Accounting() {
 function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; accounts: Acc[]; year?: Year; openDoc: (id: number) => void; changed: () => void }) {
   const toast = useToast();
   const router = useRouter();
-  const [items, setItems] = useState<Doc[] | null>(null);
+  const [items, setItems] = useState<(Doc & { lines: DocLine[] })[] | null>(null);
   const [err, setErr] = useState("");
   const [kind, setKind] = useState(""), [source, setSource] = useState(""), [status, setStatus] = useState(""), [q, setQ] = useState("");
+  const [page, setPage] = useState(1), [count, setCount] = useState(0), [revision, setRevision] = useState(0);
   const [editor, setEditor] = useState<DocFull | null>(null);
   const [del, setDel] = useState<Doc | null>(null);
-  const load = useCallback(() => {
-    setItems(null);
-    api<{ items: Doc[] }>(`/api/acc/documents?${qs(range, { ...(kind ? { kind } : {}), ...(source ? { source } : {}), ...(status ? { status } : {}), ...(q ? { q } : {}) })}`).then((r) => setItems(r.items)).catch((e) => setErr(e.message));
-  }, [range, kind, source, status, q]);
-  useEffect(() => { const t = setTimeout(load, q ? 350 : 0); return () => clearTimeout(t); }, [load, q]);
-
-  async function act(d: Doc, what: "reverse" | "post") {
-    try { await api(`/api/acc/documents/${d.id}/${what}`, { method: "POST", body: {} }); toast(what === "reverse" ? "سند برگشتی صادر شد" : "سند قطعی شد"); load(); changed(); } catch (e) { toast((e as Error).message, "error"); }
+  const [pending, setPending] = useState<{ doc: Doc; action: "post" | "reverse" } | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const load = () => setRevision((v) => v + 1);
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(() => {
+      setItems(null); setErr("");
+      api<{ items: (Doc & { lines: DocLine[] })[]; total: number }>(`/api/acc/documents?${qs(range, { kind, source, status, q, page: String(page), limit: "20" })}`)
+        .then((result) => { if (live) { setItems(result.items); setCount(result.total); } })
+        .catch((error) => { if (live) setErr(error.message); });
+    }, q ? 350 : 0);
+    return () => { live = false; clearTimeout(timer); };
+  }, [range, kind, source, status, q, page, revision]);
+  async function act() {
+    if (!pending || busyId !== null) return;
+    const { doc, action } = pending;
+    setBusyId(doc.id);
+    try {
+      await api(`/api/acc/documents/${doc.id}/${action}`, { method: "POST", body: {} });
+      toast(action === "reverse" ? "سند برگشتی صادر شد" : "سند قطعی شد");
+      setPending(null); load(); changed();
+    } catch (error) { toast((error as Error).message, "error"); }
+    finally { setBusyId(null); }
   }
-  async function edit(d: Doc) {
-    try { setEditor((await api<{ item: DocFull }>(`/api/acc/documents/${d.id}`)).item); } catch (e) { toast((e as Error).message, "error"); }
+  async function edit(doc: Doc) {
+    try { setEditor((await api<{ item: DocFull }>(`/api/acc/documents/${doc.id}`)).item); }
+    catch (error) { toast((error as Error).message, "error"); }
   }
-  const total = (items ?? []).reduce((s, d) => s + d.totalAmount, 0);
+  const pages = Math.max(1, Math.ceil(count / 20));
   return (
     <div>
       <div className={cn("no-print", headerStyles.documentToolbar)}>
-        <Select className="w-36" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">همه انواع</option>{Object.entries(KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
-        <Select className="w-40" value={source} onChange={(e) => setSource(e.target.value)}><option value="">همه منابع</option>{Object.entries(SRC).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}</Select>
-        <Select className="w-36" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">همه وضعیت‌ها</option><option value="posted">قطعی</option><option value="draft">پیش‌نویس</option></Select>
-        <div className="relative w-56"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input className="ps-9" placeholder="شماره یا شرح سند…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <Select aria-label="نوع سند" className="w-36" value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}><option value="">همه انواع</option>{Object.entries(KIND).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select>
+        <Select aria-label="منبع سند" className="w-40" value={source} onChange={(e) => { setSource(e.target.value); setPage(1); }}><option value="">همه منابع</option>{Object.entries(SRC).map(([key, value]) => <option key={key} value={key}>{value[0]}</option>)}</Select>
+        <Select aria-label="وضعیت سند" className="w-36" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">همه وضعیت‌ها</option><option value="posted">قطعی</option><option value="draft">پیش‌نویس</option></Select>
+        <div className="relative w-56"><Icon name="search" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" /><Input aria-label="جستجوی اسناد" className="ps-9" placeholder="شماره یا شرح سند…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} /></div>
         <Button className="ms-auto" onClick={() => router.push("/dashboard/accounting/new")} disabled={year?.isClosed}><Icon name="plus" className="size-4" /> سند جدید</Button>
       </div>
-      <IconText>{err ? <ErrorState message={err} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="" title="سندی یافت نشد" description="اسناد فروش و انبار خودکار ثبت می‌شوند؛ برای ثبت دستی روی «سند جدید» بزنید." action={<Button disabled={year?.isClosed} onClick={() => router.push("/dashboard/accounting/new")}>سند جدید</Button>} /> : (
-        <Card className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
-            <thead><tr className="border-b bg-stone-50/70 text-xs text-stone-500"><th className="p-3 text-start">شماره</th><th className="p-3 text-start">تاریخ</th><th className="p-3 text-start">نوع</th><th className="p-3 text-start">منبع</th><th className="p-3 text-start">شرح</th><th className="p-3 text-start">مبلغ</th><th className="p-3 text-start">وضعیت</th><th className="no-print p-3" /></tr></thead>
-            <tbody className="divide-y divide-stone-100">{items.map((d) => (
-              <tr key={d.id} className={cn("hover:bg-stone-50/60", d.reversed && "bg-rose-50/40")}>
-                <td className="p-3"><button className="font-extrabold text-brand-600 hover:underline" onClick={() => openDoc(d.id)}>{toFa(d.number)}</button></td>
-                <td className="whitespace-nowrap p-3 text-xs">{fmtJ(d.date)}</td>
-                <td className="p-3"><Badge color={d.kind === "general" ? "stone" : "violet"}>{KIND[d.kind]}</Badge></td>
-                <td className="p-3"><Badge color={SRC[d.source]?.[1]}>{SRC[d.source]?.[0]}</Badge></td>
-                <td className="max-w-72 truncate p-3 text-xs text-stone-600" title={d.description}>{d.description}</td>
-                <td className="p-3 font-bold">{formatNumber(d.totalAmount)}</td>
-                <td className="p-3">{d.status === "draft" ? <Badge color="amber">پیش‌نویس</Badge> : d.reversed ? <Badge color="rose">برگشت‌خورده</Badge> : <Badge color="emerald">قطعی</Badge>}</td>
-                <td className="no-print p-2"><div className="flex justify-end gap-0.5">
-                  <IconButton icon="search" label="مشاهده" onClick={() => openDoc(d.id)} />
-                  <a href={`/print/doc/${d.id}`} target="_blank" aria-label="چاپ روکش"><IconButton icon="print" label="چاپ روکش سند" /></a>
-                  {d.status === "draft" && <><IconButton icon="edit" label="ویرایش" onClick={() => edit(d)} /><IconButton icon="check" label="قطعی کردن" className="text-emerald-600" onClick={() => act(d, "post")} /><IconButton icon="trash" label="حذف" className="hover:text-rose-600" onClick={() => setDel(d)} /></>}
-                  {d.status === "posted" && !d.reversed && !d.reversedOf && d.kind !== "closing" && <button className="rounded-lg px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50" onClick={() => act(d, "reverse")}>{<EmojiIcon emoji="" />} برگشت</button>}
-                </div></td>
-              </tr>
-            ))}</tbody>
-            <tfoot><tr className="border-t bg-stone-50 text-xs font-bold"><td colSpan={5} className="p-3">{toFa(items.length)} سند</td><td className="p-3">{formatNumber(total)}</td><td colSpan={2} /></tr></tfoot>
-          </table>
-        </Card>
-      )}</IconText>
+      {err ? <ErrorState message={err} onRetry={load} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="" title="سندی یافت نشد" description="بازه و فیلترها را بررسی کنید یا یک سند جدید بسازید." /> : (
+        <div className="space-y-3" aria-label="اسناد ثبت‌شده">
+          {items.map((doc) => {
+            const debit = doc.lines.reduce((sum, line) => sum + line.debit, 0);
+            const credit = doc.lines.reduce((sum, line) => sum + line.credit, 0);
+            return (
+              <article key={doc.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm print:break-inside-avoid" aria-label={`سند ${doc.number}`}>
+                <header className="flex flex-wrap items-start justify-between gap-3 border-b border-base-200 px-4 py-3 sm:px-5">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <h2 className="break-words text-sm font-bold leading-7"><button className="text-primary hover:underline" onClick={() => openDoc(doc.id)}>سند {toFa(doc.number)}</button><span className="mx-1.5 text-base-content/35">—</span>{doc.description || "بدون شرح"}</h2>
+                    <Badge color={doc.status === "draft" ? "amber" : doc.reversed ? "rose" : "emerald"}>{doc.status === "draft" ? "پیش‌نویس" : doc.reversed ? "برگشت‌خورده" : "قطعی"}</Badge>
+                    {doc.source !== "manual" && <Badge color={SRC[doc.source]?.[1] ?? "violet"}>خودکار: {SRC[doc.source]?.[0] ?? doc.source}</Badge>}
+                    {doc.kind !== "general" && <Badge color="stone">{KIND[doc.kind] ?? doc.kind}</Badge>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-base-content/60">
+                    <a className="no-print rounded-lg border border-base-300 px-2.5 py-1.5 font-semibold text-base-content hover:bg-base-200" href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer">چاپ روکش</a>
+                    <span className="whitespace-nowrap">تاریخ سند: {fmtJ(doc.date)}</span>
+                    {doc.status === "posted" && !doc.reversed && !doc.reversedOf && doc.kind !== "closing" && <Button size="sm" variant="ghost" className="no-print text-rose-600" disabled={busyId === doc.id} onClick={() => setPending({ doc, action: "reverse" })}>برگشت</Button>}
+                    {doc.status === "draft" && !year?.isClosed && <div className="no-print flex gap-1"><IconButton icon="edit" label="ویرایش پیش‌نویس" onClick={() => edit(doc)} /><IconButton icon="check" label="قطعی کردن سند" onClick={() => setPending({ doc, action: "post" })} /><IconButton icon="trash" label="حذف پیش‌نویس" onClick={() => setDel(doc)} /></div>}
+                  </div>
+                </header>
+                <div className="overflow-x-auto px-4 py-3 sm:px-5" tabIndex={0} role="region" aria-label={`ردیف‌های سند ${doc.number}`}>
+                  <table className="w-full min-w-[560px] text-sm">
+                    <caption className="sr-only">اقلام سند {toFa(doc.number)}؛ مبالغ به تومان</caption>
+                    <thead><tr className="text-xs font-medium text-base-content/50"><th scope="col" className="pb-2 text-start">حساب معین</th><th scope="col" className="pb-2 text-start">تفصیلی</th><th scope="col" className="pb-2 text-end">بدهکار</th><th scope="col" className="pb-2 text-end">بستانکار</th></tr></thead>
+                    <tbody>{doc.lines.map((line) => <tr key={line.id} className="border-t border-base-200/60">
+                      <td className="py-2 pe-3"><span className="me-2 font-mono text-xs text-base-content/60" dir="ltr">{line.moeinCode || line.code}</span>{line.moein || line.name}{line.description && <p className="mt-1 max-w-md text-xs leading-5 text-base-content/50">{line.description}</p>}</td>
+                      <td className="py-2 pe-3 text-xs text-base-content/60">{line.tafsili || "—"}</td>
+                      <td className="whitespace-nowrap py-2 ps-3 text-end tabular-nums">{num(line.debit)}</td>
+                      <td className="whitespace-nowrap py-2 ps-3 text-end tabular-nums">{num(line.credit)}</td>
+                    </tr>)}{!doc.lines.length && <tr><td colSpan={4} className="py-4 text-center text-xs text-base-content/50">هنوز ردیفی برای این پیش‌نویس ثبت نشده است.</td></tr>}</tbody>
+                    <tfoot><tr className="border-t border-base-300 font-bold"><td colSpan={2} className="pt-3">جمع <span className="text-xs font-normal text-base-content/45">(تومان)</span></td><td className="whitespace-nowrap ps-3 pt-3 text-end tabular-nums">{formatNumber(debit)}</td><td className="whitespace-nowrap ps-3 pt-3 text-end tabular-nums">{formatNumber(credit)}</td></tr></tfoot>
+                  </table>
+                  {debit !== credit && <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-800" role="status">سند تراز نیست؛ اختلاف: {formatNumber(Math.abs(debit - credit))} تومان</p>}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      <div className="no-print mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-base-content/60">
+        <span>{toFa(count)} سند · صفحهٔ {toFa(page)} از {toFa(pages)}</span>
+        <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((v) => v - 1)}>قبلی</Button><Button size="sm" variant="secondary" disabled={page >= pages} onClick={() => setPage((v) => v + 1)}>بعدی</Button></div>
+      </div>
       <DocEditor open={!!editor} doc={editor} accounts={accounts} onClose={() => setEditor(null)} saved={() => { setEditor(null); load(); changed(); }} />
-      <ConfirmDialog open={!!del} title="حذف پیش‌نویس" message="این پیش‌نویس حذف می‌شود." onClose={() => setDel(null)} onConfirm={async () => { if (!del) return; try { await api(`/api/acc/documents/${del.id}`, { method: "DELETE" }); toast("حذف شد"); load(); } catch (e) { toast((e as Error).message, "error"); } }} />
+      <ConfirmDialog open={!!pending} confirmLabel={pending?.action === "reverse" ? "ثبت سند برگشتی" : "قطعی کردن"} title={pending?.action === "reverse" ? "برگشت سند حسابداری" : "قطعی کردن سند"} message={pending?.action === "reverse" ? "یک سند معکوس ثبت و سند اصلی برگشت‌خورده علامت‌گذاری می‌شود. این کار به‌تنهایی سفارش یا پرداخت مبدأ را لغو نمی‌کند." : "پس از قطعی کردن، ویرایش مستقیم این سند امکان‌پذیر نیست."} onClose={() => setPending(null)} onConfirm={act} />
+      <ConfirmDialog open={!!del} title="حذف پیش‌نویس" message="این پیش‌نویس حذف می‌شود." onClose={() => setDel(null)} onConfirm={async () => { if (!del) return; try { await api(`/api/acc/documents/${del.id}`, { method: "DELETE" }); toast("حذف شد"); setDel(null); changed(); } catch (e) { toast((e as Error).message, "error"); } }} />
     </div>
   );
 }
@@ -316,7 +353,7 @@ function DocView({ id, onClose, changed, toast }: { id: number | null; onClose: 
   }, [id, toast]);
   const current = id && d?.id === id ? d : null;
   async function reverse() {
-    if (!current) return;
+    if (!current || !window.confirm("سند معکوس صادر شود؟ این عمل پرداخت یا سفارش مبدأ را لغو نمی‌کند.")) return;
     try { await api(`/api/acc/documents/${current.id}/reverse`, { method: "POST", body: {} }); toast("سند برگشتی صادر شد"); changed(); onClose(); } catch (e) { toast((e as Error).message, "error"); }
   }
   const td = current?.lines.reduce((s, l) => s + l.debit, 0) ?? 0, tc = current?.lines.reduce((s, l) => s + l.credit, 0) ?? 0;
@@ -326,7 +363,7 @@ function DocView({ id, onClose, changed, toast }: { id: number | null; onClose: 
       <a href={`/print/doc/${current.id}`} target="_blank"><Button><IconText>{<EmojiIcon emoji="" />}</IconText> چاپ روکش سند</Button></a></>}>
       {!current ? <Skeleton className="h-40" /> : (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs"><Badge color="violet">{KIND[current.kind]}</Badge><Badge color={SRC[current.source]?.[1]}>{SRC[current.source]?.[0]}</Badge>{current.status === "draft" ? <Badge color="amber">پیش‌نویس</Badge> : current.reversed ? <Badge color="rose">برگشت‌خورده</Badge> : <Badge color="emerald">قطعی</Badge>}<span className="text-stone-500">{current.yearTitle} · تنظیم: {current.createdBy || "—"}</span></div>
+          <div className="flex flex-wrap items-center gap-2 text-xs"><Badge color="violet">{KIND[current.kind]}</Badge><Badge color={SRC[current.source]?.[1]}>{SRC[current.source]?.[0] ?? current.source}</Badge>{current.status === "draft" ? <Badge color="amber">پیش‌نویس</Badge> : current.reversed ? <Badge color="rose">برگشت‌خورده</Badge> : <Badge color="emerald">قطعی</Badge>}<span className="text-stone-500">{current.yearTitle} · تنظیم: {current.createdBy || "—"}</span></div>
           <p className="text-sm leading-7">{current.description}</p>
           <div className="overflow-x-auto rounded-xl ring-1 ring-stone-200">
             <table className="w-full min-w-[560px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-2.5 text-start">حساب</th><th className="p-2.5 text-start">شرح</th><th className="p-2.5 text-end">بدهکار</th><th className="p-2.5 text-end">بستانکار</th></tr></thead>
@@ -407,7 +444,7 @@ function useRep<T>(path: string, range: Range, extra: Record<string, string>, ve
 }
 
 function JournalTab({ range, version, openDoc }: { range: Range; version: number; openDoc: (id: number) => void }) {
-  const { d, err } = useRep<{ items: (Doc & { lines: { id: number; code: string; name: string; kol: string; moein: string; debit: number; credit: number; description: string }[] })[] }>("journal", range, {}, version);
+  const { d, err } = useRep<{ items: (Doc & { lines: { id: number; code: string; name: string; kol: string; moein: string; moeinCode?: string; tafsili?: string; debit: number; credit: number; description: string }[] })[] }>("journal", range, {}, version);
   if (err) return <ErrorState message={err} />;
   if (!d) return <Skeleton className="h-72 rounded-2xl" />;
   if (!d.items.length) return <EmptyState emoji="" title="سندی در این بازه نیست" />;

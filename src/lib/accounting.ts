@@ -4,6 +4,7 @@ import {
   accAccounts, accDocuments, accFiscalYears, accLines, assets, bankAccounts, businesses, devices, inventoryItems, orders, transactions,
 } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
+import { journalAmount } from "@/lib/accounting-document-core";
 import { fmtJ, jMonthRange, jYearRange, toJ, fromJ } from "@/lib/jalali";
 import * as jl from "jalaali-js";
 
@@ -206,12 +207,12 @@ export async function bankDetailId(biz: Biz, bankId: number | null | undefined) 
 }
 
 /* ------------------------------------------------------------- fiscal year */
-export async function yearFor(bizId: number, date: Date, create = true) {
-  const [y] = await db.select().from(accFiscalYears).where(and(eq(accFiscalYears.businessId, bizId), lte(accFiscalYears.startDate, date), gte(accFiscalYears.endDate, date)));
+export async function yearFor(bizId: number, date: Date, create = true, query: Q = db) {
+  const [y] = await query.select().from(accFiscalYears).where(and(eq(accFiscalYears.businessId, bizId), lte(accFiscalYears.startDate, date), gte(accFiscalYears.endDate, date)));
   if (y || !create) return y;
   const { jy } = toJ(date);
   const { start, end } = jYearRange(jy);
-  const [row] = await db.insert(accFiscalYears).values({ businessId: bizId, title: `سال مالی ${jy}`, startDate: start, endDate: end }).returning();
+  const [row] = await query.insert(accFiscalYears).values({ businessId: bizId, title: `سال مالی ${jy}`, startDate: start, endDate: end }).returning();
   return row;
 }
 
@@ -222,19 +223,24 @@ export type DocIn = {
   lines: LineIn[]; createdBy?: string; reversedOf?: number | null;
 };
 
-async function prepare(bizId: number, d: DocIn, maps: Awaited<ReturnType<typeof codeMap>>, enforce = true) {
+async function prepare(bizId: number, d: DocIn, maps: Awaited<ReturnType<typeof codeMap>>, enforce = true, allowInactive = false) {
+  if (!Number.isFinite(d.date.getTime())) throw new HttpError(400, "تاریخ سند معتبر نیست");
   const lines = d.lines
     .map((l) => {
       const acc = l.accountId ? maps.byId.get(l.accountId) : l.code ? maps.byCode.get(l.code) : undefined;
       if (!acc) throw new HttpError(400, "حساب انتخاب‌شده نامعتبر است");
       if (acc.level === "kol") throw new HttpError(400, `روی حساب کل («${acc.name}») سند نمی‌خورد؛ حساب معین یا تفصیلی انتخاب کنید`);
-      const debit = Math.round(Number(l.debit) || 0), credit = Math.round(Number(l.credit) || 0);
+      if (!acc.isActive && !allowInactive) throw new HttpError(400, `حساب «${acc.name}» غیرفعال است`);
+      let debit: number, credit: number;
+      try { debit = journalAmount(l.debit); credit = journalAmount(l.credit); }
+      catch (error) { throw new HttpError(400, (error as Error).message); }
       if (debit < 0 || credit < 0) throw new HttpError(400, "مبلغ منفی مجاز نیست");
       if (debit > 0 && credit > 0) throw new HttpError(400, "هر ردیف فقط یکی از بدهکار یا بستانکار را می‌پذیرد");
       return { accountId: acc.id, debit, credit, description: (l.description ?? "").slice(0, 200) };
     })
     .filter((l) => l.debit > 0 || l.credit > 0);
   const td = lines.reduce((s, l) => s + l.debit, 0), tc = lines.reduce((s, l) => s + l.credit, 0);
+  if (!Number.isSafeInteger(td) || !Number.isSafeInteger(tc)) throw new HttpError(400, "جمع سند از محدوده مجاز بیشتر است");
   if (enforce) {
     if (lines.length < 2) throw new HttpError(400, "سند باید حداقل دو ردیف دارای مبلغ داشته باشد");
     if (td !== tc) throw new HttpError(400, `سند تراز نیست؛ جمع بدهکار ${td.toLocaleString("fa-IR")} و جمع بستانکار ${tc.toLocaleString("fa-IR")}`);
@@ -276,14 +282,15 @@ async function insertDocs(tx: Q, bizId: number, docs: Awaited<ReturnType<typeof 
 
 export async function postDocument(biz: Biz, d: DocIn, opts: { allowClosed?: boolean; enforce?: boolean } = {}) {
   await ensureAccounting(biz);
-  if (d.sourceRef) {
-    const [ex] = await db.select().from(accDocuments).where(and(eq(accDocuments.businessId, biz.id), eq(accDocuments.sourceRef, d.sourceRef)));
-    if (ex) return ex;
-  }
-  const maps = await codeMap(biz.id);
-  const prepared = await prepare(biz.id, d, maps, opts.enforce !== false);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+    if (d.sourceRef) {
+      const [existing] = await tx.select().from(accDocuments).where(and(eq(accDocuments.businessId, biz.id), eq(accDocuments.sourceRef, d.sourceRef)));
+      if (existing) return existing;
+    }
+    const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+    const maps = { all, byCode: new Map(all.map((a) => [a.code, a])), byId: new Map(all.map((a) => [a.id, a])) };
+    const prepared = await prepare(biz.id, d, maps, opts.enforce !== false);
     const [doc] = await insertDocs(tx as unknown as Q, biz.id, [prepared], opts);
     return doc;
   });
@@ -292,6 +299,10 @@ export async function postDocument(biz: Biz, d: DocIn, opts: { allowClosed?: boo
 /** Participate in the caller's stock transaction so posting failures roll everything back. */
 export async function postDocumentInTransaction(tx: Q, biz: Biz, d: DocIn) {
   await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+  if (d.sourceRef) {
+    const [existing] = await tx.select().from(accDocuments).where(and(eq(accDocuments.businessId, biz.id), eq(accDocuments.sourceRef, d.sourceRef)));
+    if (existing) return existing;
+  }
   const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
   const maps = { all, byCode: new Map(all.map((a) => [a.code, a])), byId: new Map(all.map((a) => [a.id, a])) };
   const prepared = await prepare(biz.id, d, maps);
@@ -300,13 +311,17 @@ export async function postDocumentInTransaction(tx: Q, biz: Biz, d: DocIn) {
 }
 
 export async function replaceDraftLines(biz: Biz, docId: number, d: Omit<DocIn, "date"> & { date: Date }) {
-  const maps = await codeMap(biz.id);
-  const prepared = await prepare(biz.id, { ...d, status: d.status }, maps, d.status === "posted");
   return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+    const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+    const maps = { all, byCode: new Map(all.map((a) => [a.code, a])), byId: new Map(all.map((a) => [a.id, a])) };
+    const prepared = await prepare(biz.id, d, maps, d.status === "posted");
     const [cur] = await tx.select().from(accDocuments).where(and(eq(accDocuments.id, docId), eq(accDocuments.businessId, biz.id)));
     if (!cur) throw new HttpError(404, "سند پیدا نشد");
     if (cur.status !== "draft") throw new HttpError(400, "سند قطعی قابل ویرایش نیست؛ از «برگشت سند» استفاده کنید");
-    const y = await yearFor(biz.id, d.date);
+    const [originalYear] = await tx.select().from(accFiscalYears).where(and(eq(accFiscalYears.id, cur.fiscalYearId), eq(accFiscalYears.businessId, biz.id)));
+    if (originalYear?.isClosed) throw new HttpError(400, "سند سال مالی بسته قابل ویرایش نیست");
+    const y = await yearFor(biz.id, d.date, true, tx as unknown as Q);
     if (y!.isClosed) throw new HttpError(400, `${y!.title} بسته شده است`);
     let number = cur.number;
     if (y!.id !== cur.fiscalYearId) {
@@ -314,27 +329,45 @@ export async function replaceDraftLines(biz: Biz, docId: number, d: Omit<DocIn, 
       number = m.n + 1;
     }
     await tx.delete(accLines).where(eq(accLines.documentId, docId));
-    await tx.insert(accLines).values(prepared.lines.map((l) => ({ ...l, documentId: docId, businessId: biz.id })));
+    if (prepared.lines.length) await tx.insert(accLines).values(prepared.lines.map((l) => ({ ...l, documentId: docId, businessId: biz.id })));
     const [row] = await tx.update(accDocuments).set({ date: d.date, kind: d.kind ?? "general", description: d.description ?? "", status: d.status ?? "draft", fiscalYearId: y!.id, number, totalAmount: prepared.total }).where(eq(accDocuments.id, docId)).returning();
     return row;
   });
 }
 
-export async function reverseDocument(biz: Biz, docId: number, by: string, date = new Date()) {
-  const [doc] = await db.select().from(accDocuments).where(and(eq(accDocuments.id, docId), eq(accDocuments.businessId, biz.id)));
-  if (!doc) throw new HttpError(404, "سند پیدا نشد");
-  if (doc.status !== "posted") throw new HttpError(400, "فقط سند قطعی قابل برگشت است");
-  if (doc.reversed) throw new HttpError(400, "این سند قبلاً برگشت خورده است");
-  if (doc.reversedOf) throw new HttpError(400, "سند برگشتی را نمی‌توان دوباره برگشت زد");
-  if (doc.kind === "closing") throw new HttpError(400, "سند اختتامیه قابل برگشت نیست");
-  const lines = await db.select().from(accLines).where(eq(accLines.documentId, doc.id));
-  const created = await postDocument(biz, {
-    date, kind: "general", source: "reversal", reversedOf: doc.id, createdBy: by,
-    description: `برگشت سند شماره ${doc.number} (${fmtJ(doc.date)}) — ${doc.description}`,
-    lines: lines.map((l) => ({ accountId: l.accountId, debit: l.credit, credit: l.debit, description: l.description })),
+export async function deleteDraft(biz: Biz, docId: number) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+    const [doc] = await tx.select().from(accDocuments).where(and(eq(accDocuments.id, docId), eq(accDocuments.businessId, biz.id))).for("update");
+    if (!doc) throw new HttpError(404, "سند پیدا نشد");
+    if (doc.status !== "draft") throw new HttpError(400, "فقط پیش‌نویس قابل حذف است؛ برای سند قطعی از برگشت استفاده کنید");
+    const [year] = await tx.select().from(accFiscalYears).where(eq(accFiscalYears.id, doc.fiscalYearId));
+    if (year?.isClosed) throw new HttpError(400, "سند سال مالی بسته قابل حذف نیست");
+    await tx.delete(accDocuments).where(and(eq(accDocuments.id, doc.id), eq(accDocuments.businessId, biz.id)));
   });
-  await db.update(accDocuments).set({ reversed: true }).where(eq(accDocuments.id, doc.id));
-  return created;
+}
+
+export async function reverseDocument(biz: Biz, docId: number, by: string, date = new Date()) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+    const [doc] = await tx.select().from(accDocuments).where(and(eq(accDocuments.id, docId), eq(accDocuments.businessId, biz.id))).for("update");
+    if (!doc) throw new HttpError(404, "سند پیدا نشد");
+    if (doc.status !== "posted") throw new HttpError(400, "فقط سند قطعی قابل برگشت است");
+    if (doc.reversed) throw new HttpError(400, "این سند قبلاً برگشت خورده است");
+    if (doc.reversedOf) throw new HttpError(400, "سند برگشتی را نمی‌توان دوباره برگشت زد");
+    if (doc.kind === "closing") throw new HttpError(400, "سند اختتامیه قابل برگشت نیست");
+    const lines = await tx.select().from(accLines).where(and(eq(accLines.documentId, doc.id), eq(accLines.businessId, biz.id)));
+    const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+    const maps = { all, byCode: new Map(all.map((a) => [a.code, a])), byId: new Map(all.map((a) => [a.id, a])) };
+    const prepared = await prepare(biz.id, {
+      date, kind: "general", source: "reversal", sourceRef: `document-reversal:${doc.id}`, reversedOf: doc.id, createdBy: by,
+      description: `برگشت سند شماره ${doc.number} (${fmtJ(doc.date)}) — ${doc.description}`,
+      lines: lines.map((line) => ({ accountId: line.accountId, debit: line.credit, credit: line.debit, description: line.description })),
+    }, maps, true, true); // Historical postings must be reversible even when their accounts were deactivated.
+    const [created] = await insertDocs(tx as unknown as Q, biz.id, [prepared]);
+    await tx.update(accDocuments).set({ reversed: true }).where(and(eq(accDocuments.id, doc.id), eq(accDocuments.businessId, biz.id)));
+    return created;
+  });
 }
 
 /* --------------------------------------------------------- balances & rollup */
@@ -513,11 +546,11 @@ export async function closeFiscalYear(biz: Biz, yearId: number, by: string) {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
     const prepared: Awaited<ReturnType<typeof prepare>>[] = [];
-    for (const d of docs) prepared.push(await prepare(biz.id, d, maps));
+    for (const d of docs) prepared.push(await prepare(biz.id, d, maps, true, true));
     await insertDocs(tx as unknown as Q, biz.id, prepared, { allowClosed: true });
     let next = (await tx.select().from(accFiscalYears).where(and(eq(accFiscalYears.businessId, biz.id), eq(accFiscalYears.startDate, range.start))))[0];
     if (!next) [next] = await tx.insert(accFiscalYears).values({ businessId: biz.id, title: `سال مالی ${jy}`, startDate: range.start, endDate: range.end }).returning();
-    if (openLines.length) await insertDocs(tx as unknown as Q, biz.id, [await prepare(biz.id, { date: range.start, kind: "opening", source: "system", description: `سند افتتاحیه — ${next.title}`, lines: openLines, createdBy: by }, maps)]);
+    if (openLines.length) await insertDocs(tx as unknown as Q, biz.id, [await prepare(biz.id, { date: range.start, kind: "opening", source: "system", description: `سند افتتاحیه — ${next.title}`, lines: openLines, createdBy: by }, maps, true, true)]);
     await tx.update(accFiscalYears).set({ isClosed: true }).where(eq(accFiscalYears.id, y.id));
     return { closedYear: y.title, nextYear: next.title, profit: -tempNet };
   });

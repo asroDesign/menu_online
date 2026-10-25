@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "روکش سند حسابداری" };
 
 const KIND: Record<string, string> = { general: "سند عمومی", opening: "سند افتتاحیه", closing: "سند اختتامیه" };
-const SRC: Record<string, string> = { manual: "دستی", order: "سفارش فروش (خودکار)", inventory: "انبار (خودکار)", expense: "درآمد/هزینه (خودکار)", reversal: "برگشت سند", system: "سیستمی" };
+const SRC: Record<string, string> = { manual: "دستی", order: "سفارش فروش (خودکار)", inventory: "انبار (خودکار)", expense: "درآمد/هزینه (خودکار)", reversal: "برگشت سند", system: "سیستمی", payroll: "حقوق و دستمزد", receivable: "مطالبات", receivable_reversal: "برگشت وصول", cheque: "دفتر چک" };
 
 export default async function PrintDoc({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

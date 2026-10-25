@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { accAccounts, accDocuments, accFiscalYears, accLines } from "@/db/schema";
 import * as A from "@/lib/accounting";
+import { journalAccountLabels, journalPagination } from "@/lib/accounting-document-core";
 import { HttpError, readJson, withAuth, type AuthContext } from "@/lib/auth";
 import { jYearRange } from "@/lib/jalali";
 
@@ -13,6 +13,7 @@ const dt = (v: string | null) => { if (!v) return undefined; const d = new Date(
 
 async function yearOf(auth: AuthContext, id: string | null) {
   const years = await db.select().from(accFiscalYears).where(eq(accFiscalYears.businessId, auth.business.id)).orderBy(desc(accFiscalYears.startDate));
+  if (id && !years.some((year) => year.id === Number(id))) throw new HttpError(404, "سال مالی پیدا نشد");
   const y = (id ? years.find((x) => x.id === Number(id)) : null) ?? years.find((x) => x.startDate <= new Date() && x.endDate >= new Date()) ?? years[0];
   if (!y) throw new HttpError(404, "سال مالی تعریف نشده است");
   return y;
@@ -27,20 +28,25 @@ async function docDetail(auth: AuthContext, id: number) {
   const [year] = await db.select().from(accFiscalYears).where(eq(accFiscalYears.id, doc.fiscalYearId));
   return {
     ...doc, yearTitle: year?.title ?? "", yearClosed: !!year?.isClosed,
-    lines: lines.map((l) => {
-      const a = byId.get(l.accountId)!;
-      const chain = A.chainOf(a, byId);
-      return { ...l, code: a.code, name: a.name, level: a.level, kol: chain.find((x) => x.level === "kol")?.name ?? "", moein: chain.find((x) => x.level === "moein")?.name ?? "" };
-    }),
+    lines: lines.map((l) => ({ ...l, ...journalAccountLabels(l.accountId, byId) })),
   };
 }
 
-const parseLines = (b: any) => (Array.isArray(b.lines) ? b.lines : []).map((l: any) => ({ accountId: Number(l.accountId), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, description: String(l.description ?? "") }));
+const parseLines = (body: Record<string, unknown>) => {
+  if (!Array.isArray(body.lines)) throw new HttpError(400, "ردیف‌های سند معتبر نیستند");
+  if (body.lines.length > 500) throw new HttpError(400, "حداکثر ۵۰۰ ردیف در هر سند مجاز است");
+  return body.lines.map((line: unknown) => {
+    if (!line || typeof line !== "object" || Array.isArray(line)) throw new HttpError(400, "ردیف سند معتبر نیست");
+    const row = line as Record<string, unknown>;
+    return { accountId: Number(row.accountId), debit: Number(row.debit ?? 0), credit: Number(row.credit ?? 0), description: String(row.description ?? "") };
+  });
+};
 
 async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
   const biz = auth.business;
   await A.ensureAccounting(biz);
   const [res, id, act] = path;
+  if (id && ["accounts", "documents", "years"].includes(res) && (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)))) throw new HttpError(400, "شناسه معتبر نیست");
   const m = req.method;
   const url = new URL(req.url);
   const q = url.searchParams;
@@ -125,8 +131,26 @@ async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
         const n = Number(term.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))));
         conds.push(Number.isInteger(n) ? or(eq(accDocuments.number, n), ilike(accDocuments.description, `%${term}%`))! : ilike(accDocuments.description, `%${term}%`));
       }
-      const items = await db.select().from(accDocuments).where(and(...conds)).orderBy(desc(accDocuments.date), desc(accDocuments.number)).limit(Math.min(500, Number(q.get("limit")) || 200));
-      return J({ items, year: y });
+      const { page, limit, offset } = journalPagination(q.get("page"), q.get("limit"));
+      const filter = and(...conds);
+      const [items, [count]] = await Promise.all([
+        db.select().from(accDocuments).where(filter).orderBy(desc(accDocuments.number)).limit(limit).offset(offset),
+        db.select({ total: sql<number>`count(*)::int` }).from(accDocuments).where(filter),
+      ]);
+      const accounts = await A.loadAccounts(biz.id);
+      const byId = new Map(accounts.map((account) => [account.id, account]));
+      const lines = items.length ? await db.select().from(accLines).where(and(
+        eq(accLines.businessId, biz.id), inArray(accLines.documentId, items.map((item) => item.id)),
+      )).orderBy(asc(accLines.id)) : [];
+      const grouped = new Map<number, typeof lines>();
+      for (const line of lines) {
+        const group = grouped.get(line.documentId) ?? [];
+        group.push(line);
+        grouped.set(line.documentId, group);
+      }
+      return J({ items: items.map((item) => ({ ...item, lines: (grouped.get(item.id) ?? []).map((line) => ({
+        ...line, ...journalAccountLabels(line.accountId, byId),
+      })) })), year: y, page, limit, total: count.total });
     }
     if (m === "GET" && id) return J({ item: await docDetail(auth, Number(id)) });
     if (m === "POST" && !id) {
@@ -145,10 +169,7 @@ async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
       return J({ item: await A.replaceDraftLines(biz, Number(id), { date, kind, description: String(b.description ?? "").slice(0, 300), status: b.status === "posted" ? "posted" : "draft", lines: parseLines(b) }) });
     }
     if (m === "DELETE" && id) {
-      const [doc] = await db.select().from(accDocuments).where(and(eq(accDocuments.id, Number(id)), eq(accDocuments.businessId, biz.id)));
-      if (!doc) throw new HttpError(404, "سند پیدا نشد");
-      if (doc.status !== "draft") throw new HttpError(400, "سند قطعی قابل حذف نیست؛ برای اصلاح از «برگشت سند» استفاده کنید");
-      await db.delete(accDocuments).where(eq(accDocuments.id, doc.id));
+      await A.deleteDraft(biz, Number(id));
       return J({ ok: true });
     }
     if (m === "POST" && id && act === "post") {
