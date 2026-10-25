@@ -99,13 +99,44 @@ function Bars({ data, color = "bg-brand-400", label }: { data: { label: string; 
     </div>
   );
 }
-function HBar({ rows, fmt }: { rows: { name: string; value: number; sub?: string }[]; fmt: (n: number) => string }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  return (
-    <ul className="space-y-3">{rows.map((r) => (
-      <li key={r.name}><div className="flex justify-between text-sm"><span className="truncate font-medium">{r.name}</span><span className="shrink-0 text-xs font-bold text-stone-600">{fmt(r.value)}</span></div><div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-gradient-to-l from-brand-400 to-brand-500" style={{ width: `${(r.value / max) * 100}%` }} /></div></li>
-    ))}</ul>
-  );
+const expenseChartColors = ["var(--color-primary)", "#06b6d4", "#8b5cf6", "#f59e0b", "#f43f5e", "#10b981", "#6366f1", "#f97316"];
+function ExpensePie({ rows }: { rows: { name: string; amount: number }[] }) {
+  const visibleRows = rows.filter((row) => Number.isFinite(row.amount) && row.amount > 0).sort((a, b) => b.amount - a.amount);
+  const total = visibleRows.reduce((sum, row) => sum + row.amount, 0);
+  const slices = visibleRows.map((row, index) => {
+    const portion = row.amount / total;
+    const precedingAmount = visibleRows.slice(0, index).reduce((sum, previous) => sum + previous.amount, 0);
+    const start = -Math.PI / 2 + (precedingAmount / total) * Math.PI * 2;
+    const end = start + portion * Math.PI * 2;
+    const color = expenseChartColors[index % expenseChartColors.length];
+    const point = (angle: number) => [64 + 58 * Math.cos(angle), 64 + 58 * Math.sin(angle)];
+    const [startX, startY] = point(start);
+    const [endX, endY] = point(end);
+    const path = portion >= 0.999999
+      ? ""
+      : `M 64 64 L ${startX} ${startY} A 58 58 0 ${end - start > Math.PI ? 1 : 0} 1 ${endX} ${endY} Z`;
+    return { ...row, portion, color, path };
+  });
+
+  if (!total) return <p className="py-8 text-center text-sm text-base-content/50">هزینه‌ای در این بازه ثبت نشده است.</p>;
+
+  return <div className="space-y-4">
+    <svg viewBox="0 0 128 128" role="img" aria-label={`نمودار دایره‌ای هزینه‌ها به مبلغ ${formatPrice(total)}`} className="mx-auto block size-48 max-w-full">
+      <title>سهم هر دسته از کل هزینه‌ها</title>
+      {slices.map((slice) => slice.portion >= 0.999999
+        ? <circle key={slice.name} cx="64" cy="64" r="58" fill={slice.color} stroke="white" strokeWidth="1.5" />
+        : <path key={slice.name} d={slice.path} fill={slice.color} stroke="white" strokeWidth="1.5"><title>{`${slice.name}: ${formatPrice(slice.amount)} (${toFa((slice.portion * 100).toFixed(1))}٪)`}</title></path>)}
+    </svg>
+    <ul className="max-h-64 space-y-2 overflow-y-auto pe-1">
+      {slices.map((slice) => <li key={slice.name} className="flex min-w-0 items-center gap-2 text-xs">
+        <span aria-hidden="true" className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: slice.color }} />
+        <span className="min-w-0 flex-1 truncate font-medium" title={slice.name}>{slice.name}</span>
+        <span className="shrink-0 text-base-content/55">{toFa((slice.portion * 100).toFixed(1))}٪</span>
+        <b className="shrink-0">{formatCompact(slice.amount)}</b>
+      </li>)}
+    </ul>
+    <div className="flex justify-between border-t border-base-300 pt-3 text-xs"><span className="text-base-content/55">جمع هزینه‌های عملیاتی</span><b>{formatPrice(total)}</b></div>
+  </div>;
 }
 function useReport<T>(url: string, query: string | number) {
   const [d, setD] = useState<T | null>(null);
@@ -435,7 +466,7 @@ export function ProfitLoss() {
             </div></Card>
             <Card className="p-5"><h3 className="mb-4 font-bold">سود روزانه (فروش − بهای تمام‌شده − هزینه)</h3><Bars data={d.series.map((s) => ({ label: toFa(formatShortDate(s.date).replace(/\D+/g, " ").trim().split(" ").pop() ?? ""), value: s.revenue - s.cogs - s.expenses }))} color="bg-emerald-400" label={formatPrice} /></Card>
           </div>
-          <Card className="h-fit p-5"><h3 className="mb-4 font-bold">ترکیب هزینه‌ها</h3>{d.expenseBreakdown.length ? <HBar rows={d.expenseBreakdown.map((e) => ({ name: e.name, value: e.amount }))} fmt={formatPrice} /> : <p className="text-sm text-stone-400">هزینه‌ای در این بازه ثبت نشده است.</p>}</Card>
+          <Card className="h-fit p-5"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="font-bold">ترکیب هزینه‌ها</h3><span className="text-xs font-bold text-base-content/55">به تفکیک دسته</span></div><ExpensePie rows={d.expenseBreakdown ?? []} /></Card>
         </div>
       )}
     </div>

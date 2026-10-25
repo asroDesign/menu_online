@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  suppliers, campaigns, categories, customers, customerFeedback, inventoryItems, orderItems, orders, payments, products, recipes,
+  suppliers, campaigns, categories, customers, customerFeedback, inventoryItems, orderItems, orders, payments, products, recipes, accAccounts,
   stockMovements, stockReceipts, ticketMessages, tickets, transactions, translations, walletEntries, bankAccounts, devices, crossSellRules,
 } from "@/db/schema";
 import { HttpError, readJson, withAuth, can, type AuthContext } from "@/lib/auth";
@@ -391,7 +391,11 @@ const reportPnl = {
         join recipes r on r.product_id = oi.product_id join inventory_items ii on ii.id = r.item_id
         where o.business_id = ${business.id} and o.status = 'paid' and o.created_at >= ${from} and ii.track_stock = true
         group by o.id, o.created_at`);
-      const tx = await db.select().from(transactions).where(and(eq(transactions.businessId, business.id), gte(transactions.date, from), sql`${transactions.source} <> 'sale'`));
+      const [tx, expenseAccounts] = await Promise.all([
+        db.select().from(transactions).where(and(eq(transactions.businessId, business.id), gte(transactions.date, from), sql`${transactions.source} <> 'sale'`)),
+        db.select({ id: accAccounts.id, name: accAccounts.name }).from(accAccounts).where(and(eq(accAccounts.businessId, business.id), eq(accAccounts.type, "expense"))),
+      ]);
+      const expenseAccountNames = new Map(expenseAccounts.map((account) => [account.id, account.name]));
       const series: Record<string, { date: string; revenue: number; cogs: number; expenses: number }> = {};
       for (let i = days - 1; i >= 0; i--) { const t = Date.now() - i * 86400_000; series[tehranDay(t)] = { date: new Date(t).toISOString(), revenue: 0, cogs: 0, expenses: 0 }; }
       let revenue = 0, discounts = 0, tax = 0;
@@ -401,7 +405,7 @@ const reportPnl = {
       const exp: Record<string, number> = {};
       let otherIncome = 0, expenses = 0;
       for (const t of tx) {
-        if (t.kind === "expense") { expenses += t.amount; exp[t.category || "سایر"] = (exp[t.category || "سایر"] ?? 0) + t.amount; const d = series[tehranDay(t.date)]; if (d) d.expenses += t.amount; }
+        if (t.kind === "expense") { const expenseType = (t.accountMoeinId && expenseAccountNames.get(t.accountMoeinId)) || t.category || "سایر"; expenses += t.amount; exp[expenseType] = (exp[expenseType] ?? 0) + t.amount; const d = series[tehranDay(t.date)]; if (d) d.expenses += t.amount; }
         else otherIncome += t.amount;
       }
       const gross = revenue - cogs;

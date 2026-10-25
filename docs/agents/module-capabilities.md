@@ -71,7 +71,7 @@
 | [مطالبات مشتریان](modules/receivables.md) | `/dashboard/receivables` | حساب بدهکار شخص/شرکت، طلب دستی یا نسیه سفارش تحویل‌شده، دریافت بخشی/کامل، صورت‌حساب و ثبت اتمیک سند و تراکنش. | `accounting` |
 | [درآمد و هزینه](modules/income-expense.md) | `/dashboard/income-expense` | ثبت درآمد/هزینه با انتخاب دسته از حساب معین و انتخاب تفصیلی متناسب با نوع و ماهیت؛ posting دوطرفه و حساب مقابل صندوق/بانک. | `income_expense` |
 | [گزارش فروش](modules/reports.md) | `/dashboard/reports` | شاخص ثابت امروز، بازه و تقویم شمسی، خلاصه فروش، جست‌وجو و مقایسه محصول، اقلام بدون فروش، تراکنش/سفارش فیلترپذیر، نمودار وضعیت، چاپ و CSV امن؛ responsive برای موبایل و دسکتاپ. | `sales_reports` |
-| [سود و زیان](modules/profit-loss.md) | `/dashboard/profit-loss` | خلاصه درآمد، هزینه و سود/زیان برای بازه زمانی انتخاب‌شده. | `profit_loss` |
+| [سود و زیان](modules/profit-loss.md) | `/dashboard/profit-loss` | خلاصه درآمد، هزینه و سود/زیان، روند روزانه و نمودار دایره‌ای هزینه به تفکیک حساب/دسته با سهم درصدی. | `profit_loss` |
 | [بانک و صندوق](modules/bank.md) | `/dashboard/bank` | مشاهده حساب‌های بانکی/صندوق، مانده و گردش ورودی/خروجی در بازه. | `bank_report` |
 | [دارایی‌ها](modules/assets.md) | `/dashboard/assets` | ثبت مشخصات و بهای دارایی ثابت و پیگیری عمر مفید و استهلاک. | `assets` |
 | [دفتر چک](modules/cheques.md) | `/dashboard/cheques` | چک دریافتنی/پرداختنی با شماره/سریال، بانک/شعبه/بابت و تاریخ صدور/سررسید؛ دفتر ذی‌نفع tenant-scoped؛ اسناد حسابداری خودکار؛ یادآوری configurable در اعلان‌های پنل و پیامک مدیر از پترن. | `cheque_register` (ارسال SMS هم نیازمند `sms`) |
