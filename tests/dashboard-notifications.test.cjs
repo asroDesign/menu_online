@@ -37,6 +37,7 @@ test('dashboard feed is authenticated, tenant-scoped, feature-filtered, and omit
   const route = source('src/app/api/r/dashboard-notifications/route.ts');
   const component = source('src/components/dashboard-notification-center.tsx');
   const waiterNotifier = source('src/components/waiter-service-request-notifications.tsx');
+  const ui = source('src/components/ui.tsx');
   const shell = source('src/components/dashboard-shell.tsx');
   assert.match(route, /withAuth\(async/);
   assert.match(route, /eq\(orders\.businessId, auth\.business\.id\)/);
@@ -57,7 +58,10 @@ test('dashboard feed is authenticated, tenant-scoped, feature-filtered, and omit
   assert.match(component, /playAlertSound\(\)/);
   assert.match(component, /menupeak:dashboard-notifications:/);
   assert.match(component, /localServiceNotifierActive/);
-  assert.match(waiterNotifier, /bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(ui, /fixed bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\] left-4/);
+  assert.match(ui, /aura aura-sm pointer-events-auto w-full/);
+  assert.match(ui, /\}, 5000\)/);
+  assert.match(waiterNotifier, /fixed bottom-\[calc\(7rem_\+_env\(safe-area-inset-bottom\)\)\] left-4/);
   assert.match(waiterNotifier, /addEventListener\("pointerdown", unlockSound/);
   assert.match(shell, /DashboardNotificationCenter/);
 });

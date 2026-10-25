@@ -203,7 +203,7 @@ export function WaiterServiceRequestNotifications() {
         {requests.length > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 flex min-h-6 min-w-6 items-center justify-center rounded-full border-2 border-white bg-rose-600 px-1 text-[11px] font-extrabold text-white">{toFa(requests.length)}</span>}
       </button>
     </div>}
-    {toasts.length > 0 && <div dir="rtl" aria-live="assertive" aria-relevant="additions" className="pointer-events-none fixed inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[120] mx-auto grid max-w-lg gap-2">
+    {toasts.length > 0 && <div dir="rtl" aria-live="assertive" aria-relevant="additions" className="pointer-events-none fixed bottom-[calc(7rem_+_env(safe-area-inset-bottom))] left-4 z-[120] grid max-h-[calc(100dvh-9rem)] w-[min(28rem,calc(100vw-2rem))] gap-2 overflow-y-auto">
       {toasts.map((item) => <div key={item.toastId} className="aura aura-xs aura-glow rounded-2xl text-sky-500">
         <article role="status" className="pointer-events-auto overflow-hidden rounded-2xl border border-sky-200 bg-white/95 shadow-2xl shadow-slate-900/15 ring-1 ring-white backdrop-blur animate-pop">
           <div className="flex items-start gap-3 p-3.5">

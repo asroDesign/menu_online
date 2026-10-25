@@ -606,25 +606,43 @@ export const useToast = () => useContext(ToastCtx);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const idRef = useRef(0);
+  const timersRef = useRef(new globalThis.Map<number, ReturnType<typeof setTimeout>>());
+  useEffect(() => () => {
+    for (const timer of timersRef.current.values()) clearTimeout(timer);
+    timersRef.current.clear();
+  }, []);
   const push = useCallback((message: string, type: Toast["type"] = "success") => {
     const id = ++idRef.current;
     setToasts((t) => [...t, { id, type, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
+    const timer = setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id));
+      timersRef.current.delete(id);
+    }, 5000);
+    timersRef.current.set(id, timer);
   }, []);
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[100] flex flex-col items-center gap-2 px-4">
+      <div className="pointer-events-none fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-[100] flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-sm flex-col items-stretch gap-3 overflow-y-auto py-1">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={cn(
-              "alert pointer-events-auto flex max-w-sm animate-pop items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium shadow-xl",
-              t.type === "success" ? "bg-stone-900 text-white" : t.type === "warning" ? "bg-amber-300 text-amber-950" : "bg-rose-600 text-white",
-            )}
+            className={cn("aura aura-sm pointer-events-auto w-full animate-pop", t.type === "success" ? "text-success" : t.type === "warning" ? "text-warning" : "text-error")}
+            dir="rtl"
           >
-            <Icon name={t.type === "success" ? "check" : t.type === "warning" ? "warning" : "x"} className="size-4" />
-            <IconText>{t.message}</IconText>
+            <div
+              role={t.type === "error" ? "alert" : "status"}
+              aria-atomic="true"
+              className="alert pointer-events-auto flex w-full items-start gap-3 rounded-[calc(var(--radius-box)-0.125rem)] border border-base-300/80 bg-base-100/95 px-4 py-3 text-sm font-medium text-base-content shadow-xl backdrop-blur-xl"
+            >
+              <span className={cn(
+                "mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl",
+                t.type === "success" ? "bg-success/10 text-success" : t.type === "warning" ? "bg-warning/15 text-warning" : "bg-error/10 text-error",
+              )}>
+                <Icon name={t.type === "success" ? "check" : t.type === "warning" ? "warning" : "x"} className="size-4" />
+              </span>
+              <IconText>{t.message}</IconText>
+            </div>
           </div>
         ))}
       </div>

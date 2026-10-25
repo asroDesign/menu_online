@@ -37,9 +37,9 @@
 
 ## ماژول‌های داشبورد
 
-### قابلیت مشترک هدر پنل
+### قابلیت مشترک هدر و اعلان‌های پنل
 
-- [مرکز اعلان پنل رستوران](modules/panel-notifications.md) — زنگ و toast سراسری رویدادهای مجاز سفارش/رزرو/گارسون/چک/انبار، صدای هشدار foreground، Web Push opt-in گارسون با Service Worker، VAPID و migration `0052`.
+- [مرکز اعلان پنل رستوران](modules/panel-notifications.md) — زنگ و toast پایینِ چپ با Aura DaisyUI و حداقل ۵ ثانیه نمایش برای رویدادهای مجاز سفارش/رزرو/گارسون/چک/انبار، صدای هشدار foreground، Web Push opt-in گارسون با Service Worker، VAPID و migration `0052`.
 
 | مسیر | راهنما |
 |---|---|
