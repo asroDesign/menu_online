@@ -1,14 +1,14 @@
-# خطا و ۴۰۴
+# خطا، ۴۰۴ و ۵۰۲
 
 > مشخصات بازسازی عامل برای صفحه/جریان عمومی یا سیستمی.
 
-- مسیر: `error boundary and not-found`
-- منبع فعلی: `src/app/error.tsx, src/app/global-error.tsx, src/app/not-found.tsx`
+- مسیرها: `not-found`, `error boundary`, `global error`, `502`
+- منبع: `src/app/not-found.tsx`, `src/app/error.tsx`, `src/app/global-error.tsx`, `src/app/502/route.ts`, `src/components/system-error-screen.tsx`
 - هدف: حفظ UX هنگام خطای runtime یا مسیر ناموجود.
 
 ## رابط و جریان
 
-صفحه عمومی فارسی با پیام کوتاه، retry/reset برای error boundary و لینک بازگشت؛ global error حداقل dependency؛ not-found status 404.
+صفحه عمومی فارسی و RTL طبق تصویر مرجع: قاب بزرگ سفید روی زمینهٔ شبکه‌ای نعناعی، پنل وضعیت سبز تیره در ستون چپ و در ستون راست پیام خطا، دو اقدام و چهار کارت دسترسی سریع. در موبایل قاب به یک ستون واکنش نشان می‌دهد. ۴۰۴ از not-found خود Next.js می‌آید؛ `/502` یک Route Handler مستقل با status واقعی 502 است. error boundary و global error خطای عمومی ۵۰۰ را نشان می‌دهند و `reset()` را برای retry حفظ می‌کنند.
 
 ## API و داده
 
@@ -24,7 +24,11 @@
 
 ### صفحات recovery
 
-`not-found.tsx` پیام ۴۰۴ و لینک بازگشت به `/` دارد. `error.tsx` خطای segment را نمایش و `reset()` را برای تلاش مجدد اجرا می‌کند. `global-error.tsx` fallback بدون وابستگی به shell است و خودش `html` و `body` می‌سازد. خطاهای UI فعلی با `console.error` در مرورگر به‌صورت JSON شامل timestamp/event/message/digest نوشته می‌شوند؛ این به معنی وجود سامانه متمرکز log یا ارسال به سرور نیست.
+`SystemErrorScreen` پوستهٔ مشترک و واکنش‌گرای ۴۰۴ و خطای segment را می‌سازد؛ نام سامانه و نشان از تنظیم عمومی برند خوانده می‌شود و در دسترس نبودن API برند به fallback پیش‌فرض می‌رسد. error boundary پیام ۵۰۰، `reset()` و شناسهٔ digest را نگه می‌دارد. `global-error.tsx` بدون تکیه بر shell/CSS اصلی خودش `html` و `body` می‌سازد و همین زبان بصری را با CSS داخلی پیاده می‌کند.
+
+`src/app/502/route.ts` برای `/502` پاسخ HTML مستقل با HTTP status برابر 502 می‌دهد. این route صفحهٔ خطای یک reverse proxy را به‌صورت خودکار جایگزین نمی‌کند؛ اگر پراکسی یا سرویس میزبانی پیش از رسیدن درخواست به Next.js خطای 502 بدهد، باید مقصد خطای آن در پیکربندی همان سرویس به این route نگاشت شود. خطای runtime داخل خود Next همچنان ۵۰۰ است و عمداً با کد ۵۰۲ برچسب نمی‌خورد.
+
+ظاهر مرجع ابتدا از HTML/CSS و assetهای عمومی صفحهٔ ورود Orderino در تاریخ ۲۰۲۶-۱۰-۲۵ و بدون Chrome بررسی شد. پس از آن تصویر اسکرین‌شات خطای Orderino توسط کاربر فرستاده شد و ساختار نهایی بر اساس همان تصویر تنظیم شد: عنوان/برچسب‌های بالا، preview وضعیت در پنل چپ، دکمه‌های retry/بازگشت و چهار مسیر سریع در سمت راست. لوگو و متن محصول MenuPeak باقی می‌ماند.
 
 ### قواعد محرمانگی و تکمیل
 

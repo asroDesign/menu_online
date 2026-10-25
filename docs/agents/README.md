@@ -119,7 +119,7 @@
 | [modules/marketing-content.md](modules/marketing-content.md) | فهرست وبلاگ/آموزش، صفحه مستقل ساخت/ویرایش و ادیتور غنی امن محتوا |
 | [core-pages/payment-result.md](core-pages/payment-result.md) | نتیجه پرداخت |
 | [core-pages/print-views.md](core-pages/print-views.md) | رسیدها و اسناد چاپی |
-| [core-pages/error-pages.md](core-pages/error-pages.md) | خطا و ۴۰۴ |
+| [core-pages/error-pages.md](core-pages/error-pages.md) | خطاهای عمومی، ۴۰۴ و پاسخ ۵۰۲ |
 | [core-pages/api-contract-map.md](core-pages/api-contract-map.md) | نقشه APIها و guardها |
 
 ## نقشه API برای عامل
