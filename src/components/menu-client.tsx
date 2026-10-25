@@ -27,10 +27,10 @@ type Prod = PublicMenu["products"][number];
 type OType = "dine_in" | "takeaway" | "delivery";
 
 const DICT: Record<string, Record<string, string>> = {
-  fa: { search: "جستجو در منو…", featured: " پیشنهاد ویژه", cart: "مشاهده و ثبت سفارش", sold: "ناموجود", submit: "ثبت سفارش", total: "مبلغ نهایی", sub: "جمع اقلام", suggest: "همراه با سفارش شما پیشنهاد می‌کنیم", ar: "نمایش سه‌بعدی (AR)", menu: "منوی دیجیتال", empty: "موردی پیدا نشد", zeroPrice: "قیمت این محصول صفر است و امکان افزودن آن به سبد وجود ندارد." },
-  en: { search: "Search the menu…", featured: " Featured", cart: "View order", sold: "Sold out", submit: "Place order", total: "Total", sub: "Subtotal", suggest: "Goes well with your order", ar: "View in 3D / AR", menu: "Digital menu", empty: "Nothing found", zeroPrice: "This product has a zero price and cannot be added to the cart." },
-  ar: { search: "ابحث في القائمة…", featured: " مميز", cart: "عرض الطلب", sold: "نفدت الكمية", submit: "إرسال الطلب", total: "المجموع", sub: "المجموع الفرعي", suggest: "يناسب طلبك", ar: "عرض ثلاثي الأبعاد", menu: "القائمة الرقمية", empty: "لا نتائج", zeroPrice: "سعر هذا المنتج صفر ولا يمكن إضافته إلى السلة." },
-  tr: { search: "Menüde ara…", featured: " Öne çıkanlar", cart: "Siparişi gör", sold: "Tükendi", submit: "Siparişi ver", total: "Toplam", sub: "Ara toplam", suggest: "Siparişinize yakışır", ar: "3D / AR görüntüle", menu: "Dijital menü", empty: "Sonuç yok", zeroPrice: "Bu ürünün fiyatı sıfır olduğu için sepete eklenemez." },
+  fa: { search: "جستجو در منو…", featured: " پیشنهاد ویژه", cart: "مشاهده و ثبت سفارش", sold: "ناموجود", submit: "ثبت سفارش", total: "مبلغ نهایی", sub: "جمع اقلام", suggest: "همراه با سفارش شما پیشنهاد می‌کنیم", drinkPairing: "نوشیدنی مناسب این غذا", foodPairing: "غذای همراه این نوشیدنی", ar: "نمایش سه‌بعدی (AR)", menu: "منوی دیجیتال", empty: "موردی پیدا نشد", zeroPrice: "قیمت این محصول صفر است و امکان افزودن آن به سبد وجود ندارد." },
+  en: { search: "Search the menu…", featured: " Featured", cart: "View order", sold: "Sold out", submit: "Place order", total: "Total", sub: "Subtotal", suggest: "Goes well with your order", drinkPairing: "Drink pairing", foodPairing: "Food pairing", ar: "View in 3D / AR", menu: "Digital menu", empty: "Nothing found", zeroPrice: "This product has a zero price and cannot be added to the cart." },
+  ar: { search: "ابحث في القائمة…", featured: " مميز", cart: "عرض الطلب", sold: "نفدت الكمية", submit: "إرسال الطلب", total: "المجموع", sub: "المجموع الفرعي", suggest: "يناسب طلبك", drinkPairing: "مشروب يناسب هذا الطعام", foodPairing: "طعام يناسب هذا المشروب", ar: "عرض ثلاثي الأبعاد", menu: "القائمة الرقمية", empty: "لا نتائج", zeroPrice: "سعر هذا المنتج صفر ولا يمكن إضافته إلى السلة." },
+  tr: { search: "Menüde ara…", featured: " Öne çıkanlar", cart: "Siparişi gör", sold: "Tükendi", submit: "Siparişi ver", total: "Toplam", sub: "Ara toplam", suggest: "Siparişinize yakışır", drinkPairing: "Bu yemeğe uygun içecek", foodPairing: "Bu içeceğe uygun yemek", ar: "3D / AR görüntüle", menu: "Dijital menü", empty: "Sonuç yok", zeroPrice: "Bu ürünün fiyatı sıfır olduğu için sepete eklenemez." },
 };
 
 export function MenuClient(props: { data: PublicMenu; initialTableId: number | null; initialRewardToken?: string; readOnlyDemo?: boolean; readOnlyPreview?: boolean }) {
@@ -91,7 +91,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
   const [payment, setPayment] = useState("cash");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ number: number; total: number; paymentMethod: string; trackingUrl: string | null; cardTransfer?: NonNullable<PublicMenu["business"]["cardTransfer"]> } | null>(null);
-  const [recommendations, setRecommendations] = useState<{ key: string; items: { id: number; name: string; emoji: string; price: number }[] } | null>(null);
+  const [recommendations, setRecommendations] = useState<{ key: string; items: { id: number; name: string; emoji: string; price: number; recommendationReason?: string }[] } | null>(null);
   const [ar, setAr] = useState<Prod | null>(null);
   const [detailProduct, setDetailProduct] = useState<Prod | null>(null);
   const [customerProfile, setCustomerProfile] = useState<PublicCustomerProfile | null>(null);
@@ -211,7 +211,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
     if (!caps.crossSell || !idsKey) return;
     let live = true;
     const h = setTimeout(() => {
-      api<{ items: { id: number; name: string; emoji: string; price: number }[] }>(`/api/public/${biz.slug}/recommendations?ids=${idsKey}`).then((r) => live && setRecommendations({ key: idsKey, items: r.items })).catch(() => {});
+      api<{ items: { id: number; name: string; emoji: string; price: number; recommendationReason?: string }[] }>(`/api/public/${biz.slug}/recommendations?ids=${idsKey}`).then((r) => live && setRecommendations({ key: idsKey, items: r.items })).catch(() => {});
     }, 300);
     return () => { live = false; clearTimeout(h); };
   }, [idsKey, caps.crossSell, biz.slug]);
@@ -537,7 +537,7 @@ function Menu({ data, initialTableId, initialRewardToken = "", readOnlyDemo = fa
             <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
               <p className="mb-2 text-xs font-bold text-amber-800">{<EmojiIcon emoji="" />} {t("suggest")}</p>
               <div className="no-scrollbar flex gap-2 overflow-x-auto">{recs.map((r) => (
-                <button key={r.id} onClick={() => { const product = products.find((x) => x.id === r.id); if (product) add(product); }} className="flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2 text-start text-xs shadow-sm ring-1 ring-amber-100 active:scale-95"><span className="text-xl">{<EmojiIcon emoji={r.emoji} /> }</span><span><b className="block max-w-28 truncate">{nameOf("product", r.id, r.name)}</b><span className="text-stone-500">{formatPrice(r.price)}</span></span><span className="flex size-6 items-center justify-center rounded-full bg-[var(--accent)] text-white">+</span></button>
+                <button key={r.id} onClick={() => { const product = products.find((x) => x.id === r.id); if (product) add(product); }} className="flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2 text-start text-xs shadow-sm ring-1 ring-amber-100 active:scale-95"><span className="text-xl">{<EmojiIcon emoji={r.emoji} /> }</span><span><b className="block max-w-28 truncate">{nameOf("product", r.id, r.name)}</b><span className="block text-stone-500">{formatPrice(r.price)}</span>{(r.recommendationReason === "drink_pairing" || r.recommendationReason === "food_pairing") && <span className="block max-w-32 truncate text-[10px] font-semibold text-amber-700">{t(r.recommendationReason === "drink_pairing" ? "drinkPairing" : "foodPairing")}</span>}</span><span className="flex size-6 items-center justify-center rounded-full bg-[var(--accent)] text-white">+</span></button>
               ))}</div>
             </div>
           )}</IconText>

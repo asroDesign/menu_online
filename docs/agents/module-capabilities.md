@@ -34,7 +34,7 @@
 | [ترجمه منو](modules/translations.md) | `/dashboard/translations` | ثبت ترجمه نام و توضیح دسته‌ها و محصولات برای زبان‌های فعال. | `translation` |
 | [سایت کوچک](modules/mini-site.md) | `/dashboard/mini-site` | تنظیم microsite عمومی برند بر پایه اطلاعات کسب‌وکار و منو و مشاهده پیش‌نمایش/لینک. | `mini_site` |
 | [دامنه اختصاصی](modules/domain.md) | `/dashboard/domain` | ثبت و تأیید DNS دامنه اختصاصی رستوران و مشاهده وضعیت اتصال. | `custom_domain` |
-| [پیشنهاد مکمل](modules/cross-sell.md) | `/dashboard/cross-sell` | تعریف پیشنهاد محصول مرتبط و فعال‌سازی پیشنهادهای خودکار در منوی عمومی. | `cross_sell` |
+| [پیشنهاد هوشمند غذا و نوشیدنی](modules/cross-sell.md) | `/dashboard/cross-sell` و منوی عمومی/سبد | تعریف پیشنهاد دستی، رتبه‌بندی همراهی‌های پرتکرار فروش و جفت‌سازی قاعده‌محور غذای/نوشیدنیِ مکمل در منوی مشتری؛ برچسب دلیل جفت‌سازی به مشتری نمایش داده می‌شود. | `cross_sell` |
 | [دستیار هوشمند](modules/ai.md) | `/dashboard/ai` | تولید متن پیشنهادی برای بازاریابی یا توضیح محصول با انتخاب محصول و لحن. | `ai` |
 | [نمایش سه‌بعدی](modules/ar.md) | `/dashboard/ar` | ثبت URL مدل سه‌بعدی برای محصول و آماده‌سازی نمایش آن در تجربه عمومی محصول. | `ar` |
 | [نظرسنجی](modules/surveys.md) | `/dashboard/surveys` | ساخت پرسش‌نامه، انتشار لینک/QR و مشاهده پاسخ‌ها و توزیع نتایج. | `surveys` |
@@ -47,7 +47,7 @@
 | ماژول و راهنمای بازسازی | مسیر | کاربرد و قابلیت‌های اصلی | Entitlement |
 |---|---|---|---|
 | [تأمین‌کنندگان](modules/suppliers.md) | `/dashboard/suppliers` | ثبت فروشنده و اطلاعات تماس، دیدن مانده/گردش حساب و ثبت پرداخت و چاپ صورت‌حساب. | `inventory` و `accounting` |
-| [انبارداری](modules/inventory.md) | `/dashboard/inventory`, `/dashboard/inventory/add` | داشبورد موجودی، دسته/انبار و هشدار؛ فرم چهارمرحله‌ای افزودن کالا با SKU، انقضای شمسی، واحد خرید/مصرف و ضریب تبدیل، موجودی آغازین و سند افتتاحیه، نقطه سفارش، ردیابی خودکار و پیش‌نمایش زندهٔ ریسپانسیو. | `inventory`؛ گردش نیازمند `stock_movements` |
+| [انبارداری](modules/inventory.md) | `/dashboard/inventory`, `/dashboard/inventory/add` | داشبورد موجودی، دسته/انبار و هشدار؛ اعلان و toast برای اتمام/کمبود، انقضای گذشته و انقضای تا هفت روز آینده؛ فرم چهارمرحله‌ای افزودن کالا با SKU، انقضای شمسی، واحد خرید/مصرف و ضریب تبدیل، موجودی آغازین و سند افتتاحیه، نقطه سفارش، ردیابی خودکار و پیش‌نمایش زندهٔ ریسپانسیو. | `inventory`؛ گردش نیازمند `stock_movements` |
 | [ضایعات انبار](modules/inventory.md) | `/dashboard/inventory/waste` | ثبت چندقلمی دلیل‌دار، کاهش موجودی و سند هزینه در تراکنش رسید؛ فیلتر تاریخ شمسی/ماده/دلیل، KPI هزینه و جمع مقدار به تفکیک واحد، روند روزانه، breakdown دلیل/ماده، چاپ A4 افقی و CSV تا ۵۰۰۰ ردیف. | `stock_movements`; مدیر/انباردار |
 | [گردش انبار](modules/stock-movements.md) | `/dashboard/stock-movements` | مرور خرید، ورود/خروج، ضایعات، تعدیل و مصرف فروش همراه مانده، رسید و سند مالی مرتبط. | `stock_movements` |
 | [انتقال بین انبارها](modules/stock-transfers.md) | پنل داخل `/dashboard/stock-movements` | درخواست انتقال چندقلمی میان دو انبار یک tenant، تأیید مدیر و ثبت movement خروج/ورود در transaction. | `inventory` + `stock_movements` |

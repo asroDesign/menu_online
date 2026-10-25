@@ -13,6 +13,7 @@ import { parseSalesReportRange, reportCalendarKeys } from "@/lib/sales-report-ra
 import { endOfDayTehran, startOfDayTehran } from "@/lib/jalali";
 import { calculateRecipeCost, currentRecipeMaterialCost } from "@/lib/price-target-core";
 import { isCustomerFeedbackStatus } from "@/lib/customer-feedback-core";
+import { foodDrinkPairingReason } from "@/lib/menu-recommendations";
 
 const tehranDay = (d: Date | number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(new Date(d));
 const tehranHour = (d: Date) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", hour12: false }).format(d)) % 24;
@@ -457,20 +458,45 @@ export async function topPairs(bizId: number, limit = 12) {
 }
 
 export async function recommendFor(bizId: number, ids: number[], auto: boolean) {
-  if (!ids.length) return [];
-  const manual = await db.select().from(crossSellRules).where(and(eq(crossSellRules.businessId, bizId), inArray(crossSellRules.productId, ids)));
-  const score = new Map<number, number>();
-  for (const m of manual) score.set(m.suggestedId, (score.get(m.suggestedId) ?? 0) + 1000);
+  const selectedIds = [...new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 20);
+  if (!selectedIds.length) return [];
+  const [manual, catalog, categoryRows] = await Promise.all([
+    db.select().from(crossSellRules).where(and(eq(crossSellRules.businessId, bizId), inArray(crossSellRules.productId, selectedIds))),
+    db.select({ id: products.id, name: products.name, categoryId: products.categoryId, isAvailable: products.isAvailable, emoji: products.emoji, price: products.price, imageUrl: products.imageUrl }).from(products).where(eq(products.businessId, bizId)),
+    db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.businessId, bizId)),
+  ]);
+  const categoryNames = new Map(categoryRows.map((category) => [category.id, category.name]));
+  const descriptors = catalog.map((product) => ({ id: product.id, name: product.name, categoryName: categoryNames.get(product.categoryId ?? -1) ?? null }));
+  const descriptorById = new Map(descriptors.map((product) => [product.id, product]));
+  const availableById = new Map(catalog.filter((product) => product.isAvailable).map((product) => [product.id, product]));
+  const selectedProducts = selectedIds.map((id) => descriptorById.get(id)).filter((product): product is NonNullable<typeof product> => Boolean(product));
+  const score = new Map<number, { points: number; reason: "manual" | "history" | "drink_pairing" | "food_pairing" }>();
+  const addScore = (id: number, points: number, reason: "manual" | "history" | "drink_pairing" | "food_pairing") => {
+    const current = score.get(id);
+    if (!current) score.set(id, { points, reason });
+    else if (reason === "drink_pairing" || reason === "food_pairing") {
+      if (current.reason !== "manual" && current.reason !== "history" && current.points < points) score.set(id, { points, reason });
+    } else score.set(id, { points: current.points + points, reason: current.reason === "manual" || reason === "manual" ? "manual" : "history" });
+  };
+  for (const m of manual) if (availableById.has(m.suggestedId)) addScore(m.suggestedId, 10000, "manual");
   if (auto) {
     const pairs = await topPairs(bizId, 200);
     for (const p of pairs) {
-      if (ids.includes(p.a) && !ids.includes(p.b)) score.set(p.b, (score.get(p.b) ?? 0) + p.n);
-      if (ids.includes(p.b) && !ids.includes(p.a)) score.set(p.a, (score.get(p.a) ?? 0) + p.n);
+      if (selectedIds.includes(p.a) && !selectedIds.includes(p.b) && availableById.has(p.b)) addScore(p.b, 100 + Math.min(500, p.n), "history");
+      if (selectedIds.includes(p.b) && !selectedIds.includes(p.a) && availableById.has(p.a)) addScore(p.a, 100 + Math.min(500, p.n), "history");
+    }
+    for (const candidate of descriptors) {
+      if (selectedIds.includes(candidate.id) || !availableById.has(candidate.id)) continue;
+      const reason = foodDrinkPairingReason(selectedProducts, candidate);
+      if (reason) addScore(candidate.id, 80, reason);
     }
   }
-  const top = [...score.entries()].filter(([id]) => !ids.includes(id)).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => id);
+  const top = [...score.entries()].filter(([id]) => !selectedIds.includes(id) && availableById.has(id)).sort((a, b) => b[1].points - a[1].points || a[0] - b[0]).slice(0, 4);
   if (!top.length) return [];
-  return db.select().from(products).where(and(eq(products.businessId, bizId), inArray(products.id, top), eq(products.isAvailable, true)));
+  return top.flatMap(([id, recommendation]) => {
+    const product = availableById.get(id);
+    return product ? [{ ...product, recommendationReason: recommendation.reason }] : [];
+  });
 }
 
 const crosssellauto = {

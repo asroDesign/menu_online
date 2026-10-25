@@ -54,9 +54,9 @@ export function CrossSell() {
   }
   return (
     <div className="animate-fade-in">
-      <PageHeader title="پیشنهاد محصول مکمل (Cross Sell)" subtitle="هنگام ثبت سفارش، محصولات مکمل به مشتری پیشنهاد می‌شود تا میانگین سبد خرید بالا برود" />
+      <PageHeader title="پیشنهاد هوشمند غذا و نوشیدنی" subtitle="هنگام سفارش، نوشیدنی متناسب با غذای انتخاب‌شده یا غذای همراه نوشیدنی به مشتری پیشنهاد می‌شود." />
       <Card className="mb-5 flex items-center justify-between gap-4 p-4">
-        <div><p className="text-sm font-bold">پیشنهاد خودکار بر اساس سابقه فروش</p><p className="mt-0.5 text-xs text-stone-500">محصولاتی که معمولاً با هم سفارش داده می‌شوند، خودکار پیشنهاد می‌شوند (قوانین دستی اولویت دارند).</p></div>
+        <div><p className="text-sm font-bold">پیشنهاد خودکار و جفت‌سازی غذا/نوشیدنی</p><p className="mt-0.5 text-xs leading-6 text-stone-500">پیشنهادها از همراهی‌های پرتکرار سفارش و دسته‌بندی غذا و نوشیدنی ساخته می‌شوند. پیشنهاد دستی شما اولویت دارد؛ تشخیص دسته از نام محصول و دستهٔ منو انجام می‌شود.</p></div>
         <Switch checked={auto} onChange={toggleAuto} label="پیشنهاد خودکار" />
       </Card>
       <IconText>{products.loading ? <Skeleton className="h-80 rounded-2xl" /> : products.items.length < 2 ? <EmptyState emoji="" title="حداقل دو محصول لازم است" description="ابتدا چند محصول به منو اضافه کنید." /> : (

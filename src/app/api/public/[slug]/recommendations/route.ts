@@ -13,9 +13,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
     const [biz] = await db.select().from(businesses).where(eq(businesses.slug, slug));
     if (!biz) throw new HttpError(404, "پیدا نشد");
     if (!hasAny(await featuresOf(biz), "cross_sell")) return Response.json({ items: [] });
-    const ids = (new URL(req.url).searchParams.get("ids") ?? "").split(",").map(Number).filter(Number.isInteger).slice(0, 20);
+    const ids = (new URL(req.url).searchParams.get("ids") ?? "").split(",").map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 20);
     const items = await recommendFor(biz.id, ids, settingsOf(biz).crossSellAuto !== false);
-    return Response.json({ items: items.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, price: p.price, imageUrl: p.imageUrl })) });
+    return Response.json({ items: items.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, price: p.price, imageUrl: p.imageUrl, recommendationReason: p.recommendationReason })) });
   } catch (e) {
     return errorResponse(e);
   }

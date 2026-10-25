@@ -52,7 +52,10 @@ test('homepage and demo catalog expose every reference menu with a directly sele
   assert.match(gallery, /`\/preview\/\$\{menu\.id\}`/);
   assert.match(gallery, /فهرست دموهای منوی مشتری/);
   assert.match(home, /<DemoMenuGallery\s*\/>/);
-  assert.match(home, /دیدن ۵ منوی دمو/);
+  const buyingGuidePosition = home.indexOf('id="buying-guide"');
+  const galleryPosition = home.indexOf("<DemoMenuGallery/>");
+  const pricingPosition = home.indexOf('id="pricing"');
+  assert.ok(buyingGuidePosition >= 0 && buyingGuidePosition < galleryPosition && galleryPosition < pricingPosition, "customer demos appear after the buying guide and immediately before plans");
   assert.match(page, /searchParams/);
   assert.match(page, /<DemoPreview initialMenuId=\{menu\}/);
   assert.match(preview, /initialMenuId/);

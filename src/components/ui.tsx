@@ -599,7 +599,7 @@ export function ConfirmDialog({
 }
 
 /* ---------- Toasts ---------- */
-type Toast = { id: number; type: "success" | "error"; message: string };
+type Toast = { id: number; type: "success" | "warning" | "error"; message: string };
 const ToastCtx = createContext<(message: string, type?: Toast["type"]) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
 
@@ -619,11 +619,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             className={cn(
-              "alert pointer-events-auto flex max-w-sm animate-pop items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl",
-              t.type === "success" ? "bg-stone-900" : "bg-rose-600",
+              "alert pointer-events-auto flex max-w-sm animate-pop items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium shadow-xl",
+              t.type === "success" ? "bg-stone-900 text-white" : t.type === "warning" ? "bg-amber-300 text-amber-950" : "bg-rose-600 text-white",
             )}
           >
-            <Icon name={t.type === "success" ? "check" : "x"} className="size-4" />
+            <Icon name={t.type === "success" ? "check" : t.type === "warning" ? "warning" : "x"} className="size-4" />
             <IconText>{t.message}</IconText>
           </div>
         ))}

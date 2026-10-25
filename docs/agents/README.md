@@ -72,7 +72,7 @@
 | `/dashboard/profit-loss` | [modules/profit-loss.md](modules/profit-loss.md) — سود و زیان |
 | `/dashboard/bank` | [modules/bank.md](modules/bank.md) — گزارش بانک و صندوق |
 | `/dashboard/assets` | [modules/assets.md](modules/assets.md) — دارایی‌ها |
-| `/dashboard/inventory`, `/dashboard/inventory/add` | [modules/inventory.md](modules/inventory.md) — موجودی، کمبود/نقطه سفارش، گردش سریع و فرم چهارمرحله‌ای افزودن کالا با SKU، تاریخ شمسی، واحد خرید/مصرف، افتتاحیهٔ حسابداری و پیش‌نمایش ریسپانسیو |
+| `/dashboard/inventory`, `/dashboard/inventory/add` | [modules/inventory.md](modules/inventory.md) — موجودی، کمبود/نقطه سفارش، هشدار انقضای گذشته/هفت روز آینده در اعلان و toast پنل، گردش سریع و فرم چهارمرحله‌ای افزودن کالا با SKU، تاریخ شمسی، واحد خرید/مصرف، افتتاحیهٔ حسابداری و پیش‌نمایش ریسپانسیو |
 | `/dashboard/inventory/waste` | [modules/inventory.md](modules/inventory.md) — ثبت اختصاصی چندقلمی ضایعات، دلیل، فیلتر شمسی، تحلیل روند/هزینه، چاپ گزارش و خروجی CSV |
 | `/dashboard/stock-movements` | [modules/stock-movements.md](modules/stock-movements.md) — گردش و فاکتور انبار |
 | `/dashboard/stock-control` | [modules/stock-control.md](modules/stock-control.md) — کنترل موجودی |
