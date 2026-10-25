@@ -188,3 +188,7 @@ CSV همه اقلام و فیلدهای اصلی را شامل می‌شود؛ �
 - toast هشدار روی ورود به پنل یا شروع یک وضعیت هشدار تازه نمایش داده می‌شود. برای جلوگیری از تکرار toast در هر poll، کلیدهای هشدار در `sessionStorage` همان کسب‌وکار و حافظه جاری نگهداری می‌شوند؛ پنل هشدارها در هر دو دقیقه، فقط وقتی تب قابل مشاهده است، تازه‌سازی می‌شود. dismiss دائمی/دفتر اعلان دیتابیسی یا ارسال پیامک در این تغییر وجود ندارد.
 - کدها: `src/lib/inventory-alerts.ts`, `src/app/api/r/inventory-alerts/route.ts`, `src/components/inventory-alert-center.tsx`, اتصال در `src/components/dashboard-shell.tsx`. هیچ schema یا migration لازم نیست؛ داده و tenantهای دیگر خوانده/تغییر داده نمی‌شوند.
 - آزمون `tests/inventory-alerts.test.cjs` مرز امروز/هفت روز، timezone تهران، کمبود، اتمام، قلم بدون ردیابی و تاریخ گذشته را بررسی می‌کند. نتایج اعتبارسنجی این تغییر در `docs/updates/2026-10-25-inventory-alerts-smart-pairing-demo-placement.md` ثبت شده است.
+
+### یکپارچه‌سازی با مرکز اعلان پنل — ۲۰۲۶-۱۰-۲۵
+
+زنگ قبلی `InventoryAlertCenter` با `DashboardNotificationCenter` مشترک جایگزین شد. هشدارهای انبار در همان بخش scrollable کنار سفارش آنلاین، رزرو میز و درخواست گارسون می‌آیند؛ مسیر و API مستقل هشدار انبار حفظ شده‌اند. زنگ برای هر نقشی که دست‌کم یکی از featureهای `inventory`, `cashier_pos`, `reservations`, `waiter_call` را داشته باشد نمایش داده می‌شود. جزئیات گروه‌ها و کنترل دسترسی در [راهنمای مرکز اعلان پنل](panel-notifications.md) است. این تغییر schema/migration ندارد.

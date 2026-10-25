@@ -52,4 +52,6 @@ Reservation fields: customerName/Phone, guestCount, startsAt, durationMinutes, t
 
 ## مرجع بازسازی
 
+درخواست‌های `requested` به همراه نام، مهمان‌ها، زمان رزرو و میز در [مرکز اعلان مشترک پنل](panel-notifications.md) نمایش داده می‌شوند؛ تلفن و یادداشت رزرو به API خلاصهٔ اعلان افزوده نشده‌اند. رسیدگی و تغییر وضعیت فقط در `/dashboard/reservations` انجام می‌شود.
+
 برای جزئیات دقیق فیلدها، ترتیب کنترل‌ها، پیام‌های فارسی و قرارداد typeها، فایل منبع بالا را همراه API route متناظر در `src/app/api` بخوان. این راهنما رفتار را مشخص می‌کند و جایگزین بررسی source-of-truth نیست.
