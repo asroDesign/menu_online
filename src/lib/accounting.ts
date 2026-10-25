@@ -442,7 +442,7 @@ export async function ledger(biz: Biz, o: { accountId: number; yearId: number; f
     const a = byId.get(r.l.accountId)!;
     return { id: r.l.id, docId: r.doc.id, docNumber: r.doc.number, date: r.doc.date, kind: r.doc.kind, description: r.l.description || r.doc.description, accountCode: a.code, accountName: a.name, debit: r.l.debit, credit: r.l.credit, balance: run };
   });
-  return { account: { id: acc.id, code: acc.code, name: acc.name, level: acc.level }, opening, lines, closing: run, totals: { debit: lines.reduce((s, l) => s + l.debit, 0), credit: lines.reduce((s, l) => s + l.credit, 0) } };
+  return { account: { id: acc.id, code: acc.code, name: acc.name, level: acc.level }, opening, lines, closing: run, truncated: rows.length === 3000, totals: { debit: lines.reduce((s, l) => s + l.debit, 0), credit: lines.reduce((s, l) => s + l.credit, 0) } };
 }
 
 export async function journal(biz: Biz, o: { yearId: number; from?: Date; to?: Date; includeClosing: boolean }) {

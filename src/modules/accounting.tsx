@@ -25,12 +25,29 @@ const num = (n: number) => (n ? formatNumber(n) : "—");
 
 type Range = { year: string; from: string; to: string; closing: boolean };
 const qs = (r: Range, extra: Record<string, string> = {}) => new URLSearchParams({ year: r.year, ...(r.from ? { from: r.from } : {}), ...(r.to ? { to: r.to } : {}), ...(r.closing ? { closing: "1" } : {}), ...extra }).toString();
+const escPrint = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+function printAccountingTable({ businessName, title, subtitle, period, headers, rows, totals, landscape = false, note }: { businessName: string; title: string; subtitle: string; period: string; headers: string[]; rows: string[][]; totals?: string[]; landscape?: boolean; note?: string }) {
+  const win = window.open("", "_blank");
+  if (!win) return false;
+  const header = headers.map((item) => `<th>${escPrint(item)}</th>`).join("");
+  const body = rows.map((row) => `<tr>${row.map((item) => `<td>${escPrint(item)}</td>`).join("")}</tr>`).join("");
+  const total = totals ? `<tfoot><tr>${totals.map((item) => `<td>${escPrint(item)}</td>`).join("")}</tr></tfoot>` : "";
+  const html = `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escPrint(title)} · ${escPrint(businessName)}</title><style>
+    @page{size:A4 ${landscape ? "landscape" : "portrait"};margin:14mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#172b24;font-family:Tahoma,Arial,sans-serif;font-size:10pt}body{padding:8mm}.sheet{width:100%;margin:auto}.heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border:2px solid #244e3d;padding:12px 16px}.brand{font-size:16pt;font-weight:900}.caption{margin-top:5px;color:#52665b;font-size:9pt}.mark{border:1px solid #a9bcb0;padding:8px 12px;text-align:center;font-weight:800}.meta{display:flex;justify-content:space-between;gap:12px;margin:12px 0;padding:8px 12px;background:#f3f6f4;border:1px solid #cdd9d1;font-size:9pt}.subtitle{margin:14px 0 8px;font-size:11pt;font-weight:800}table{width:100%;border-collapse:collapse;table-layout:auto;font-size:9pt}thead{display:table-header-group}tfoot{display:table-row-group}th,td{border:1px solid #65786d;padding:7px 8px;text-align:right;vertical-align:middle}th{background:#e8efea;font-weight:900}td{overflow-wrap:anywhere}tbody tr:nth-child(even){background:#fafcfb}tfoot td{background:#e8efea;font-weight:900}.note{margin-top:10px;padding:8px 10px;border:1px solid #cdd9d1;font-size:9pt;line-height:1.8}.signatures{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:50px;text-align:center;font-size:9pt}.signatures span{display:block;border-top:1px solid #52665b;padding-top:7px}.printed{margin-top:22px;text-align:center;color:#728178;font-size:8pt}.num{font-variant-numeric:tabular-nums;white-space:nowrap}@media print{body{padding:0}.heading,.meta,th,tfoot td{-webkit-print-color-adjust:exact;print-color-adjust:exact}tr{break-inside:avoid}}
+    </style></head><body><main class="sheet"><header class="heading"><div><div class="brand">${escPrint(businessName || "سامانه منوپیک")}</div><div class="caption">سربرگ حسابداری · گزارش رسمی مالی</div></div><div class="mark">${escPrint(title)}</div></header><div class="meta"><span>${escPrint(period)}</span><span>واحد مبالغ: تومان</span></div><h1 class="subtitle">${escPrint(subtitle)}</h1><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody>${total}</table>${note ? `<p class="note">${escPrint(note)}</p>` : ""}<div class="signatures"><span>تهیه‌کننده</span><span>حسابدار</span><span>مدیر مالی</span><span>مدیرعامل</span></div><p class="printed">تاریخ چاپ: ${escPrint(fmtJ(new Date()))}</p></main></body></html>`;
+  win.document.open(); win.document.write(html); win.document.close();
+  win.addEventListener("afterprint", () => win.close(), { once: true });
+  win.setTimeout(() => { win.focus(); win.print(); }, 250);
+  return true;
+}
+const periodLabel = (range: Range, year?: Year) => `${year?.title ?? "سال مالی"} · ${range.from || (year ? fmtJ(year.startDate) : "—")} تا ${range.to || (year ? fmtJ(year.endDate) : "—")}`;
 
 export function Accounting() {
   const toast = useToast();
   const [tab, setTab] = useState<"docs" | "chart" | "journal" | "ledger" | "trial" | "statements" | "years">("docs");
   const [years, setYears] = useState<Year[]>([]);
   const [accounts, setAccounts] = useState<Acc[]>([]);
+  const [businessName, setBusinessName] = useState("");
   const [range, setRange] = useState<Range>({ year: "", from: "", to: "", closing: false });
   const [err, setErr] = useState("");
   const [viewId, setViewId] = useState<number | null>(null);
@@ -39,10 +56,15 @@ export function Accounting() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const m = await api<{ years: Year[]; currentYearId: number }>("/api/acc/meta");
+      const [m, business, chart] = await Promise.all([
+        api<{ years: Year[]; currentYearId: number }>("/api/acc/meta"),
+        api<{ item: { name: string } }>("/api/business"),
+        api<{ items: Acc[] }>("/api/acc/accounts"),
+      ]);
       setYears(m.years);
       setRange((r) => ({ ...r, year: r.year || String(m.currentYearId) }));
-      setAccounts((await api<{ items: Acc[] }>("/api/acc/accounts")).items);
+      setBusinessName(business.item.name);
+      setAccounts(chart.items);
     } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => {
@@ -97,7 +119,7 @@ export function Accounting() {
               {tab !== "docs" && <label className={headerStyles.closing}><input type="checkbox" className="checkbox checkbox-primary checkbox-sm" checked={range.closing} onChange={(e) => setRange({ ...range, closing: e.target.checked })} />شامل اسناد اختتامیه</label>}
               <div className={headerStyles.actionButtons}>
                 {(range.from || range.to) && <Button variant="ghost" size="sm" onClick={() => setRange((r) => ({ ...r, from: "", to: "" }))}><Icon name="x" className="size-4" />پاک کردن تاریخ‌ها</Button>}
-                {tab !== "docs" && <Button variant="secondary" onClick={() => window.print()}><Icon name="print" className="size-4" />چاپ گزارش</Button>}
+                {tab !== "docs" && tab !== "trial" && tab !== "ledger" && <Button variant="secondary" onClick={() => window.print()}><Icon name="print" className="size-4" />چاپ گزارش</Button>}
               </div>
             </div>
           </div>
@@ -108,8 +130,8 @@ export function Accounting() {
           {tab === "docs" && <DocsTab key={`${version}:${qs(range)}`} range={range} accounts={accounts} year={year} openDoc={setViewId} changed={bump} />}
           {tab === "chart" && <ChartTab accounts={accounts} reload={loadMeta} />}
           {tab === "journal" && <JournalTab range={range} version={version} openDoc={setViewId} />}
-          {tab === "ledger" && <LedgerTab range={range} accounts={accounts} openDoc={setViewId} />}
-          {tab === "trial" && <TrialTab range={range} version={version} />}
+          {tab === "ledger" && <LedgerTab range={range} accounts={accounts} openDoc={setViewId} businessName={businessName} year={year} />}
+          {tab === "trial" && <TrialTab range={range} version={version} businessName={businessName} year={year} />}
           {tab === "statements" && <StatementsTab range={range} version={version} />}
           {tab === "years" && <YearsTab years={years} reload={() => { loadMeta(); bump(); }} />}
         </>
@@ -457,16 +479,23 @@ function JournalTab({ range, version, openDoc }: { range: Range; version: number
   );
 }
 
-function LedgerTab({ range, accounts, openDoc }: { range: Range; accounts: Acc[]; openDoc: (id: number) => void }) {
+function LedgerTab({ range, accounts, openDoc, businessName, year }: { range: Range; accounts: Acc[]; openDoc: (id: number) => void; businessName: string; year?: Year }) {
+  const toast = useToast();
   const [acc, setAcc] = useState("");
-  const { d, err } = useRep<{ account: { code: string; name: string; level: string }; opening: number; closing: number; totals: { debit: number; credit: number }; lines: { id: number; docId: number; docNumber: number; date: string; description: string; accountCode: string; accountName: string; debit: number; credit: number; balance: number }[] }>("ledger", range, { account: acc }, 0);
+  const { d, err } = useRep<{ account: { code: string; name: string; level: string }; opening: number; closing: number; truncated: boolean; totals: { debit: number; credit: number }; lines: { id: number; docId: number; docNumber: number; date: string; description: string; accountCode: string; accountName: string; debit: number; credit: number; balance: number }[] }>("ledger", range, { account: acc }, 0);
   const bal = (v: number) => (v === 0 ? "—" : `${formatNumber(Math.abs(v))} ${v > 0 ? "بد" : "بس"}`);
   return (
     <div className="space-y-4">
       <Card className="no-print p-4"><Field label="حساب (کل، معین یا تفصیلی)"><AccountSelect allowKol accounts={accounts} value={acc} onChange={setAcc} /></Field></Card>
       <IconText>{!acc ? <EmptyState emoji="" title="یک حساب انتخاب کنید" description="دفتر کل، معین یا تفصیلی همان حساب با مانده‌ی تجمعی نمایش داده می‌شود." /> : err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-64 rounded-2xl" /> : (
         <Card className="overflow-x-auto">
-          <div className="border-b border-stone-100 p-4"><h3 className="font-extrabold">{d.account.level === "kol" ? "دفتر کل" : d.account.level === "moein" ? "دفتر معین" : "دفتر تفصیلی"}: {toFa(d.account.code)} — {d.account.name}</h3><p className="mt-1 text-xs text-stone-500">مانده‌ی ابتدای دوره: <b>{bal(d.opening)}</b></p></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 p-4"><div><h3 className="font-extrabold">{d.account.level === "kol" ? "دفتر کل" : d.account.level === "moein" ? "دفتر معین" : "دفتر تفصیلی"}: {toFa(d.account.code)} — {d.account.name}</h3><p className="mt-1 text-xs text-stone-500">مانده‌ی ابتدای دوره: <b>{bal(d.opening)}</b></p></div><Button className="no-print" size="sm" variant="secondary" disabled={d.truncated} title={d.truncated ? "برای چاپ کامل، بازه تاریخ را محدود کنید." : undefined} onClick={() => {
+            const title = d.account.level === "kol" ? "دفتر حساب کل" : d.account.level === "moein" ? "دفتر حساب معین" : "دفتر حساب تفصیلی";
+            const rows = d.lines.map((line) => [fmtJ(line.date), toFa(line.docNumber), `${toFa(line.accountCode)} — ${line.accountName}`, line.description || "—", line.debit ? formatNumber(line.debit) : "—", line.credit ? formatNumber(line.credit) : "—", bal(line.balance)]);
+            const printed = printAccountingTable({ businessName, title, subtitle: `${title}: ${toFa(d.account.code)} — ${d.account.name}`, period: periodLabel(range, year), headers: ["تاریخ", "شماره سند", "حساب", "شرح", "بدهکار", "بستانکار", "مانده"], rows, totals: ["", "", "", "جمع گردش / مانده نهایی", formatNumber(d.totals.debit), formatNumber(d.totals.credit), bal(d.closing)], landscape: true, note: `مانده ابتدای دوره: ${bal(d.opening)} · مانده پایان دوره: ${bal(d.closing)}` });
+            if (!printed) toast("پنجرهٔ چاپ باز نشد؛ اجازهٔ بازشدن پنجره را در مرورگر بررسی کنید.", "error");
+          }}><Icon name="print" className="size-4" />چاپ صورت حساب</Button></div>
+          {d.truncated && <p role="status" className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-900">این دفتر به سقف ۳۰۰۰ ردیف رسیده است. برای جلوگیری از چاپ گزارش ناقص، بازهٔ تاریخ را محدود کنید.</p>}
           <table className="w-full min-w-[720px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-2.5 text-start">تاریخ</th><th className="p-2.5 text-start">سند</th><th className="p-2.5 text-start">حساب</th><th className="p-2.5 text-start">شرح</th><th className="p-2.5 text-end">بدهکار</th><th className="p-2.5 text-end">بستانکار</th><th className="p-2.5 text-end">مانده</th></tr></thead>
             <tbody className="divide-y divide-stone-100">{d.lines.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-stone-400">گردشی در این بازه نیست</td></tr>}{d.lines.map((l) => <tr key={l.id}><td className="whitespace-nowrap p-2.5 text-xs">{fmtJ(l.date)}</td><td className="p-2.5"><button className="font-bold text-brand-600" onClick={() => openDoc(l.docId)}>{toFa(l.docNumber)}</button></td><td className="p-2.5 text-xs">{toFa(l.accountCode)} {l.accountName}</td><td className="max-w-60 truncate p-2.5 text-xs text-stone-500">{l.description}</td><td className="p-2.5 text-end tabular-nums">{num(l.debit)}</td><td className="p-2.5 text-end tabular-nums">{num(l.credit)}</td><td className="p-2.5 text-end text-xs font-bold tabular-nums">{bal(l.balance)}</td></tr>)}</tbody>
             <tfoot><tr className="bg-stone-50 font-extrabold"><td colSpan={4} className="p-2.5">جمع گردش / مانده نهایی</td><td className="p-2.5 text-end">{formatNumber(d.totals.debit)}</td><td className="p-2.5 text-end">{formatNumber(d.totals.credit)}</td><td className="p-2.5 text-end text-xs">{bal(d.closing)}</td></tr></tfoot></table>
@@ -476,19 +505,35 @@ function LedgerTab({ range, accounts, openDoc }: { range: Range; accounts: Acc[]
   );
 }
 
-function TrialTab({ range, version }: { range: Range; version: number }) {
+function TrialTab({ range, version, businessName, year }: { range: Range; version: number; businessName: string; year?: Year }) {
+  const toast = useToast();
   const [level, setLevel] = useState("moein");
   const [all, setAll] = useState(false);
   const { d, err } = useRep<{ rows: { id: number; code: string; name: string; parent: string; debit: number; credit: number; balDebit: number; balCredit: number }[]; totals: { debit: number; credit: number; balDebit: number; balCredit: number } }>("trial", range, { level, ...(all ? { all: "1" } : {}) }, version);
+  const levelLabel = level === "kol" ? "حساب‌های کل" : level === "moein" ? "حساب‌های معین" : "حساب‌های تفصیلی";
+  function printTrial(columns: "four" | "two") {
+    if (!d) return;
+    const four = columns === "four";
+    const headers = four ? ["کد", "نام حساب", "گردش بدهکار", "گردش بستانکار", "مانده بدهکار", "مانده بستانکار"] : ["کد", "نام حساب", "بدهکار", "بستانکار"];
+    const rows = d.rows.map((row) => four
+      ? [toFa(row.code), `${row.name}${level !== "kol" && row.parent ? ` — ${row.parent}` : ""}`, formatNumber(row.debit), formatNumber(row.credit), formatNumber(row.balDebit), formatNumber(row.balCredit)]
+      : [toFa(row.code), `${row.name}${level !== "kol" && row.parent ? ` — ${row.parent}` : ""}`, formatNumber(row.balDebit), formatNumber(row.balCredit)]);
+    const totals = four
+      ? ["", "جمع", formatNumber(d.totals.debit), formatNumber(d.totals.credit), formatNumber(d.totals.balDebit), formatNumber(d.totals.balCredit)]
+      : ["", "جمع مانده", formatNumber(d.totals.balDebit), formatNumber(d.totals.balCredit)];
+    const printed = printAccountingTable({ businessName, title: `تراز آزمایشی ${four ? "۴ ستونی" : "۲ ستونی"}`, subtitle: `تراز آزمایشی ${levelLabel} (${four ? "۴ ستونی" : "۲ ستونی"})`, period: periodLabel(range, year), headers, rows, totals, landscape: four, note: four ? "در این گزارش، گردش دوره و ماندهٔ حساب هر دو نمایش داده شده‌اند." : "در این گزارش فقط ماندهٔ حساب‌ها در ستون بدهکار و بستانکار نمایش داده شده است." });
+    if (!printed) toast("پنجرهٔ چاپ باز نشد؛ اجازهٔ بازشدن پنجره را در مرورگر بررسی کنید.", "error");
+  }
   return (
     <div>
       <div className="no-print mb-4 flex flex-wrap items-center gap-2">
-        {[["kol", "تراز کل"], ["moein", "تراز معین"], ["tafsili", "تراز تفصیلی"]].map(([k, l]) => <button key={k} onClick={() => setLevel(k)} className={cn("rounded-xl px-4 py-2 text-sm font-semibold", level === k ? "bg-brand-500 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}
+        {[ ["kol", "تراز کل"], ["moein", "تراز معین"], ["tafsili", "تراز تفصیلی"] ].map(([k, l]) => <button key={k} onClick={() => setLevel(k)} className={cn("rounded-xl px-4 py-2 text-sm font-semibold", level === k ? "bg-brand-500 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}
         <label className="ms-2 flex items-center gap-2 text-xs text-stone-600"><input type="checkbox" className="accent-brand-500" checked={all} onChange={(e) => setAll(e.target.checked)} /> نمایش حساب‌های بدون گردش</label>
+        <div className="ms-auto flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={!d} onClick={() => printTrial("four")}><Icon name="print" className="size-4" />چاپ ۴ ستونی</Button><Button size="sm" variant="secondary" disabled={!d} onClick={() => printTrial("two")}><Icon name="print" className="size-4" />چاپ ۲ ستونی</Button></div>
       </div>
       <IconText>{err ? <ErrorState message={err} /> : !d ? <Skeleton className="h-72 rounded-2xl" /> : d.rows.length === 0 ? <EmptyState emoji="" title="گردشی ثبت نشده" /> : (
         <Card className="overflow-x-auto">
-          <div className="border-b border-stone-100 p-4 text-center"><h3 className="font-extrabold">تراز آزمایشی {level === "kol" ? "حساب‌های کل" : level === "moein" ? "حساب‌های معین" : "حساب‌های تفصیلی"} (۴ ستونی)</h3></div>
+          <div className="border-b border-stone-100 p-4 text-center"><h3 className="font-extrabold">تراز آزمایشی {levelLabel} (۴ ستونی)</h3></div>
           <table className="w-full min-w-[720px] text-sm">
             <thead><tr className="bg-stone-50 text-xs text-stone-500"><th rowSpan={2} className="p-2.5 text-start">کد</th><th rowSpan={2} className="p-2.5 text-start">نام حساب</th><th colSpan={2} className="border-x border-stone-200 p-2 text-center">گردش</th><th colSpan={2} className="p-2 text-center">مانده</th></tr><tr className="bg-stone-50 text-xs text-stone-500"><th className="border-s border-stone-200 p-2 text-end">بدهکار</th><th className="border-e border-stone-200 p-2 text-end">بستانکار</th><th className="p-2 text-end">بدهکار</th><th className="p-2 text-end">بستانکار</th></tr></thead>
             <tbody className="divide-y divide-stone-100">{d.rows.map((r) => <tr key={r.id}><td className="p-2.5 tabular-nums">{toFa(r.code)}</td><td className="p-2.5">{r.name}{level !== "kol" && <span className="ms-2 text-[11px] text-stone-400">{r.parent}</span>}</td><td className="p-2.5 text-end tabular-nums">{num(r.debit)}</td><td className="p-2.5 text-end tabular-nums">{num(r.credit)}</td><td className="p-2.5 text-end font-semibold tabular-nums">{num(r.balDebit)}</td><td className="p-2.5 text-end font-semibold tabular-nums">{num(r.balCredit)}</td></tr>)}</tbody>
