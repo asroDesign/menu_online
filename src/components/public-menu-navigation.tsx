@@ -551,12 +551,24 @@ export function PublicMenuNavigation({
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">کد معرفی (اختیاری)<Input dir="ltr" className="text-left uppercase" autoComplete="off" value={referralCode} onChange={(event) => setReferralCode(event.target.value.slice(0, 32))} placeholder="کد دوست شما" maxLength={32} /><span className="block text-[10px] font-normal leading-5 text-stone-400">برای حساب تازه؛ ثبت کد بعد از تأیید شماره انجام می‌شود.</span></label>
           <Button type="submit" className="w-full" loading={busy} disabled={!phone.trim()}>ارسال کد ورود</Button>
         </> : <>
-          <div className="text-center"><span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Icon name="mobile" /></span><p className="mt-3 text-sm font-bold">کد ورود برای {phone} ارسال شد</p><p className="mt-1 text-xs text-stone-500">کد تا {toFa(Math.floor(seconds / 60))}:{toFa(String(seconds % 60).padStart(2, "0"))} اعتبار دارد.</p></div>
-          <OtpCodeInput value={code} onChange={setCode} ariaLabel="کد ورود شش‌رقمی" required disabled={busy} />
+          <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/90 via-white to-white p-3.5 shadow-sm shadow-blue-950/[0.03]">
+            <div className="flex items-center gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white text-blue-700 shadow-sm ring-1 ring-blue-100"><Icon name="shield" className="size-5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-blue-950">کد ورود پیامکی</p>
+                <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px] text-stone-500"><span>ارسال‌شده به</span><b dir="ltr" className="font-extrabold tracking-wide text-stone-800">{phone}</b></p>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-white/90 px-3 py-2 ring-1 ring-blue-100/80" aria-live="off">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-stone-500"><Icon name="clock" className="size-3.5 text-blue-600" />زمان باقی‌مانده</span>
+              <span className="rounded-lg bg-blue-50 px-2.5 py-1 text-sm font-extrabold tabular-nums text-blue-800" role="timer" dir="ltr" aria-label={`اعتبار کد ${toFa(Math.floor(seconds / 60))}:${toFa(String(seconds % 60).padStart(2, "0"))}`}>{toFa(Math.floor(seconds / 60))}:{toFa(String(seconds % 60).padStart(2, "0"))}</span>
+            </div>
+          </div>
+          <div className="space-y-1.5"><p className="text-center text-xs font-bold text-stone-600">کد شش‌رقمی را وارد کنید</p><OtpCodeInput className="max-w-[22rem]" value={code} onChange={setCode} ariaLabel="کد ورود شش‌رقمی" required disabled={busy} /></div>
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">نام نمایشی (برای حساب تازه)<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="نام شما" maxLength={80} /></label>
           <label className="block space-y-1.5 text-xs font-semibold text-stone-600">کد معرفی (اختیاری)<Input dir="ltr" className="text-left uppercase" autoComplete="off" value={referralCode} onChange={(event) => setReferralCode(event.target.value.slice(0, 32))} placeholder="کد دوست شما" maxLength={32} /></label>
           <Button type="submit" className="w-full" loading={busy} disabled={code.length !== 6 || seconds === 0}>تأیید و ورود</Button>
-          <div className="flex items-center justify-between gap-2 text-xs"><button type="button" onClick={() => { setChallengeId(""); setCode(""); setError(""); }} className="font-semibold text-stone-500">تغییر شماره</button><button type="button" disabled={retrySeconds > 0 || busy} onClick={() => { void requestCode(); }} className="font-bold text-blue-700 disabled:text-stone-400">{retrySeconds ? `ارسال دوباره تا ${toFa(retrySeconds)} ثانیه` : "ارسال دوباره کد"}</button></div>
+          <div className="grid grid-cols-2 gap-2 text-xs"><button type="button" onClick={() => { setChallengeId(""); setCode(""); setError(""); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-stone-200 bg-white px-2.5 font-semibold text-stone-600 transition hover:bg-stone-50"><Icon name="edit" className="size-3.5" />تغییر شماره</button><button type="button" disabled={retrySeconds > 0 || busy} onClick={() => { void requestCode(); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-blue-100 bg-white px-2.5 font-bold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-stone-400"><Icon name="refresh" className="size-3.5" />{retrySeconds ? `ارسال دوباره در ${toFa(retrySeconds)} ثانیه` : "ارسال دوباره کد"}</button></div>
         </>}
         {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">{error}</p>}
       </form>}

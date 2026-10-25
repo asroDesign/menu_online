@@ -152,8 +152,8 @@ export function AuthForm({ mode, nextPath = "/dashboard", freeTrialSignup = fals
       <div className="flex flex-col justify-center px-5 py-10 sm:px-12 lg:px-16">
         <div className="card mx-auto w-full max-w-md border border-base-300/80 bg-base-100 p-6 shadow-xl shadow-base-content/5 sm:p-9">
           <Link href="/" className="mb-8 flex items-center gap-2.5"><span className="flex size-10 items-center justify-center rounded-xl bg-brand-500 text-xl text-white shadow-lg shadow-brand-500/30"><BrandLogo url={branding.logoUrl} alt="" className="size-7 object-contain" fallback={<Icon name="utensils" className="size-5" />} /></span><span className="text-lg font-extrabold">{branding.siteName}</span></Link>
-          <h1 className="text-2xl font-extrabold">{isLogin ? "ورود به داشبورد" : "ساخت منوی دیجیتال شما"}</h1>
-          <p className="mt-2 text-sm text-stone-500">{isLogin ? "شماره موبایل خود را وارد کنید تا کد ورود برایتان پیامک شود." : phase === "details" ? "شماره شما تأیید شد؛ اطلاعات اولیه فروشگاه را وارد کنید تا حساب ساخته شود." : "ابتدا شماره موبایل را تأیید کنید، سپس اطلاعات اولیه فروشگاه را ثبت کنید."}</p>
+          <h1 className="text-2xl font-extrabold">{phase === "code" && !passwordMode ? "تأیید شماره موبایل" : isLogin ? "ورود به داشبورد" : "ساخت منوی دیجیتال شما"}</h1>
+          <p className="mt-2 text-sm leading-6 text-stone-500">{phase === "code" && !passwordMode ? "کد شش‌رقمی پیامک‌شده را وارد کنید تا ادامه دهید." : isLogin ? "شماره موبایل خود را وارد کنید تا کد ورود برایتان پیامک شود." : phase === "details" ? "شماره شما تأیید شد؛ اطلاعات اولیه فروشگاه را وارد کنید تا حساب ساخته شود." : "ابتدا شماره موبایل را تأیید کنید، سپس اطلاعات اولیه فروشگاه را ثبت کنید."}</p>
 
           {registrationCountdown !== null && <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="status" aria-live="polite">
             <p className="font-bold">حسابی با این شماره پیدا نشد.</p>
@@ -178,14 +178,29 @@ export function AuthForm({ mode, nextPath = "/dashboard", freeTrialSignup = fals
             </form>
           ) : phase === "code" ? (
             <form onSubmit={verifyCode} className="mt-7 space-y-4">
-              <Field label={`کد پیامک‌شده به ${form.phone}`}><OtpCodeInput value={code} onChange={setCode} ariaLabel="کد تأیید شش‌رقمی" required disabled={busy === "verify"} /></Field>
-              <div className="space-y-2 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3 text-sm leading-6 text-base-content/75" aria-live="off">
-                <p className="flex items-center justify-between gap-3" role="timer"><span className="inline-flex items-center gap-2"><Icon name="clock" className="size-4 text-primary" />اعتبار کد</span><span className="font-extrabold tabular-nums text-primary">{formatTime(secondsUntilExpiry ?? 300)}</span></p>
-                {secondsUntilExpiry === 0 && <p className="text-xs font-semibold text-error">کد منقضی شده است؛ کد تازه درخواست کنید.</p>}
+              <div className="flex items-center gap-3 rounded-2xl border border-brand-500/15 bg-gradient-to-l from-brand-500/[0.08] via-base-100 to-base-100 p-3.5">
+                <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-brand-500/10 text-brand-700"><Icon name="shield" className="size-5" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-base-content/70">کد تأیید برای این شماره ارسال شد</p>
+                  <p dir="ltr" className="mt-1 truncate text-start text-sm font-extrabold tracking-[0.08em] text-base-content">{form.phone}</p>
+                </div>
+                <span className="hidden rounded-full bg-base-100 px-2.5 py-1 text-[10px] font-bold text-base-content/55 ring-1 ring-base-300 sm:inline-flex">۶ رقم</span>
               </div>
-              {error && registrationCountdown === null && <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm font-medium text-rose-700 ring-1 ring-rose-200">{error}</p>}
-              <Button type="submit" size="lg" className="w-full" loading={busy === "verify"} disabled={code.length !== 6 || secondsUntilExpiry === 0 || registrationCountdown !== null}>تأیید و ادامه</Button>
-              <div className="flex justify-between text-sm"><button type="button" className="font-bold text-brand-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={registrationCountdown !== null} onClick={() => { try { window.sessionStorage.removeItem(otpStorageKey); } catch {} setPhase("phone"); setChallengeId(""); setCode(""); setError(""); setOtpExpiresAt(null); setResendAvailableAt(null); }}>ویرایش شماره</button><button type="button" className="font-bold text-brand-700 transition disabled:cursor-not-allowed disabled:text-base-content/35 disabled:opacity-50" disabled={!canResend} onClick={requestCode}>{canResend ? "ارسال دوباره کد" : `ارسال دوباره کد تا ${formatTime(resendCountdown)}`}</button></div>
+              <Field label="کد یک‌بارمصرف"><OtpCodeInput className="max-w-[22rem]" value={code} onChange={setCode} ariaLabel="کد تأیید شش‌رقمی" required disabled={busy === "verify"} /></Field>
+              <div className="space-y-2.5 rounded-2xl border border-base-300/80 bg-base-200/35 px-3.5 py-3" aria-live="off">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold text-base-content/65"><Icon name="clock" className="size-4 text-primary" />زمان باقی‌مانده</span>
+                  <span className="rounded-xl bg-base-100 px-3 py-1.5 text-sm font-extrabold tabular-nums text-primary shadow-sm ring-1 ring-base-300/70" role="timer" aria-label={`اعتبار کد ${formatTime(secondsUntilExpiry ?? 300)}`} dir="ltr">{formatTime(secondsUntilExpiry ?? 300)}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-base-300/70" aria-hidden="true"><span className="block h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${Math.max(0, Math.min(100, ((secondsUntilExpiry ?? 300) / 300) * 100))}%` }} /></div>
+                {secondsUntilExpiry === 0 && <p className="text-xs font-semibold text-error">کد منقضی شده است؛ برای دریافت کد تازه از ارسال دوباره استفاده کنید.</p>}
+              </div>
+              {error && registrationCountdown === null && <p role="alert" className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm font-medium text-rose-700 ring-1 ring-rose-200">{error}</p>}
+              <Button type="submit" size="lg" className="w-full" loading={busy === "verify"} disabled={code.length !== 6 || secondsUntilExpiry === 0 || registrationCountdown !== null}><Icon name="shield" className="size-4" />تأیید و ادامه</Button>
+              <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
+                <button type="button" className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-base-300 bg-base-100 px-3 font-bold text-base-content/65 transition hover:bg-base-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={registrationCountdown !== null} onClick={() => { try { window.sessionStorage.removeItem(otpStorageKey); } catch {} setPhase("phone"); setChallengeId(""); setCode(""); setError(""); setOtpExpiresAt(null); setResendAvailableAt(null); }}><Icon name="edit" className="size-3.5" />ویرایش شماره</button>
+                <button type="button" className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-base-300 bg-base-100 px-2 font-bold text-brand-700 transition hover:bg-brand-500/5 disabled:cursor-not-allowed disabled:text-base-content/40" disabled={!canResend} onClick={requestCode}><Icon name="refresh" className="size-3.5" />{canResend ? "ارسال دوباره کد" : `ارسال دوباره در ${formatTime(resendCountdown)}`}</button>
+              </div>
             </form>
           ) : (
             <form onSubmit={completeRegistration} className="mt-7 space-y-4">

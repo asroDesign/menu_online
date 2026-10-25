@@ -19,12 +19,16 @@ export function OtpCodeInput({ value, onChange, length = 6, ariaLabel, className
   const activeIndex = Math.min(code.length, safeLength - 1);
 
   return <div dir="ltr" className={cn("group relative mx-auto w-full max-w-sm", className)}>
-    <div aria-hidden="true" className="grid gap-2 sm:gap-2.5" style={{ gridTemplateColumns: `repeat(${safeLength}, minmax(0, 1fr))` }}>
-      {Array.from({ length: safeLength }, (_, index) => <span key={index} className={cn(
-        "grid aspect-square max-h-12 min-w-0 place-items-center rounded-xl border bg-base-100 text-xl font-extrabold tabular-nums transition-colors sm:rounded-2xl sm:text-2xl",
-        disabled ? "border-base-300 bg-base-200 text-base-content/50" : "border-base-300 text-base-content",
-        focused && index === activeIndex && !disabled && "border-primary ring-2 ring-primary/20",
-      )}>{code[index] ?? <span className="text-base-content/20">•</span>}</span>)}
+    <div aria-hidden="true" className="grid gap-1.5 sm:gap-2.5" style={{ gridTemplateColumns: `repeat(${safeLength}, minmax(0, 1fr))` }}>
+      {Array.from({ length: safeLength }, (_, index) => {
+        const filled = index < code.length;
+        const current = focused && index === activeIndex;
+        return <span key={index} className={cn(
+          "grid aspect-[1.08/1] max-h-14 min-w-0 place-items-center rounded-xl border text-xl font-extrabold tabular-nums shadow-sm transition-[background-color,border-color,box-shadow,color,transform] duration-150 sm:rounded-2xl sm:text-2xl",
+          disabled ? "border-base-300 bg-base-200 text-base-content/45 shadow-none" : filled ? "border-primary/25 bg-primary/[0.06] text-primary" : "border-base-300/80 bg-base-100 text-base-content",
+          current && !disabled && "-translate-y-0.5 border-primary bg-primary/[0.08] shadow-md ring-2 ring-primary/20",
+        )}>{code[index] ?? (current ? <span className="h-5 w-0.5 animate-pulse rounded-full bg-primary/55" /> : <span className="size-1.5 rounded-full bg-base-300" />)}</span>;
+      })}
     </div>
     <input
       {...inputProps}

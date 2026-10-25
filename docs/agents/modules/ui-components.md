@@ -16,7 +16,7 @@
 
 ### OtpCodeInput
 
-برای ورود شش‌رقمی پیامک از `OtpCodeInput` در `src/components/otp-code-input.tsx` استفاده کنید؛ آن را با `value`, `onChange` و `ariaLabel` کنترل کنید و label مرحله را در Field/فرم اطراف نگه دارید. کنترل یک input واقعی دارد و شش خانهٔ بصری نشان می‌دهد؛ بنابراین paste، keyboard، SMS autofill با `one-time-code`، `inputMode=numeric` و فوکوس صفحه‌کلید حفظ می‌شود. ورودی صفرهای ابتدایی را نگه می‌دارد و رقم فارسی/عربی را به ASCII تبدیل می‌کند. منطق پاک‌سازی در `src/lib/otp-code.ts` است. این کامپوننت جای اعتبارسنجی سرور، مهلت OTP یا محدودیت resend را نمی‌گیرد.
+برای ورود شش‌رقمی پیامک از `OtpCodeInput` در `src/components/otp-code-input.tsx` استفاده کنید؛ آن را با `value`, `onChange` و `ariaLabel` کنترل کنید و label مرحله را در Field/فرم اطراف نگه دارید. کنترل یک input واقعی دارد و خانه‌های بصری شش‌گانه را با حالت‌های خالی، پرشده، فعال و غیرفعال نمایش می‌دهد؛ بنابراین paste، keyboard، SMS autofill با `one-time-code`، `inputMode=numeric` و فوکوس صفحه‌کلید حفظ می‌شود. ورودی صفرهای ابتدایی را نگه می‌دارد و رقم فارسی/عربی را به ASCII تبدیل می‌کند. منطق پاک‌سازی در `src/lib/otp-code.ts` است. تایمر اعتبار و دکمهٔ resend باید در فرم پیرامون ساخته شوند و از API/server state پیروی کنند؛ خود کامپوننت جای اعتبارسنجی سرور یا محدودیت resend را نمی‌گیرد.
 
 دو کاربرد جاری: ورود/ثبت‌نام سامانه در `src/components/auth-form.tsx` و پروفایل مشتری در `src/components/public-menu-navigation.tsx`. آزمون `tests/otp-code.test.cjs` normalization ارقام، حفظ صفر ابتدایی، سقف طول، و استفادهٔ مشترک را بررسی می‌کند.
 
