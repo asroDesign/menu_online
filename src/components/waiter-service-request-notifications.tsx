@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, Check, Volume2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatTime, toFa } from "@/lib/format";
@@ -17,6 +17,17 @@ type ServiceRequest = {
 };
 
 type ToastRequest = ServiceRequest & { toastId: number };
+const SOUND_COOKIE = "menupeak_waiter_alert_sound";
+const SOUND_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+function savedSoundPreference() {
+  return document.cookie.split(";").some((part) => part.trim() === `${SOUND_COOKIE}=enabled`);
+}
+
+function saveSoundPreference(enabled: boolean) {
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${SOUND_COOKIE}=${enabled ? "enabled" : "disabled"}; Max-Age=${SOUND_COOKIE_MAX_AGE}; Path=/; SameSite=Lax${secure}`;
+}
 
 function playRequestTone(context: AudioContext) {
   for (const [offset, frequency] of [[0, 880], [0.16, 660]] as const) {
@@ -39,16 +50,17 @@ export function WaiterServiceRequestNotifications() {
   const [toasts, setToasts] = useState<ToastRequest[]>([]);
   const [soundBlocked, setSoundBlocked] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
   const [resolving, setResolving] = useState<number | null>(null);
   const known = useRef(new Set<number>());
   const initialized = useRef(false);
   const timers = useRef(new Map<number, number>());
   const audioContext = useRef<AudioContext | null>(null);
   const soundReady = useRef(false);
+  const soundPreferred = useRef(false);
   const toast = useToast();
 
-  async function enableSound() {
-    try {
+  const activateSound = useCallback(async (playTest = false) => {
       const AudioContextConstructor = window.AudioContext;
       if (!AudioContextConstructor) throw new Error("مرورگر از صدای اعلان پشتیبانی نمی‌کند");
       const context = audioContext.current ?? new AudioContextConstructor();
@@ -56,12 +68,22 @@ export function WaiterServiceRequestNotifications() {
       if (context.state !== "running") await context.resume();
       if (context.state !== "running") throw new Error("اجازهٔ پخش صدا داده نشد");
       soundReady.current = true;
+      soundPreferred.current = true;
+      saveSoundPreference(true);
       setSoundEnabled(true);
       setSoundBlocked(false);
-      playRequestTone(context);
+      if (playTest) playRequestTone(context);
+  }, []);
+
+  async function enableSound() {
+    try {
+      await activateSound(true);
+      setTooltipOpen(false);
+      toast("صدای هشدار درخواست‌های میز فعال شد.");
     } catch {
       soundReady.current = false;
       setSoundBlocked(true);
+      setTooltipOpen(true);
       toast("برای پخش صدای اعلان، اجازهٔ صدا را در مرورگر فعال کنید", "error");
     }
   }
@@ -70,20 +92,10 @@ export function WaiterServiceRequestNotifications() {
     let live = true;
     let inFlight = false;
     const activeTimers = timers.current;
+    soundPreferred.current = savedSoundPreference();
     const unlockSound = () => {
-      if (!audioContext.current) {
-        const AudioContextConstructor = window.AudioContext;
-        if (!AudioContextConstructor) return;
-        audioContext.current = new AudioContextConstructor();
-      }
-      const context = audioContext.current;
-      void context.resume().then(() => {
-        if (context.state === "running") {
-          soundReady.current = true;
-          setSoundEnabled(true);
-          setSoundBlocked(false);
-        }
-      }).catch(() => setSoundBlocked(true));
+      if (!soundPreferred.current) return;
+      void activateSound(false).catch(() => setSoundBlocked(true));
     };
     async function load() {
       if (inFlight || document.hidden) return;
@@ -121,8 +133,10 @@ export function WaiterServiceRequestNotifications() {
     void load();
     const interval = window.setInterval(() => { void load(); }, 3_000);
     const onVisibility = () => { if (!document.hidden) void load(); };
-    window.addEventListener("pointerdown", unlockSound, { once: true });
-    window.addEventListener("keydown", unlockSound, { once: true });
+    if (soundPreferred.current) {
+      window.addEventListener("pointerdown", unlockSound, { once: true });
+      window.addEventListener("keydown", unlockSound, { once: true });
+    }
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       live = false;
@@ -134,7 +148,7 @@ export function WaiterServiceRequestNotifications() {
       activeTimers.clear();
       if (audioContext.current && audioContext.current.state !== "closed") void audioContext.current.close();
     };
-  }, []);
+  }, [activateSound]);
 
   function dismissToast(id: number) {
     const timer = timers.current.get(id);
@@ -157,37 +171,38 @@ export function WaiterServiceRequestNotifications() {
   }
 
   return <>
-    <section dir="rtl" aria-label="اعلان درخواست‌های مشتری" className="mb-4">
-      <div className="aura aura-sm aura-glow rounded-2xl text-sky-500">
-        <div className="flex flex-col gap-3 rounded-2xl border border-sky-100 bg-gradient-to-l from-sky-50 via-white to-white p-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:p-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-800 shadow-inner shadow-white/70">
-              <BellRing className="size-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-extrabold text-slate-900">اعلان درخواست مشتری</h2>
-                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold", soundEnabled && !soundBlocked ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")} role="status" aria-live="polite">
-                  <span className={cn("size-1.5 rounded-full", soundEnabled && !soundBlocked ? "bg-emerald-500" : "bg-amber-500")} />
-                  {soundEnabled && !soundBlocked ? "هشدار صوتی روشن" : soundBlocked ? "صدا نیاز به فعال‌سازی دارد" : "اعلان دیداری فعال است"}
-                </span>
-              </div>
-              <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">
-                {soundEnabled && !soundBlocked
-                  ? "درخواست تازهٔ مشتری با صدا و پیام روی صفحه اعلام می‌شود."
-                  : soundBlocked
-                    ? "مرورگر پخش صدا را متوقف کرده است؛ با فعال‌سازی دوباره، درخواست‌ها را فوری می‌شنوید. پیام‌ها در هر حال در فهرست ثبت می‌شوند."
-                    : "برای شنیدن فوری درخواست میزها، هشدار صوتی را فعال کنید. پیام‌ها حتی بدون صدا هم در این پنل نمایش داده می‌شوند."}
-              </p>
-            </div>
+    {(requests.length > 0 || !soundEnabled) && <div dir="rtl" className="fixed left-4 bottom-[calc(5rem_+_env(safe-area-inset-bottom))] z-[125]">
+      {tooltipOpen && <section role="dialog" aria-label="جزئیات درخواست‌های میز" className="absolute bottom-full left-0 mb-3 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-sky-200 bg-white text-right shadow-2xl shadow-slate-900/20 animate-pop">
+        <header className="flex items-start justify-between gap-3 border-b border-sky-100 bg-gradient-to-l from-sky-50 to-white p-3.5">
+          <div className="min-w-0">
+            <h2 className="text-sm font-extrabold text-slate-900">درخواست‌های میز</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-600">{soundEnabled ? "هشدار صوتی این دستگاه فعال است." : soundBlocked ? "مرورگر صدا را متوقف کرده؛ دوباره فعالش کنید." : "برای شنیدن درخواست‌ها، صدای هشدار را فعال کنید."}</p>
           </div>
-          <Button type="button" size="sm" variant="secondary" className="min-h-10 w-full shrink-0 gap-2 rounded-xl border-sky-200 bg-white px-4 text-xs font-bold text-sky-900 shadow-sm hover:bg-sky-50 sm:w-auto" onClick={() => void enableSound()}>
-            <Volume2 className="size-4" aria-hidden="true" />
-            {soundEnabled && !soundBlocked ? "آزمایش صدای اعلان" : soundBlocked ? "فعال‌سازی صدا" : "فعال‌کردن صدای اعلان"}
-          </Button>
-        </div>
-      </div>
-    </section>
+          <button type="button" aria-label="بستن جزئیات درخواست‌ها" onClick={() => setTooltipOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-4" /></button>
+        </header>
+        {!soundEnabled && <div className="border-b border-sky-100 p-3">
+          <Button type="button" size="sm" variant="secondary" className="min-h-9 w-full gap-2 rounded-xl border-sky-200 bg-sky-50 text-xs font-bold text-sky-900 hover:bg-sky-100" onClick={() => void enableSound()}><Volume2 className="size-4" />فعال‌سازی صدا</Button>
+        </div>}
+        {requests.length > 0 ? <ul className="max-h-[min(48vh,22rem)] divide-y divide-slate-100 overflow-y-auto">
+          {requests.map((item) => <li key={item.id} className="flex items-start gap-3 p-3">
+            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-800"><BellRing className="size-4" /></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2"><b className="text-xs text-slate-900">میز {item.tableName}</b><Badge color="brand">{item.kind === "call" ? "گارسون" : "پیام"}</Badge></div>
+              {item.kind === "message" && <p className="mt-1 break-words text-xs leading-5 text-slate-600">{item.message}</p>}
+              <p className="mt-1 text-[10px] text-slate-400">{formatTime(item.createdAt)}</p>
+              <Button size="sm" className="mt-2 min-h-8" loading={resolving === item.id} onClick={() => void resolveRequest(item.id)}><Check className="size-3.5" />رسیدگی شد</Button>
+            </div>
+          </li>)}
+        </ul> : <p className="p-4 text-center text-xs text-slate-500">درخواست بازی برای نمایش وجود ندارد.</p>}
+      </section>}
+      <button type="button" aria-label={requests.length ? `درخواست‌های میز، ${toFa(requests.length)} درخواست باز` : "فعال‌سازی صدای اعلان درخواست میز"} aria-expanded={tooltipOpen} aria-haspopup="dialog" onClick={() => {
+        if (requests.length === 0 && !soundEnabled) void enableSound();
+        else setTooltipOpen((open) => !open);
+      }} className={cn("relative flex size-14 items-center justify-center rounded-full border-2 border-white bg-sky-900 text-white shadow-xl shadow-sky-950/25 transition hover:scale-105 hover:bg-sky-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300", requests.length > 0 && "animate-pulse")} title={requests.length ? "نمایش درخواست‌های میز" : "فعال‌سازی صدای اعلان"}>
+        <BellRing className="size-6" aria-hidden="true" />
+        {requests.length > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 flex min-h-6 min-w-6 items-center justify-center rounded-full border-2 border-white bg-rose-600 px-1 text-[11px] font-extrabold text-white">{toFa(requests.length)}</span>}
+      </button>
+    </div>}
     {toasts.length > 0 && <div dir="rtl" aria-live="assertive" aria-relevant="additions" className="pointer-events-none fixed inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[120] mx-auto grid max-w-lg gap-2">
       {toasts.map((item) => <div key={item.toastId} className="aura aura-xs aura-glow rounded-2xl text-sky-500">
         <article role="status" className="pointer-events-auto overflow-hidden rounded-2xl border border-sky-200 bg-white/95 shadow-2xl shadow-slate-900/15 ring-1 ring-white backdrop-blur animate-pop">

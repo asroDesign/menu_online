@@ -517,13 +517,19 @@ test('demo menu allows the waiter request flow while keeping its order preview r
   assert.match(request, /inArray\(diningTables\.operationalStatus, \["available", "occupied", "reserved"\]\)/);
 });
 
-test('waiter service request notifications render as an accessible Aura message card at the bottom of the panel', () => {
+test('waiter service requests use a persistent floating sound dock with a counted details popover', () => {
   const notifications = source('src/components/waiter-service-request-notifications.tsx');
-  assert.match(notifications, /aria-label="اعلان درخواست‌های مشتری"/);
-  assert.match(notifications, /aura aura-sm aura-glow/);
-  assert.match(notifications, /اعلان دیداری فعال است/);
-  assert.match(notifications, /آزمایش صدای اعلان/);
-  assert.match(notifications, /sm:flex-row sm:items-center/);
+  assert.match(notifications, /SOUND_COOKIE = "menupeak_waiter_alert_sound"/);
+  assert.match(notifications, /Max-Age=\$\{SOUND_COOKIE_MAX_AGE\}.*SameSite=Lax/);
+  assert.match(notifications, /savedSoundPreference\(\)/);
+  assert.match(notifications, /saveSoundPreference\(true\)/);
+  assert.match(notifications, /requests\.length > 0 \|\| !soundEnabled/);
+  assert.match(notifications, /aria-label="جزئیات درخواست‌های میز"/);
+  assert.match(notifications, /aria-haspopup="dialog"/);
+  assert.match(notifications, /toFa\(requests\.length\)/);
+  assert.match(notifications, /فعال‌سازی صدا/);
+  assert.doesNotMatch(notifications, /اعلان دیداری فعال است|sm:flex-row sm:items-center/);
+  assert.match(notifications, /fixed left-4 bottom-\[calc\(5rem_\+_env\(safe-area-inset-bottom\)\)\]/);
   assert.match(notifications, /bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
 });
 
