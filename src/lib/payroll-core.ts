@@ -186,7 +186,18 @@ export function calculatePayroll(input: {
   const { profile, policy, year, month, monthDays } = input;
   const metrics = input.metrics;
   const warnings = [...(metrics.warnings ?? [])];
-  const base = profile.salaryMode === "fixed" ? profile.fixedAgreedSalaryToman : profile.monthlyBaseSalaryToman;
+  const configuredBase = profile.salaryMode === "fixed" ? profile.fixedAgreedSalaryToman : profile.monthlyBaseSalaryToman;
+  const hasConfiguredBase = Number.isFinite(configuredBase) && configuredBase > 0;
+  // Salary fields are stored as zero when the employee has not been configured.
+  // In that case use this year's legal daily minimum on the standard 30-day basis.
+  // Never replace a positive agreed/statutory amount entered by the employer.
+  const hasLegalMinimum = Number.isFinite(policy.minimumDailyWageToman) && policy.minimumDailyWageToman > 0;
+  const base = hasConfiguredBase ? configuredBase : hasLegalMinimum ? policy.minimumDailyWageToman * 30 : 0;
+  if (!hasConfiguredBase && hasLegalMinimum) {
+    warnings.push(`حقوق پایه برای کارمند ثبت نشده است؛ حداقل مزد روزانهٔ سال ${policy.jalaliYear} به‌صورت خودکار مبنا قرار گرفت.`);
+  } else if (!hasConfiguredBase) {
+    warnings.push(`حقوق پایه ثبت نشده و حداقل مزد قانونی سال ${policy.jalaliYear} نیز در تنظیمات حقوق تعریف نشده است؛ مبلغ پایه محاسبه نشد.`);
+  }
   const periodStartGregorian = jalali.toGregorian(year, month, 1);
   const periodEndGregorian = jalali.toGregorian(year, month, monthDays);
   const periodStart = Date.UTC(periodStartGregorian.gy, periodStartGregorian.gm - 1, periodStartGregorian.gd);
@@ -211,7 +222,6 @@ export function calculatePayroll(input: {
   const minimumBase = rounded(policy.minimumDailyWageToman * Math.min(monthDays, paidDays));
   if (policy.minimumDailyWageToman > 0 && monthlyBase < minimumBase)
     warnings.push(`حقوق پایه کمتر از کف مزد این ماه است (${minimumBase.toLocaleString("en-US")} تومان). مبلغ قرارداد و وضعیت استخدام بررسی شود.`);
-  if (base <= 0) warnings.push("مبلغ پایه حقوق یا حقوق توافقی برای این کارمند ثبت نشده است.");
 
   const components: PayrollEarning[] = [];
   const add = (key: string, label: string, amount: number, eligible = true) => {
@@ -228,6 +238,8 @@ export function calculatePayroll(input: {
   if (profile.includeSeniority && serviceYears >= 1) {
     const perYear = profile.annualServiceBaseToman > 0 ? profile.annualServiceBaseToman : policy.monthlySeniorityToman;
     add("seniority", "پایه سنوات ماهانه", perYear * paidRatio);
+  } else if (profile.includeSeniority && !profile.employmentStartDate && policy.monthlySeniorityToman > 0) {
+    warnings.push("برای محاسبهٔ پایه سنوات، تاریخ شروع به کار کارمند را در پروفایل کارکنان ثبت کنید.");
   }
   add("management", "حق مدیریت", profile.managementAllowanceToman * paidRatio);
 

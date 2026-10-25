@@ -58,6 +58,54 @@ test('fixed agreed salary can be paid without optional benefits while statutory 
   assert.equal(result.netToman, 53_800_000);
 });
 
+test('missing employee base salary falls back to the selected year minimum wage and legal benefit settings', () => {
+  const policy = { ...defaultPayrollPolicy(1405), monthlyTaxExemptionToman: 999_000_000 };
+  const result = calculatePayroll({
+    profile: profile({
+      monthlyBaseSalaryToman: 0,
+      employmentStartDate: '2020-01-01',
+      maritalStatus: 'married',
+      childrenCount: 1,
+      childAllowanceEligible: true,
+      insuredHistoryDays: policy.minimumInsuredHistoryDaysForChildAllowance,
+      includeHousing: true,
+      includeFood: true,
+      includeMaritalAllowance: true,
+      includeChildAllowance: true,
+      includeSeniority: true,
+    }),
+    policy, year: 1405, month: 7, monthDays: 30, metrics: noWork,
+  });
+  const amounts = Object.fromEntries(result.earnings.map(({ key, amountToman }) => [key, amountToman]));
+  assert.equal(amounts.base, policy.minimumDailyWageToman * 30);
+  assert.equal(amounts.housing, policy.monthlyHousingToman);
+  assert.equal(amounts.food, policy.monthlyFoodToman);
+  assert.equal(amounts.marital, policy.monthlyMaritalToman);
+  assert.equal(amounts.children, policy.monthlyChildToman);
+  assert.equal(amounts.seniority, policy.monthlySeniorityToman);
+  assert.ok(result.warnings.some((warning) => warning.includes('به‌صورت خودکار مبنا قرار گرفت')));
+});
+
+test('an explicitly configured statutory salary is never replaced by the minimum wage fallback', () => {
+  const policy = { ...defaultPayrollPolicy(1405), monthlyTaxExemptionToman: 999_000_000 };
+  const result = calculatePayroll({
+    profile: profile({ monthlyBaseSalaryToman: 60_000_000 }),
+    policy, year: 1405, month: 7, monthDays: 30, metrics: noWork,
+  });
+  assert.equal(result.grossToman, 60_000_000);
+  assert.equal(result.warnings.some((warning) => warning.includes('به‌صورت خودکار مبنا قرار گرفت')), false);
+});
+
+test('missing base salary does not borrow a prior year rate when annual policy is incomplete', () => {
+  const policy = defaultPayrollPolicy(1404);
+  const result = calculatePayroll({
+    profile: profile({ monthlyBaseSalaryToman: 0 }),
+    policy, year: 1404, month: 7, monthDays: 30, metrics: noWork,
+  });
+  assert.equal(result.earnings.some((entry) => entry.key === 'base'), false);
+  assert.ok(result.warnings.some((warning) => warning.includes('حداقل مزد قانونی سال 1404')));
+});
+
 test('tenure allowance starts after a year but is not multiplied by years of service', () => {
   const policy = { ...defaultPayrollPolicy(1405), monthlyTaxExemptionToman: 999_000_000 };
   const result = calculatePayroll({
