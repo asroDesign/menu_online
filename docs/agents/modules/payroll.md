@@ -89,6 +89,8 @@
 - `GET /api/payroll/runs/:id/export?type=insurance|tax` CSV؛ تنها دورهٔ قطعی.
 - `GET/POST /api/payroll/leaves?period=سال-ماه` و `GET/POST /api/payroll/adjustments?period=سال-ماه`; `PATCH /api/payroll/adjustments/:id` تأیید/رد.
 
+قرارداد پاسخ ایجاد/جزئیات/بازمحاسبهٔ لیست حقوق باید در ریشهٔ JSON شامل `id`, `status`, `items`, `total`, `settlements` و `events` باشد؛ کوئری داخلی `getRun` شیء دیتابیس را در `run` نگه می‌دارد و `flattenPayrollRun` آن را برای API به این شکل تبدیل می‌کند. فرم داشبورد از `run.id` برای آدرس فیش `/dashboard/payroll/payslip/:runId/:staffId` استفاده می‌کند؛ بازگرداندن پاسخ تو‌در‌تو باعث تولید `undefined` در لینک چاپ می‌شود.
+
 جداول migration `0053_payroll.sql`: فیلدهای استخدامی روی `staff`; `payroll_policies`, `payroll_runs`, `payroll_items`, `payroll_item_events`, `staff_payroll_adjustments`, `staff_payroll_leaves`, `payroll_settlements`. سیاست و همهٔ سطرها با `business_id` محدود و دورهٔ run و آیتم/کارمند یکتا هستند. `payroll_runs.policy_snapshot` و `payroll_items.staff_snapshot` نسخهٔ پروفایل و نرخ را نگه می‌دارند تا ویرایش نرخ‌های آینده فیش قطعی قبلی را عوض نکند.
 
 ## محدودیت خروجی و استقرار
@@ -107,6 +109,7 @@
 - `src/db/schema.ts`, `src/db/migrations/0053_payroll.sql`, `src/db/migrations/0053_payroll.down.sql` — مدل داده و برگشت.
 - `src/lib/accounting.ts` — سرفصل‌ها و توابع ثبت دوطرفه.
 - `src/app/api/payroll/[...path]/route.ts` — API، audit، صادرات و اسناد اتمی.
+- `src/lib/payroll-run-response.ts` — تبدیل جزئیات داخلی run به قرارداد تخت API که پنل و لینک فیش انتظار دارند.
 - `src/app/dashboard/payroll/payslip/[runId]/[staffId]/page.tsx`, `src/components/print-trigger.tsx` — فیش A4.
 - `src/lib/plans.ts`, `src/lib/roles.ts`, `src/components/dashboard-shell.tsx`, `src/app/dashboard/[module]/page.tsx` — پلن، نقش، منو و registry.
 - `tests/payroll-core.test.cjs` — مالیات، حقوق ثابت، سنوات، مرزبندی ساعت شب/جمعه، تاریخ، حسابداری و migration.

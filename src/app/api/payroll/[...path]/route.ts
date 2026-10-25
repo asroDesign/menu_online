@@ -9,6 +9,7 @@ import { ensurePayrollAccountingAccounts, bankDetailId, postDocumentInTransactio
 import { calculatePayroll, defaultPayrollPolicy, classifyAttendanceInterval, type PayrollMetrics, type PayrollPolicyCore, type PayrollProfileCore } from "@/lib/payroll-core";
 import { fromJ, jMonthLength, jMonthRange } from "@/lib/jalali";
 import { csvCell } from "@/lib/csv";
+import { flattenPayrollRun } from "@/lib/payroll-run-response";
 
 export const dynamic = "force-dynamic";
 type Ctx = { path: string[] };
@@ -190,6 +191,10 @@ async function getRun(auth: AuthContext, runId: number) {
   return { run, items, settlements: settlements.map((item) => ({ ...item.settlement, bankName: item.bank?.name ?? "صندوق" })), events: events.map((item) => ({ ...item.event, actorName: item.actorName })), total };
 }
 
+async function getRunResponse(auth: AuthContext, runId: number) {
+  return flattenPayrollRun(await getRun(auth, runId));
+}
+
 function csvDownload(name: string, rows: (string | number | boolean | null)[][]) {
   const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
   return new Response(`\uFEFF${csv}`, { headers: {
@@ -288,14 +293,14 @@ async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
         await tx.insert(payrollItems).values(rows);
         return created;
       });
-      return JSON(await getRun(auth, run.id), 201);
+      return JSON(await getRunResponse(auth, run.id), 201);
     } catch (error) {
       if ((error as { code?: string }).code === "23505") throw new HttpError(409, "برای این ماه قبلاً لیست حقوق ساخته شده است");
       throw error;
     }
   }
   if (resource === "runs" && id && action === "export" && method === "GET") return exportRun(auth, int(id, "شناسه لیست", 1), String(query.get("type") ?? ""));
-  if (resource === "runs" && id && !action && method === "GET") return JSON(await getRun(auth, int(id, "شناسه لیست", 1)));
+  if (resource === "runs" && id && !action && method === "GET") return JSON(await getRunResponse(auth, int(id, "شناسه لیست", 1)));
   if (resource === "runs" && id && action === "recalculate" && method === "POST") {
     const runId = int(id, "شناسه لیست", 1);
     const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, runId), eq(payrollRuns.businessId, auth.business.id))).limit(1);
@@ -333,7 +338,7 @@ async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
         }).where(eq(payrollItems.id, item.id));
       }
     });
-    return JSON(await getRun(auth, run.id));
+    return JSON(await getRunResponse(auth, run.id));
   }
   if (resource === "runs" && id && !action && method === "PATCH") {
     const body = await readJson(req) as Record<string, unknown>;
@@ -406,7 +411,7 @@ async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
       await tx.update(payrollRuns).set({ status: "approved", salaryDocumentId: posted.id, approvedBy: auth.user.id, approvedAt: new Date(), approvalNote, updatedAt: new Date() }).where(eq(payrollRuns.id, run.id));
       return posted;
     });
-    return JSON({ ok: true, documentId: document.id, data: await getRun(auth, runId) });
+    return JSON({ ok: true, documentId: document.id, data: await getRunResponse(auth, runId) });
   }
   if (resource === "runs" && id && action === "settle" && method === "POST") {
     const body = await readJson(req) as Record<string, unknown>;
@@ -454,7 +459,7 @@ async function handle(req: Request, auth: AuthContext, { path }: Ctx) {
       const [row] = await tx.insert(payrollSettlements).values({ businessId: auth.business.id, runId: run.id, kind, amountToman: amount, bankAccountId: bankId, accountingDocumentId: doc.id, createdBy: auth.user.id }).returning();
       return row;
     });
-    return JSON({ item: settled, data: await getRun(auth, run.id) }, 201);
+    return JSON({ item: settled, data: await getRunResponse(auth, run.id) }, 201);
   }
   if (resource === "leaves" && !id && method === "GET") {
     const { year, month } = parsePeriod(query.get("period"));

@@ -18,6 +18,7 @@ function load(file) {
 
 const { calculatePayroll, defaultPayrollPolicy, progressivePayrollTax, classifyAttendanceInterval } = load('src/lib/payroll-core.ts');
 const { staffPayrollPatch } = load('src/lib/staff-payroll-profile.ts');
+const { flattenPayrollRun } = load('src/lib/payroll-run-response.ts');
 
 function profile(overrides = {}) {
   return {
@@ -104,6 +105,19 @@ test('payroll API keeps settlement and approval in accounting transactions and e
   assert.doesNotMatch(route, /businessId: 0/);
   assert.match(route, /item\.status === "absent"/);
   assert.match(route, /withAuth<Ctx>\(handle, access\)/);
+});
+
+test('payroll run detail response exposes its id at the root for the payslip link', () => {
+  const response = flattenPayrollRun({
+    run: { id: 42, jalaliYear: 1405, jalaliMonth: 7, status: 'draft' },
+    items: [{ id: 15, staffId: 15 }], total: { netToman: 100 }, settlements: [], events: [],
+  });
+  assert.equal(response.id, 42);
+  assert.equal(response.items[0].staffId, 15);
+  assert.match(source('src/modules/payroll.tsx'), /payslip\/\$\{run\.id\}\/\$\{item\.staffId\}/);
+  const route = source('src/app/api/payroll/[...path]/route.ts');
+  assert.match(route, /return flattenPayrollRun\(await getRun\(auth, runId\)\)/);
+  assert.doesNotMatch(route, /JSON\(await getRun\(auth,/);
 });
 
 test('payroll migration has a rollback for employee fields and all payroll ledgers', () => {
