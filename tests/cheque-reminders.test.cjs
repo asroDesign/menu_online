@@ -75,6 +75,7 @@ test('dashboard notification feed includes only tenant-owned open cheques inside
   assert.match(route, /eq\(cheques\.status, "registered"\)/);
   assert.match(route, /cheques: chequeDue/);
   assert.match(component, /یادآوری سررسید چک/);
-  assert.match(component, /menupeak:cheque-reminders:/);
+  assert.match(component, /menupeak:dashboard-notifications:/);
+  assert.match(component, /claimNotifications\("cheque-due"/);
   assert.match(core, /groups\.cheques\?\.length/);
 });

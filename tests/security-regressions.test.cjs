@@ -517,14 +517,14 @@ test('demo menu allows the waiter request flow while keeping its order preview r
   assert.match(request, /inArray\(diningTables\.operationalStatus, \["available", "occupied", "reserved"\]\)/);
 });
 
-test('waiter service request notifications render as an accessible Aura message card below the dashboard header', () => {
+test('waiter service request notifications render as an accessible Aura message card at the bottom of the panel', () => {
   const notifications = source('src/components/waiter-service-request-notifications.tsx');
   assert.match(notifications, /aria-label="اعلان درخواست‌های مشتری"/);
   assert.match(notifications, /aura aura-sm aura-glow/);
   assert.match(notifications, /اعلان دیداری فعال است/);
   assert.match(notifications, /آزمایش صدای اعلان/);
   assert.match(notifications, /sm:flex-row sm:items-center/);
-  assert.match(notifications, /top-\[5\.25rem\]/);
+  assert.match(notifications, /bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
 });
 
 test('platform funnel stores no identifying fields and separates observed from server-confirmed events', () => {

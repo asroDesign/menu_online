@@ -70,6 +70,21 @@ export function WaiterServiceRequestNotifications() {
     let live = true;
     let inFlight = false;
     const activeTimers = timers.current;
+    const unlockSound = () => {
+      if (!audioContext.current) {
+        const AudioContextConstructor = window.AudioContext;
+        if (!AudioContextConstructor) return;
+        audioContext.current = new AudioContextConstructor();
+      }
+      const context = audioContext.current;
+      void context.resume().then(() => {
+        if (context.state === "running") {
+          soundReady.current = true;
+          setSoundEnabled(true);
+          setSoundBlocked(false);
+        }
+      }).catch(() => setSoundBlocked(true));
+    };
     async function load() {
       if (inFlight || document.hidden) return;
       inFlight = true;
@@ -106,10 +121,14 @@ export function WaiterServiceRequestNotifications() {
     void load();
     const interval = window.setInterval(() => { void load(); }, 3_000);
     const onVisibility = () => { if (!document.hidden) void load(); };
+    window.addEventListener("pointerdown", unlockSound, { once: true });
+    window.addEventListener("keydown", unlockSound, { once: true });
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       live = false;
       window.clearInterval(interval);
+      window.removeEventListener("pointerdown", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
       document.removeEventListener("visibilitychange", onVisibility);
       activeTimers.forEach((timer) => window.clearTimeout(timer));
       activeTimers.clear();
@@ -169,7 +188,7 @@ export function WaiterServiceRequestNotifications() {
         </div>
       </div>
     </section>
-    {toasts.length > 0 && <div dir="rtl" aria-live="assertive" aria-relevant="additions" className="pointer-events-none fixed inset-x-3 top-[5.25rem] z-[120] mx-auto grid max-w-lg gap-2">
+    {toasts.length > 0 && <div dir="rtl" aria-live="assertive" aria-relevant="additions" className="pointer-events-none fixed inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[120] mx-auto grid max-w-lg gap-2">
       {toasts.map((item) => <div key={item.toastId} className="aura aura-xs aura-glow rounded-2xl text-sky-500">
         <article role="status" className="pointer-events-auto overflow-hidden rounded-2xl border border-sky-200 bg-white/95 shadow-2xl shadow-slate-900/15 ring-1 ring-white backdrop-blur animate-pop">
           <div className="flex items-start gap-3 p-3.5">

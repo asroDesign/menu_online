@@ -7,6 +7,8 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteUrl()),
   applicationName: "MenuPeak",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "MenuPeak", statusBarStyle: "default" },
   title: "منوی دیجیتال | کاتالوگ آنلاین، منوی QR و سفارش‌گیری گارسون",
   description:
     "پلتفرم ساخت منوی دیجیتال و کاتالوگ آنلاین برای کافه و رستوران، همراه با پنل سفارش‌گیری گارسون و داشبورد مدیریت.",

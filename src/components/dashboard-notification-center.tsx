@@ -105,7 +105,7 @@ function NotificationLink({ href, icon, tone, title, detail, time, onClick }: {
   </Link></li>;
 }
 
-export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEnabled, ordersEnabled, reservationsEnabled }: { businessSlug: string; enabled: boolean; inventoryEnabled: boolean; ordersEnabled: boolean; reservationsEnabled: boolean }) {
+export function DashboardNotificationCenter({ businessSlug, role, enabled, inventoryEnabled, ordersEnabled, reservationsEnabled, waiterCallEnabled, localServiceNotifierActive }: { businessSlug: string; role: string; enabled: boolean; inventoryEnabled: boolean; ordersEnabled: boolean; reservationsEnabled: boolean; waiterCallEnabled: boolean; localServiceNotifierActive: boolean }) {
   const toast = useToast();
   const [events, setEvents] = useState<EventResponse>(EMPTY_EVENTS);
   const [alerts, setAlerts] = useState<InventoryAlert[]>([]);
@@ -113,8 +113,70 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const seenRef = useRef(new Set<string>());
+  const audioRef = useRef<AudioContext | null>(null);
+
+  const claimNotifications = useCallback((category: string, ids: string[]) => {
+    const storageKey = `menupeak:dashboard-notifications:${businessSlug}:${role}:${category}`;
+    const previous = new Set<string>();
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+      if (Array.isArray(stored)) for (const key of stored) if (typeof key === "string") previous.add(key);
+    } catch { /* browser storage may be disabled; in-memory de-duplication still applies */ }
+    const fresh = ids.filter((id) => {
+      const key = `${category}:${id}`;
+      if (seenRef.current.has(key) || previous.has(id)) {
+        seenRef.current.add(key);
+        return false;
+      }
+      seenRef.current.add(key);
+      previous.add(id);
+      return true;
+    });
+    try { localStorage.setItem(storageKey, JSON.stringify([...previous].slice(-500))); } catch { /* notifications still show in this open panel */ }
+    return fresh;
+  }, [businessSlug, role]);
+
+  const playAlertSound = useCallback(() => {
+    const context = audioRef.current;
+    if (!context || context.state !== "running") return;
+    const start = context.currentTime;
+    [880, 660, 880].forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const at = start + index * 0.17;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, at);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.12, at + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.13);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(at);
+      oscillator.stop(at + 0.14);
+    });
+  }, []);
+
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioRef.current) {
+        const AudioContextClass = window.AudioContext;
+        if (AudioContextClass) audioRef.current = new AudioContextClass();
+      }
+      if (audioRef.current?.state === "suspended") void audioRef.current.resume().catch(() => {});
+      if (audioRef.current?.state === "running") setSoundEnabled(true);
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      void audioRef.current?.close().catch(() => {});
+      audioRef.current = null;
+    };
+  }, []);
 
   const refresh = useCallback(async (notify = true) => {
     if (!enabled) return;
@@ -127,57 +189,93 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
 
     if (eventResult.status === "fulfilled") {
       setEvents(eventResult.value);
-      if (notify && eventResult.value.cheques.length) {
-        const storageKey = `menupeak:cheque-reminders:${businessSlug}`;
-        const previous = new Set<string>(seenRef.current);
-        try {
-          const stored: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
-          if (Array.isArray(stored)) for (const key of stored) if (typeof key === "string") previous.add(key);
-        } catch { /* ignore malformed session state */ }
-        const fresh = eventResult.value.cheques.filter((item) => !previous.has(`${item.id}:${item.dueDate}`));
-        if (fresh.length) toast(`${formatNumber(fresh.length)} چک در بازهٔ یادآوری سررسید قرار دارد؛ جزئیات را در اعلان‌ها ببینید.`, "warning");
-        const remembered = eventResult.value.cheques.map((item) => `${item.id}:${item.dueDate}`).slice(-300);
-        seenRef.current = new Set([...previous, ...remembered]);
-        try { sessionStorage.setItem(storageKey, JSON.stringify([...seenRef.current].slice(-300))); } catch { /* toast still works without session storage */ }
+      const newCalls = claimNotifications("waiter-call", eventResult.value.waiterCalls.map((item) => String(item.id)));
+      const newOrders = claimNotifications("online-order", eventResult.value.orders.map((item) => `${item.id}:${item.status}:${item.paymentStatus}`));
+      const newReservations = claimNotifications("reservation", eventResult.value.reservations.map((item) => `${item.id}:${item.status}`));
+      const dueCheques = claimNotifications("cheque-due", eventResult.value.cheques.map((item) => `${item.id}:${item.dueDate}`));
+      if (notify && newCalls.length && !localServiceNotifierActive) {
+        const first = eventResult.value.waiterCalls.find((item) => String(item.id) === newCalls[0]);
+        if (first) {
+          const detail = first.message || "مشتری درخواست حضور گارسون دارد.";
+          toast(`میز ${first.tableName || "بدون نام"}: ${detail}${newCalls.length > 1 ? ` · ${formatNumber(newCalls.length - 1)} درخواست دیگر` : ""}`, "warning");
+          playAlertSound();
+        }
       }
+      if (notify && newOrders.length) {
+        const firstKey = newOrders[0].split(":", 1)[0];
+        const first = eventResult.value.orders.find((item) => String(item.id) === firstKey);
+        if (first) toast(`سفارش آنلاین #${formatNumber(first.number)} · ${orderStatus[first.status] ?? "وضعیت سفارش تغییر کرد"}`, "warning");
+      }
+      if (notify && newReservations.length) {
+        const firstKey = newReservations[0].split(":", 1)[0];
+        const first = eventResult.value.reservations.find((item) => String(item.id) === firstKey);
+        if (first) toast(`درخواست رزرو تازه از ${first.customerName} · ${formatNumber(first.guestCount)} نفر`, "warning");
+      }
+      if (notify && dueCheques.length) toast(`${formatNumber(dueCheques.length)} چک در بازهٔ یادآوری سررسید قرار دارد؛ جزئیات را در اعلان‌ها ببینید.`, "warning");
     }
     if (inventoryResult.status === "fulfilled") {
       setAlerts(inventoryResult.value.alerts);
       setTruncated(inventoryResult.value.truncated);
-
-      if (notify && inventoryEnabled) {
-        const storageKey = `menupeak:inventory-alerts:${businessSlug}`;
-        const previous = new Set<string>(seenRef.current);
-        try {
-          const stored: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
-          if (Array.isArray(stored)) for (const key of stored) if (typeof key === "string") previous.add(key);
-        } catch { /* malformed session state is safely ignored */ }
-        const fresh = inventoryResult.value.alerts.filter((alert) => !previous.has(alert.key));
-        if (fresh.length) {
-          const stock = fresh.filter((alert) => alert.kind === "stock_out" || alert.kind === "stock_low").length;
-          const expired = fresh.filter((alert) => alert.kind === "expired").length;
-          const expiring = fresh.filter((alert) => alert.kind === "expiring").length;
-          const summary = [stock && `${formatNumber(stock)} مورد کمبود موجودی`, expired && `${formatNumber(expired)} مورد تاریخ‌گذشته`, expiring && `${formatNumber(expiring)} مورد نزدیک انقضا`].filter(Boolean).join("، ");
-          toast(`هشدار انبار: ${summary}؛ فهرست اعلان‌ها را بررسی کنید.`, fresh.some((alert) => alert.kind === "stock_out" || alert.kind === "expired") ? "error" : "warning");
-        }
-        const remembered = inventoryResult.value.alerts.map((alert) => alert.key).slice(-300);
-        seenRef.current = new Set(remembered);
-        try { sessionStorage.setItem(storageKey, JSON.stringify(remembered)); } catch { /* session notifications still work without storage */ }
+      const fresh = claimNotifications("inventory-alert", inventoryResult.value.alerts.map((alert) => alert.key));
+      const freshAlerts = inventoryResult.value.alerts.filter((alert) => fresh.includes(alert.key));
+      if (notify && inventoryEnabled && freshAlerts.length) {
+        const stock = freshAlerts.filter((alert) => alert.kind === "stock_out" || alert.kind === "stock_low").length;
+        const expired = freshAlerts.filter((alert) => alert.kind === "expired").length;
+        const expiring = freshAlerts.filter((alert) => alert.kind === "expiring").length;
+        const summary = [stock && `${formatNumber(stock)} مورد کمبود موجودی`, expired && `${formatNumber(expired)} مورد تاریخ‌گذشته`, expiring && `${formatNumber(expiring)} مورد نزدیک انقضا`].filter(Boolean).join("، ");
+        toast(`هشدار انبار: ${summary}؛ فهرست اعلان‌ها را بررسی کنید.`, freshAlerts.some((alert) => alert.kind === "stock_out" || alert.kind === "expired") ? "error" : "warning");
       }
     }
 
     setError(failed);
     setLoading(false);
-  }, [businessSlug, enabled, inventoryEnabled, toast]);
+  }, [claimNotifications, enabled, inventoryEnabled, localServiceNotifierActive, playAlertSound, toast]);
 
   useEffect(() => {
     if (!enabled) return;
     const start = window.setTimeout(() => void refresh(), 0);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
-    }, 60_000);
-    return () => { window.clearTimeout(start); window.clearInterval(timer); };
+    }, 15_000);
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearTimeout(start); window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, [enabled, refresh]);
+
+  useEffect(() => {
+    if (role !== "waiter" || !("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; requestId?: unknown } | null;
+      if (localServiceNotifierActive || data?.type !== "menupeak:waiter-call" || !Number.isSafeInteger(data.requestId)) return;
+      void api<{ items: WaiterCallNotification[] }>("/api/r/service-requests").then(({ items }) => {
+        const item = items.find((candidate) => candidate.id === data.requestId);
+        if (!item) return;
+        const [fresh] = claimNotifications("waiter-call", [String(item.id)]);
+        if (!fresh) return;
+        const detail = item.kind === "message" && item.message ? item.message : "مشتری درخواست حضور گارسون دارد.";
+        toast(`میز ${item.tableName || "بدون نام"}: ${detail}`, "warning");
+        playAlertSound();
+      }).catch(() => {});
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [claimNotifications, localServiceNotifierActive, playAlertSound, role, toast]);
+
+  async function enableAlertSound() {
+    try {
+      const AudioContextClass = window.AudioContext;
+      if (!AudioContextClass) throw new Error("این مرورگر از پخش صدای هشدار پشتیبانی نمی‌کند");
+      const context = audioRef.current ?? new AudioContextClass();
+      audioRef.current = context;
+      if (context.state !== "running") await context.resume();
+      if (context.state !== "running") throw new Error("اجازهٔ پخش صدا در مرورگر فعال نشد");
+      setSoundEnabled(true);
+      playAlertSound();
+      toast("صدای هشدار درخواست‌های مشتری روی این صفحه فعال شد.");
+    } catch (cause) {
+      toast(cause instanceof Error ? cause.message : "فعال‌سازی صدا انجام نشد", "error");
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -205,7 +303,10 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
     {open && <section id="dashboard-notification-popover" role="region" aria-label="اعلان‌های پنل رستوران" className="absolute end-0 top-[calc(100%+0.65rem)] z-50 w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-base-300 bg-base-100 text-base-content shadow-2xl">
       <div className="flex items-center justify-between border-b border-base-300 px-4 py-3">
         <div><h3 className="text-sm font-extrabold">اعلان‌های پنل</h3><p className="mt-0.5 text-[11px] text-base-content/55">سفارش آنلاین، رزرو، درخواست گارسون، انبار و چک</p></div>
-        <button type="button" className="btn btn-ghost btn-square btn-xs" aria-label="به‌روزرسانی اعلان‌ها" disabled={loading} onClick={() => void refresh(false)}><Icon name="refresh" className={cn("size-4", loading && "animate-spin")} /></button>
+        <div className="flex items-center gap-1">
+          {waiterCallEnabled && <button type="button" className={cn("btn btn-ghost btn-square btn-xs", soundEnabled && "text-success")} aria-label={soundEnabled ? "آزمایش صدای هشدار" : "فعال‌سازی صدای هشدار درخواست گارسون"} title={soundEnabled ? "آزمایش صدای هشدار" : "فعال‌سازی صدای هشدار"} onClick={() => void enableAlertSound()}><Icon name="bell" className="size-4" /></button>}
+          <button type="button" className="btn btn-ghost btn-square btn-xs" aria-label="به‌روزرسانی اعلان‌ها" disabled={loading} onClick={() => void refresh(false)}><Icon name="refresh" className={cn("size-4", loading && "animate-spin")} /></button>
+        </div>
       </div>
       <div className="max-h-[min(68vh,34rem)] overflow-y-auto overscroll-contain">
         {error && <div className="m-3 flex items-center justify-between gap-3 rounded-xl bg-error/10 px-3 py-2 text-xs text-error"><span>بخشی از اعلان‌ها بارگذاری نشد.</span><button type="button" className="font-bold" onClick={() => void refresh(false)}>تلاش دوباره</button></div>}

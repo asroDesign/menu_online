@@ -1077,6 +1077,20 @@ export const waiterServiceRequests = pgTable("waiter_service_requests", {
   index("waiter_service_requests_table_time_idx").on(t.tableId, t.createdAt),
 ]);
 
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("push_subscriptions_business_user_idx").on(t.businessId, t.userId),
+]);
+
 export const printJobs = pgTable("print_jobs", {
   id: serial("id").primaryKey(),
   businessId: bizId(),

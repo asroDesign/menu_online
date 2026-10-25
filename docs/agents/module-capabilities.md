@@ -6,7 +6,7 @@
 
 | ماژول و راهنما | محل | کاربرد و قابلیت‌های اصلی | دسترسی |
 |---|---|---|---|
-| [مرکز اعلان پنل رستوران](modules/panel-notifications.md) | زنگ هدر `DashboardShell` | نمایش تجمیعی سفارش آنلاین فعال، رزرو درخواستی، صداکردن/پیام مشتری به گارسون و هشدار موجودی/انقضا؛ لینک مستقیم برای رسیدگی، badge شمارنده، refresh و polling تب فعال | `cashier_pos`, `reservations`, `waiter_call` یا `inventory` به‌تناسب گروه؛ داده سمت سرور بر اساس tenant و `auth.features` محدود است |
+| [مرکز اعلان پنل رستوران](modules/panel-notifications.md) | زنگ و toast پایین همهٔ صفحات مجاز داشبورد؛ opt-in اعلان دستگاه در پنل گارسون | نمایش سفارش، رزرو، تماس مشتری، سررسید چک و هشدار انبار با toast و dedupe؛ هشدار صوتی foreground؛ Web Push با Service Worker برای گارسون حتی هنگام بسته‌بودن صفحه | entitlement هر دسته در API؛ اشتراک push فقط role `waiter` با `waiter_call`، tenant/user-scoped؛ migration `0052` و VAPID env لازم |
 
 ## ماژول‌های registry داشبورد
 

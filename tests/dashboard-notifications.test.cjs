@@ -36,6 +36,7 @@ test('notification badge totals all active categories without losing inventory a
 test('dashboard feed is authenticated, tenant-scoped, feature-filtered, and omits reservation phone data', () => {
   const route = source('src/app/api/r/dashboard-notifications/route.ts');
   const component = source('src/components/dashboard-notification-center.tsx');
+  const waiterNotifier = source('src/components/waiter-service-request-notifications.tsx');
   const shell = source('src/components/dashboard-shell.tsx');
   assert.match(route, /withAuth\(async/);
   assert.match(route, /eq\(orders\.businessId, auth\.business\.id\)/);
@@ -49,6 +50,14 @@ test('dashboard feed is authenticated, tenant-scoped, feature-filtered, and omit
   assert.match(component, /درخواست‌های گارسون/);
   assert.match(component, /سفارش‌های آنلاین/);
   assert.match(component, /درخواست‌های رزرو/);
-  assert.match(component, /setInterval\([\s\S]*60_000/);
+  assert.match(component, /setInterval\([\s\S]*15_000/);
+  assert.match(component, /toast\(`میز/);
+  assert.match(component, /toast\(`سفارش آنلاین/);
+  assert.match(component, /toast\(`درخواست رزرو تازه/);
+  assert.match(component, /playAlertSound\(\)/);
+  assert.match(component, /menupeak:dashboard-notifications:/);
+  assert.match(component, /localServiceNotifierActive/);
+  assert.match(waiterNotifier, /bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(waiterNotifier, /addEventListener\("pointerdown", unlockSound/);
   assert.match(shell, /DashboardNotificationCenter/);
 });

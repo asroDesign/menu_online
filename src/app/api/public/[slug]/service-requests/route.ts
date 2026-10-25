@@ -6,6 +6,7 @@ import { featuresOf } from "@/lib/entitlements";
 import { hasAny } from "@/lib/plans";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { logInfo } from "@/lib/logger";
+import { sendWaiterCallPush } from "@/lib/web-push";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
 
     const [item] = await db.insert(waiterServiceRequests).values({ businessId: business.id, tableId, kind, message }).returning({ id: waiterServiceRequests.id, createdAt: waiterServiceRequests.createdAt });
     logInfo("waiter_service_request.created", { businessId: business.id, requestId: item.id, tableId, kind });
+    await sendWaiterCallPush({ businessId: business.id, requestId: item.id, tableName: table.name, kind }).catch(() => {
+      logInfo("waiter_service_request.push_unavailable", { businessId: business.id, requestId: item.id });
+    });
     return Response.json({ item: { ...item, tableId, tableName: table.name, kind, message, status: "open" } }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
