@@ -13,6 +13,7 @@ import { normalizePrinterSettings, validatePrinterSelection } from "@/lib/printe
 import { isMenuTemplate } from "@/lib/menu-templates";
 import { normalizeCustomerRewards } from "@/lib/customer-rewards-core";
 import { normalizeTableQrDesign } from "@/lib/table-qr-design";
+import { normalizeIranianMobile } from "@/lib/cheque-reminders-core";
 
 function publicBiz<T extends { settings: unknown }>(b: T): T {
   const st = { ...((b.settings ?? {}) as Record<string, unknown>) };
@@ -71,6 +72,7 @@ const SETTING_FEATURE: Record<string, string | null> = {
   crossSellAuto: "cross_sell",
   orderTrackingDays: null,
   orderWorkflowPreset: "cashier_pos",
+  chequeReminders: "cheque_register",
   printerSettings: "cloud_printer",
   membershipTiers: "loyalty",
   tableQr: null,
@@ -174,6 +176,13 @@ function cleanSetting(key: string, v: unknown, auth: AuthContext, cur: Record<st
       const preset = Number(v);
       if (![1, 2, 3, 4].includes(preset)) throw new HttpError(400, "تعداد مراحل نمایشی باید بین ۱ تا ۴ باشد");
       return preset;
+    }
+    case "chequeReminders": {
+      const days = Number(o.daysBefore);
+      if (!Number.isInteger(days) || days < 0 || days > 30) throw new HttpError(400, "زمان یادآوری چک باید بین همان روز تا ۳۰ روز قبل باشد.");
+      const managerPhone = typeof o.managerPhone === "string" ? normalizeIranianMobile(o.managerPhone) : "";
+      if (o.managerPhone && !managerPhone) throw new HttpError(400, "شماره موبایل مدیر برای پیامک معتبر نیست.");
+      return { enabled: o.enabled !== false, daysBefore: days, smsEnabled: o.smsEnabled !== false, managerPhone };
     }
     case "printerSettings":
       return normalizePrinterSettings(v);

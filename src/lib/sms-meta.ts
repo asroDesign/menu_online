@@ -4,6 +4,13 @@ export const SMS_VARS: Record<string, string> = {
   code: "کد تخفیف",
   discount: "مقدار تخفیف",
   menu_link: "لینک منو",
+  cheque_number: "شماره چک",
+  cheque_amount: "مبلغ چک",
+  cheque_date: "تاریخ سررسید",
+  cheque_bank: "بانک",
+  cheque_direction: "دریافتنی یا پرداختنی",
+  cheque_beneficiary: "نام ذی‌نفع",
+  cheque_purpose: "بابت چک",
 };
 export const OCCASIONS = [
   { key: "nowruz", title: "نوروز", m: 1, d: 1 },

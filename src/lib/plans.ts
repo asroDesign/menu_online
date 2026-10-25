@@ -187,6 +187,7 @@ export type Settings = {
   }[];
   orderTrackingDays?: number;
   orderWorkflowPreset?: 1 | 2 | 3 | 4;
+  chequeReminders?: { enabled?: boolean; daysBefore?: number; smsEnabled?: boolean; managerPhone?: string };
   printerSettings?: import("@/lib/printer-policy").PrinterSettings;
   membershipTiers?: import("@/lib/membership-core").MembershipTierRule[];
   reservations?: {

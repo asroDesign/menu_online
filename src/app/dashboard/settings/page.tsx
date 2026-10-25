@@ -167,6 +167,22 @@ export default function SettingsPage() {
             <Field label="مدت اعتبار (روز)"><Input type="number" inputMode="numeric" min={1} max={30} value={biz.settings.orderTrackingDays ?? 7} onChange={(event) => setSettings({ orderTrackingDays: Number(event.target.value) })}/></Field>
           </Card>
 
+          {features.has("cheque_register") && <Card className="space-y-4 p-5">
+            <div><h2 id="cheque-reminders" className="scroll-mt-24 font-bold">یادآوری سررسید چک</h2><p className="mt-1 text-xs leading-6 text-stone-500">چک‌های ثبت‌شده در زمان تعیین‌شده در اعلان‌های پنل دیده می‌شوند. پیامک یادآوری به شماره حساب مدیر اصلی کسب‌وکار ارسال می‌شود.</p></div>
+            {(() => {
+              const reminder = { enabled: true, daysBefore: 2, smsEnabled: true, ...biz.settings.chequeReminders };
+              return <>
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">اعلان سررسید در پنل</p><p className="text-xs text-stone-500">در بازهٔ یادآوری، چک‌های باز در زنگولهٔ اعلان نمایش داده می‌شوند.</p></div><Switch checked={reminder.enabled} onChange={(enabled) => setSettings({ chequeReminders: { ...reminder, enabled } })} label="اعلان چک" /></div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="چند روز پیش از سررسید؟" hint="۰ یعنی در روز سررسید؛ بازهٔ مجاز ۰ تا ۳۰ روز است."><Input type="number" inputMode="numeric" min={0} max={30} value={reminder.daysBefore} disabled={!reminder.enabled} onChange={(event) => setSettings({ chequeReminders: { ...reminder, daysBefore: Number(event.target.value) } })} /></Field>
+                  <div className="flex items-center justify-between gap-3 rounded-xl bg-stone-50 px-4 py-3"><div><p className="text-sm font-semibold">پیامک به مدیر</p><p className="text-xs text-stone-500">از پترن فعال «یادآوری سررسید چک» در پنل پیامک استفاده می‌شود.</p></div><Switch checked={reminder.smsEnabled} disabled={!reminder.enabled} onChange={(smsEnabled) => setSettings({ chequeReminders: { ...reminder, smsEnabled } })} label="پیامک چک" /></div>
+                </div>
+                <Field label="شماره موبایل دریافت‌کننده پیامک" hint="در صورت خالی‌بودن، شماره موبایل حساب مدیر اصلی استفاده می‌شود."><Input dir="ltr" inputMode="tel" className="text-left" value={reminder.managerPhone ?? ""} disabled={!reminder.enabled || !reminder.smsEnabled} onChange={(event) => setSettings({ chequeReminders: { ...reminder, managerPhone: event.target.value } })} placeholder="09xxxxxxxxx" /></Field>
+                {features.has("sms") ? <p className="text-xs leading-6 text-stone-500">برای ساخت پترن، از <Link href="/dashboard/sms" className="font-bold text-primary underline">پنل پیامک ← قالب‌ها</Link> کاربرد «یادآوری سررسید چک» را انتخاب کنید. بدون پترن فعال، اعلان پنل کار می‌کند اما پیامک ارسال نمی‌شود.</p> : <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-900">برای ارسال پیامک، قابلیت پنل پیامک باید در تعرفه فعال و پترن یادآوری تعریف شده باشد.</p>}
+              </>;
+            })()}
+          </Card>}
+
           <Card className="p-5">
             <div className="mb-4"><h2 className="font-bold">منوهای زمان‌دار</h2><p className="mt-1 text-xs leading-6 text-stone-500">دسته‌های انتخاب‌شده فقط در ساعت منوی مربوط نمایش داده می‌شوند؛ دسته‌های بدون زمان‌بندی همیشه در منو می‌مانند.</p></div>
             <div className="space-y-4">

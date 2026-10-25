@@ -1,10 +1,12 @@
 import { and, desc, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accLines, chequeEvents, cheques } from "@/db/schema";
+import { accAccounts, accDocuments, accLines, chequeBeneficiaries, chequeEvents, cheques } from "@/db/schema";
 import { HttpError, readJson, withAuth, type AuthContext } from "@/lib/auth";
 import * as A from "@/lib/accounting";
 import { buildChequeRegistrationLines, buildChequeStatusLines, isChequeTransitionAllowed } from "@/lib/cheques";
 import { jMonthRange } from "@/lib/jalali";
+import { parseTehranDateTime } from "@/lib/tehran-time";
+import { normalizeIranianDigits } from "@/lib/cheque-reminders-core";
 
 const options = { feature: "cheque_register", manager: true, roles: ["accountant"] };
 
@@ -61,20 +63,43 @@ export const POST = withAuth(async (req, auth) => {
   const body = await readJson(req, 8 * 1024);
   const direction: "receivable" | "payable" | "" = body.direction === "receivable" ? "receivable" : body.direction === "payable" ? "payable" : "";
   const amount = Number(String(body.amount ?? "").replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))));
-  const dueDate = new Date(String(body.dueDate ?? ""));
+  const dueDate = parseTehranDateTime(body.dueDate);
+  const issueDate = body.issueDate ? parseTehranDateTime(body.issueDate) : new Date();
   const accountingAccountId = Number(body.accountingAccountId);
-  if (!direction || !Number.isSafeInteger(amount) || amount <= 0 || amount > 2_000_000_000_000 || !Number.isFinite(dueDate.getTime())) throw new HttpError(400, "جهت، مبلغ و تاریخ سررسید را درست وارد کنید.");
+  if (!direction || !Number.isSafeInteger(amount) || amount <= 0 || amount > 2_000_000_000_000 || !Number.isFinite(dueDate.getTime()) || !Number.isFinite(issueDate.getTime())) throw new HttpError(400, "جهت، مبلغ و تاریخ‌های چک را درست وارد کنید.");
+  if (issueDate.getTime() > dueDate.getTime()) throw new HttpError(400, "تاریخ صدور چک نمی‌تواند بعد از تاریخ سررسید باشد.");
   if (!Number.isSafeInteger(accountingAccountId) || accountingAccountId < 1) throw new HttpError(400, "انتخاب کد حساب طرف سند الزامی است.");
   await A.ensureChequeAccountingAccounts(auth.business);
-  const partnerName = typeof body.partnerName === "string" ? body.partnerName.trim().slice(0, 120) : "";
+  const beneficiaryId = body.beneficiaryId === null || body.beneficiaryId === "" || body.beneficiaryId === undefined ? null : Number(body.beneficiaryId);
+  let partnerName = typeof body.partnerName === "string" ? body.partnerName.trim().slice(0, 120) : "";
+  if (beneficiaryId !== null) {
+    if (!Number.isSafeInteger(beneficiaryId) || beneficiaryId < 1) throw new HttpError(400, "ذی‌نفع انتخاب‌شده معتبر نیست.");
+    const [beneficiary] = await db.select({ id: chequeBeneficiaries.id, fullName: chequeBeneficiaries.fullName }).from(chequeBeneficiaries)
+      .where(and(eq(chequeBeneficiaries.id, beneficiaryId), eq(chequeBeneficiaries.businessId, auth.business.id))).limit(1);
+    if (!beneficiary) throw new HttpError(400, "ذی‌نفع انتخاب‌شده در این کسب‌وکار ثبت نشده است.");
+    partnerName = beneficiary.fullName;
+  }
+  if (!partnerName) throw new HttpError(400, "ذی‌نفع یا نام طرف چک را وارد کنید.");
+  const chequeNumber = typeof body.chequeNumber === "string" ? normalizeIranianDigits(body.chequeNumber).trim().slice(0, 40) : "";
+  const serialNumber = typeof body.serialNumber === "string" ? normalizeIranianDigits(body.serialNumber).trim().slice(0, 40) : "";
+  if (!chequeNumber || !serialNumber) throw new HttpError(400, "شماره و سریال چک را وارد کنید.");
   const bank = typeof body.bank === "string" ? body.bank.trim().slice(0, 60) : "";
+  if (!bank) throw new HttpError(400, "بانک صادرکننده چک را انتخاب کنید.");
+  const branch = typeof body.branch === "string" ? body.branch.trim().slice(0, 100) : "";
+  const expensePurpose = typeof body.expensePurpose === "string" ? body.expensePurpose.trim().slice(0, 120) : "";
   const sayadIdentifier = typeof body.sayadIdentifier === "string" ? body.sayadIdentifier.trim().slice(0, 40) : "";
   const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
   const now = new Date();
-  const item = await db.transaction(async (rawTx) => {
+  const [duplicate] = await db.select({ id: cheques.id }).from(cheques).where(and(
+    eq(cheques.businessId, auth.business.id), eq(cheques.serialNumber, serialNumber), eq(cheques.chequeNumber, chequeNumber),
+  )).limit(1);
+  if (duplicate) throw new HttpError(409, "چکی با این شماره و سریال قبلاً ثبت شده است.");
+  let item: typeof cheques.$inferSelect;
+  try {
+  item = await db.transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db;
     const account = await selectedCounterAccount(tx, auth.business.id, accountingAccountId);
-    const [created] = await tx.insert(cheques).values({ businessId: auth.business.id, direction, status: "registered", partnerName, amount, dueDate, bank, sayadIdentifier, note, createdBy: auth.user.id, accountingAccountId: account.id, createdAt: now, updatedAt: now }).returning();
+    const [created] = await tx.insert(cheques).values({ businessId: auth.business.id, beneficiaryId, direction, status: "registered", partnerName, amount, issueDate, dueDate, chequeNumber, serialNumber, bank, branch, expensePurpose, sayadIdentifier, note, createdBy: auth.user.id, accountingAccountId: account.id, createdAt: now, updatedAt: now }).returning();
     const ledgerCode = direction === "receivable" ? A.C.CHEQUE_RECEIVABLE : A.C.CHEQUE_PAYABLE;
     const document = await A.postDocumentInTransaction(tx, auth.business, {
       date: now, source: "cheque", sourceRef: `cheque:${created.id}:initial`, createdBy: String(auth.user.id),
@@ -85,6 +110,11 @@ export const POST = withAuth(async (req, auth) => {
     await tx.insert(chequeEvents).values({ businessId: auth.business.id, chequeId: saved.id, requestKey: `created:${saved.id}`, fromStatus: null, toStatus: saved.status, note: "ثبت اولیه و ایجاد سند حسابداری", actorId: auth.user.id, accountingAccountId: account.id, accountingDocumentId: document.id, createdAt: now });
     return saved;
   });
+  } catch (error) {
+    const databaseError = error as { code?: string; constraint?: string };
+    if (databaseError.code === "23505" && databaseError.constraint === "cheques_business_serial_number_idx") throw new HttpError(409, "چکی با این شماره و سریال هم‌زمان ثبت شده است.");
+    throw error;
+  }
   return Response.json({ item: { ...item, events: [] } }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }, options);
 

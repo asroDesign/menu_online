@@ -23,8 +23,9 @@ export type DashboardNotificationGroups = {
   reservations: readonly unknown[];
   waiterCalls: readonly unknown[];
   inventory: readonly unknown[];
+  cheques?: readonly unknown[];
 };
 
 export function dashboardNotificationCount(groups: DashboardNotificationGroups): number {
-  return groups.orders.length + groups.reservations.length + groups.waiterCalls.length + groups.inventory.length;
+  return groups.orders.length + groups.reservations.length + groups.waiterCalls.length + groups.inventory.length + (groups.cheques?.length ?? 0);
 }

@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, campaigns, customers, smsLogs, smsTemplates } from "@/db/schema";
+import { businesses, campaigns, chequeReminders, cheques, customers, smsLogs, smsTemplates, users } from "@/db/schema";
 import { featuresOf } from "@/lib/entitlements";
 import { toJ } from "@/lib/jalali";
 import { hasAny, type Settings } from "@/lib/plans";
@@ -8,6 +8,9 @@ import { mergeSeg, segmentOf } from "@/lib/segments";
 import { expireUnpaid } from "@/lib/pos";
 import { sendPattern } from "@/lib/sms-provider";
 import { runRetentionAutomations } from "@/lib/sms-retention";
+import { chequeReminderSendDate, normalizeChequeReminderSettings, normalizeIranianMobile, isChequeReminderDueToday, tehranDayKey } from "@/lib/cheque-reminders-core";
+import { startOfDayTehran, endOfDayTehran } from "@/lib/jalali";
+import { formatPrice } from "@/lib/format";
 
 type Biz = typeof businesses.$inferSelect;
 type Tpl = typeof smsTemplates.$inferSelect;
@@ -28,7 +31,11 @@ export { sendPattern } from "@/lib/sms-provider";
 
 function varsFor(biz: Biz, c: Cust, extras: Record<string, string>) {
   const origin = extras.origin || smsCfgOf(biz).origin || "";
-  return { customer_name: c.name || "مشتری گرامی", restaurant: biz.name, code: extras.code ?? "", discount: extras.discount ?? "", menu_link: origin ? `${origin}/m/${biz.slug}` : "" };
+  return {
+    customer_name: c.name || "مشتری گرامی", restaurant: biz.name, code: extras.code ?? "", discount: extras.discount ?? "", menu_link: origin ? `${origin}/m/${biz.slug}` : "",
+    cheque_number: extras.cheque_number ?? "", cheque_amount: extras.cheque_amount ?? "", cheque_date: extras.cheque_date ?? "",
+    cheque_bank: extras.cheque_bank ?? "", cheque_direction: extras.cheque_direction ?? "", cheque_beneficiary: extras.cheque_beneficiary ?? "", cheque_purpose: extras.cheque_purpose ?? "",
+  };
 }
 
 async function deliver(biz: Biz, tpl: Tpl, list: Cust[], o: { kind: string; campaignId?: number | null; extras: Record<string, string> }) {
@@ -79,7 +86,10 @@ export async function sendTest(biz: Biz, tplId: number, phone: string) {
   const [tpl] = await db.select().from(smsTemplates).where(and(eq(smsTemplates.id, tplId), eq(smsTemplates.businessId, biz.id)));
   if (!tpl) throw new Error("قالب پیدا نشد");
   if (!smsCfgOf(biz).apiKey) throw new Error("ابتدا کلید API پنل پیامک را در تب «اتصال پنل» ثبت کنید");
-  const r = await deliver(biz, tpl, [{ id: null, name: "مشتری نمونه", phone }], { kind: "test", extras: { code: "TEST10", discount: "۱۰٪" } });
+  const r = await deliver(biz, tpl, [{ id: null, name: "مشتری نمونه", phone }], { kind: "test", extras: {
+    code: "TEST10", discount: "۱۰٪", cheque_number: "۱۲۳۴۵", cheque_amount: "۱٬۲۰۰٬۰۰۰ تومان", cheque_date: "۲۵ مهر ۱۴۰۵",
+    cheque_bank: "بانک ملت", cheque_direction: "پرداختنی", cheque_beneficiary: "نام نمونه", cheque_purpose: "پرداخت به تأمین‌کننده",
+  } });
   return r;
 }
 
@@ -106,6 +116,98 @@ export async function sendReservationStatusSms(biz: Biz, phone: string, status: 
     console.error("reservation SMS log failed", error);
   }
   return result;
+}
+
+async function sendChequeDueReminder(biz: Biz, cheque: typeof cheques.$inferSelect, reminderDate: string, daysBefore: number) {
+  const key = and(
+    eq(chequeReminders.businessId, biz.id),
+    eq(chequeReminders.chequeId, cheque.id),
+    eq(chequeReminders.reminderDate, reminderDate),
+  )!;
+  const [claim] = await db.insert(chequeReminders).values({
+    businessId: biz.id, chequeId: cheque.id, reminderDate, leadDays: daysBefore, status: "processing", attemptedAt: new Date(),
+  }).onConflictDoNothing().returning({ id: chequeReminders.id });
+  let claimedId = claim?.id;
+  if (!claimedId) {
+    const [existing] = await db.select({ status: chequeReminders.status, detail: chequeReminders.detail }).from(chequeReminders).where(key).limit(1);
+    if (existing?.status !== "failed" || existing.detail.startsWith("خطای شبکه:")) return { sent: 0, failed: 0, skipped: 1 };
+    const [retry] = await db.update(chequeReminders).set({
+      status: "processing", leadDays: daysBefore, attemptedAt: new Date(), detail: "", sentAt: null,
+    }).where(and(key, eq(chequeReminders.status, "failed"), sql`${chequeReminders.detail} NOT LIKE 'خطای شبکه:%'`)).returning({ id: chequeReminders.id });
+    claimedId = retry?.id;
+  }
+  if (!claimedId) return { sent: 0, failed: 0, skipped: 1 };
+
+  const fail = async (detail: string, phone = "", provider = "") => {
+    await db.transaction(async (tx) => {
+      await tx.update(chequeReminders).set({ status: "failed", detail: detail.slice(0, 300), phone, provider }).where(eq(chequeReminders.id, claimedId!));
+      await tx.insert(smsLogs).values({ businessId: biz.id, campaignId: null, customerId: null, kind: "cheque_due_reminder", phone, provider, status: "failed", detail: detail.slice(0, 300) });
+    });
+    return { sent: 0, failed: 1, skipped: 0 };
+  };
+  const cfg = smsCfgOf(biz);
+  if (!hasAny(await featuresOf(biz), "sms")) return fail("قابلیت پیامک در تعرفه فعال نیست");
+  if (!cfg.apiKey) return fail("کلید API پنل پیامک تنظیم نشده است");
+  const [tpl] = await db.select().from(smsTemplates).where(and(
+    eq(smsTemplates.businessId, biz.id), eq(smsTemplates.purpose, "cheque_due_reminder"), eq(smsTemplates.isActive, true),
+  )).orderBy(desc(smsTemplates.id)).limit(1);
+  if (!tpl) return fail("پترن فعال «یادآوری سررسید چک» تعریف نشده است");
+  const [owner] = await db.select({ phone: users.phone }).from(users).where(eq(users.id, biz.userId)).limit(1);
+  const phone = normalizeIranianMobile(((biz.settings ?? {}) as Settings).chequeReminders?.managerPhone) || normalizeIranianMobile(owner?.phone);
+  if (!phone) return fail("شماره موبایل مدیر کسب‌وکار معتبر نیست");
+
+  const result = await sendPattern(cfg, tpl, phone, {
+    cheque_number: cheque.chequeNumber || String(cheque.id),
+    cheque_amount: formatPrice(cheque.amount),
+    cheque_date: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { dateStyle: "medium", timeZone: "Asia/Tehran" }).format(cheque.dueDate),
+    cheque_bank: cheque.bank,
+    cheque_direction: cheque.direction === "payable" ? "پرداختنی" : "دریافتنی",
+    cheque_beneficiary: cheque.partnerName,
+    cheque_purpose: cheque.expensePurpose,
+  });
+  const sentAt = result.status === "sent" ? new Date() : null;
+  await db.transaction(async (tx) => {
+    await tx.update(chequeReminders).set({ status: result.status, phone, provider: cfg.provider, detail: result.detail.slice(0, 300), sentAt }).where(eq(chequeReminders.id, claimedId!));
+    await tx.insert(smsLogs).values({ businessId: biz.id, campaignId: null, customerId: null, kind: "cheque_due_reminder", phone, provider: cfg.provider, status: result.status, detail: result.detail.slice(0, 300) });
+  });
+  return result.status === "sent" ? { sent: 1, failed: 0, skipped: 0 } : { sent: 0, failed: 1, skipped: 0 };
+}
+
+let chequeRemindersRunning = false;
+/** Check each restaurant's configured Tehran-local reminder day and send its manager SMS once. */
+export async function runChequeReminders(now = new Date()) {
+  if (chequeRemindersRunning) return { sent: 0, failed: 0, skipped: 0 };
+  chequeRemindersRunning = true;
+  const totals = { sent: 0, failed: 0, skipped: 0 };
+  try {
+    const today = startOfDayTehran(now);
+    const todayKey = tehranDayKey(now);
+    const businessesWithChecks = await db.select().from(businesses);
+    for (const biz of businessesWithChecks) {
+      const settings = ((biz.settings ?? {}) as Settings).chequeReminders;
+      const reminder = normalizeChequeReminderSettings(settings);
+      const features = await featuresOf(biz);
+      if (!reminder.enabled || !reminder.smsEnabled || biz.isSuspended || !hasAny(features, "cheque_register") || !hasAny(features, "sms")) continue;
+      const lastDueDay = new Date(today.getTime() + reminder.daysBefore * 86400_000);
+      const candidates = await db.select().from(cheques).where(and(
+        eq(cheques.businessId, biz.id), eq(cheques.status, "registered"),
+        gte(cheques.dueDate, today), lte(cheques.dueDate, endOfDayTehran(lastDueDay)),
+      )).orderBy(cheques.dueDate).limit(1000);
+      for (const cheque of candidates) {
+        if (!isChequeReminderDueToday(cheque.dueDate, reminder.daysBefore, now) || chequeReminderSendDate(cheque.dueDate, reminder.daysBefore) !== todayKey) continue;
+        const result = await sendChequeDueReminder(biz, cheque, todayKey, reminder.daysBefore);
+        totals.sent += result.sent;
+        totals.failed += result.failed;
+        totals.skipped += result.skipped;
+      }
+    }
+  } catch (error) {
+    console.error("cheque reminders failed", error);
+    totals.failed++;
+  } finally {
+    chequeRemindersRunning = false;
+  }
+  return totals;
 }
 
 let running = false;

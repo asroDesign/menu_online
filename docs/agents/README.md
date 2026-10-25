@@ -71,7 +71,7 @@
 | `/dashboard/accounting` | [modules/accounting.md](modules/accounting.md) — حسابداری دوطرفه |
 | `/dashboard/receivables` | [modules/receivables.md](modules/receivables.md) — دفتر مطالبات و دریافتنی مشتریان |
 | `/dashboard/income-expense` | [modules/income-expense.md](modules/income-expense.md) — درآمد و هزینه |
-| `/dashboard/cheques` | [modules/cheques.md](modules/cheques.md) — دفتر چک و ثبت خودکار اسناد حسابداری |
+| `/dashboard/cheques` | [modules/cheques.md](modules/cheques.md) — دفتر چک، ذی‌نفعان، جزئیات برگه، سند حسابداری و یادآوری سررسید پنل/SMS |
 | `/dashboard/reports` | [modules/reports.md](modules/reports.md) — گزارش فروش، بازهٔ شمسی و CSV |
 | `/dashboard/profit-loss` | [modules/profit-loss.md](modules/profit-loss.md) — سود و زیان |
 | `/dashboard/bank` | [modules/bank.md](modules/bank.md) — گزارش بانک و صندوق |

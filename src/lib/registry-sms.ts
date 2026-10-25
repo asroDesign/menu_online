@@ -14,7 +14,7 @@ const templates = makeCrud({
   feature: "sms",
   order: [desc(smsTemplates.id)],
   spec: {
-    purpose: { type: "enum", values: ["birthday", "occasion", "promo", "service", "reservation_confirmed", "reservation_rejected"] },
+    purpose: { type: "enum", values: ["birthday", "occasion", "promo", "service", "reservation_confirmed", "reservation_rejected", "cheque_due_reminder"] },
     title: { type: "string", required: true, max: 80 },
     templateId: { type: "string", required: true, max: 80 },
     params: { type: "json" },

@@ -14,7 +14,7 @@ type Camp = { id: number; title: string; templateTitle: string; audience: string
 type Log = { id: number; kind: string; phone: string; customerName: string; provider: string; status: string; detail: string; createdAt: string };
 type SmsCfg = NonNullable<Settings["sms"]> & { apiKeySet?: boolean };
 
-const PURPOSE: Record<string, string> = { birthday: "تولد", occasion: "مناسبتی", promo: "تبلیغاتی", service: "خدماتی", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو" };
+const PURPOSE: Record<string, string> = { birthday: "تولد", occasion: "مناسبتی", promo: "تبلیغاتی", service: "خدماتی", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو", cheque_due_reminder: "یادآوری سررسید چک" };
 const AUD: Record<string, string> = { "seg:vip": "گروه ویژه (VIP)", "seg:loyal": "گروه وفادار", "seg:regular": "گروه عادی", "seg:new": "گروه جدید", "seg:at_risk": "گروه در خطر ریزش", "seg:lost": "گروه ازدست‌رفته", all: "همه مشتریان باشگاه", vip: "مشتریان ویژه (امتیاز ۸۰۰+)", inactive: "کم‌سفارش (۱ سفارش یا کمتر)", birthday_month: "متولدین این ماه", manual: "شماره‌های دستی" };
 const CST: Record<string, [string, string]> = { scheduled: ["زمان‌بندی‌شده", "violet"], sending: ["در حال ارسال", "amber"], sent: ["ارسال شد", "emerald"], failed: ["ناموفق", "rose"] };
 
@@ -36,7 +36,7 @@ export function SmsPanel() {
       <IconText>{!connected && tab !== "settings" && <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200">{<EmojiIcon emoji="" />} کلید API پنل پیامک تنظیم نشده؛ تا زمان اتصال، ارسال پیامک انجام نمی‌شود. <button className="font-bold underline" onClick={() => setTab("settings")}>اتصال پنل</button></div>}</IconText>
       {tab === "settings" && <SettingsTab cfg={cfg} templates={tpls.items} saved={loadCfg} />}
       {tab === "templates" && <TemplatesTab col={tpls} provider={cfg.provider} />}
-      {tab === "campaigns" && <CampaignsTab templates={tpls.items.filter((t) => t.purpose !== "reservation_confirmed" && t.purpose !== "reservation_rejected")} />}
+      {tab === "campaigns" && <CampaignsTab templates={tpls.items.filter((t) => !["reservation_confirmed", "reservation_rejected", "cheque_due_reminder"].includes(t.purpose))} />}
       {tab === "retention" && <RetentionTab templates={tpls.items.filter((t) => t.isActive && (t.purpose === "promo" || t.purpose === "occasion"))} />}
       {tab === "auto" && <AutoTab cfg={cfg} templates={tpls.items} saved={loadCfg} />}
       {tab === "logs" && <LogsTab />}
@@ -121,8 +121,9 @@ function TemplatesTab({ col, provider }: { col: ReturnType<typeof useCollection<
           <div className="grid gap-3 sm:grid-cols-2"><Field label="کاربرد"><Select value={f.purpose} onChange={(e) => {
             const purpose = e.target.value;
             const isReservation = purpose === "reservation_confirmed" || purpose === "reservation_rejected";
-            const sampleText = purpose === "reservation_confirmed" ? "رزرو میز شما تأیید شد." : "متأسفانه امکان تأیید رزرو میز شما وجود ندارد.";
-            setF({ ...f, purpose, ...(isReservation ? { params: [], sampleText } : {}) });
+            const isChequeReminder = purpose === "cheque_due_reminder";
+            const sampleText = purpose === "reservation_confirmed" ? "رزرو میز شما تأیید شد." : purpose === "reservation_rejected" ? "متأسفانه امکان تأیید رزرو میز شما وجود ندارد." : "مدیر گرامی، چک {cheque_number} به مبلغ {cheque_amount} در تاریخ {cheque_date} سررسید می‌شود.";
+            setF({ ...f, purpose, ...((isReservation || isChequeReminder) ? { params: isChequeReminder ? [{ name: provider === "smsir" ? "NUMBER" : "token", var: "cheque_number" }, { name: provider === "smsir" ? "AMOUNT" : "token2", var: "cheque_amount" }, { name: provider === "smsir" ? "DATE" : "token3", var: "cheque_date" }] : [], sampleText } : {}) });
           }}>{Object.entries(PURPOSE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field><Field label="عنوان داخلی"><Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="تبریک تولد" /></Field></div>
           <Field label={provider === "smsir" ? "شناسه قالب (TemplateId عددی)" : "نام قالب (Template) در کاوه‌نگار"}><Input dir="ltr" className="text-left" value={f.templateId} onChange={(e) => setF({ ...f, templateId: e.target.value })} placeholder={provider === "smsir" ? "123456" : "birthday"} /></Field>
           <Field label="متن نمونه‌ی قالب (برای پیش‌نمایش و گزارش)" hint="مثال: %token عزیز، تولدت مبارک! کد تخفیف %token2 در %token3"><Textarea rows={3} value={f.sampleText} onChange={(e) => setF({ ...f, sampleText: e.target.value })} /></Field>
@@ -253,7 +254,7 @@ function LogsTab() {
   useEffect(() => { const load = () => api<NonNullable<typeof d>>("/api/r/smslogs").then(setD).catch((e) => setErr(e.message)); load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
   if (err) return <ErrorState message={err} />;
   if (!d) return <Skeleton className="h-64 rounded-2xl" />;
-  const KIND: Record<string, string> = { campaign: "کمپین", retention: "بازگشت مشتری", birthday: "تولد", test: "تست", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو" };
+  const KIND: Record<string, string> = { campaign: "کمپین", retention: "بازگشت مشتری", birthday: "تولد", test: "تست", reservation_confirmed: "تأیید رزرو", reservation_rejected: "رد رزرو", cheque_due_reminder: "یادآوری سررسید چک" };
   return (
     <div>
       <div className="mb-4 grid gap-3 sm:grid-cols-3">{[["ارسال موفق", d.stats.sent, "text-emerald-600"], ["ناموفق", d.stats.failed, "text-rose-600"]].map(([l, v, c]) => <Card key={l as string} className="p-4"><p className="text-xs text-stone-500">{l as string}</p><p className={cn("mt-1 text-2xl font-black", c as string)}>{toFa(v as number)}</p></Card>)}</div>

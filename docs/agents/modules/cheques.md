@@ -6,13 +6,14 @@
 
 ## فایل‌ها و API
 
-- UI: `src/modules/cheques.tsx`; routeهای API: `src/app/api/cheques/route.ts` و `src/app/api/cheques/accounts/route.ts`.
+- UI: `src/modules/cheques.tsx`; routeهای API: `src/app/api/cheques/route.ts`, `src/app/api/cheques/accounts/route.ts` و `src/app/api/cheques/beneficiaries/route.ts`.
 - قواعد خالص وضعیت و ردیف سند: `src/lib/cheques.ts`; سرفصل‌ها و ثبت سند اتمی: `src/lib/accounting.ts`.
-- داده: جدول‌های `cheques`, `cheque_events`, `acc_accounts`, `acc_documents`, `acc_lines` در `src/db/schema.ts`.
-- مهاجرت‌ها: `0020_cheque_register.sql` (دفتر)، `0026_cheque_updated_at.sql` (ستون زمان اصلاح) و `0027_cheque_accounting.sql` (وضعیت‌ها و پیوند دفتر کل). برای نسخه جدید باید مهاجرت ۰۰۲۷ پیش از استفاده اجرا شود.
+- داده: جدول‌های `cheques`, `cheque_beneficiaries`, `cheque_events`, `cheque_reminders`, `acc_accounts`, `acc_documents`, `acc_lines` در `src/db/schema.ts`.
+- مهاجرت‌ها: `0020_cheque_register.sql` (دفتر)، `0026_cheque_updated_at.sql` (ستون زمان اصلاح)، `0027_cheque_accounting.sql` (وضعیت‌ها و پیوند دفتر کل) و `0051_cheque_beneficiaries_reminders.sql` (ذی‌نفع، جزئیات برگه و اعلان/SMS). Migration `0051` افزایشی است؛ دادهٔ قدیمی را پاک نمی‌کند، برای فیلدهای تازهٔ چک مقدار پیش‌فرض می‌دهد و کدهای شماره/سریال قدیمی خالی می‌مانند. rollback `0051` فقط وقتی جدول ذی‌نفع و reminder خالی باشند اجرا می‌شود و برای محافظت از اطلاعات غیرخالی خطا می‌دهد.
 - `GET /api/cheques` فهرست ۵۰۰ چک آخر کسب‌وکار نشست را می‌دهد. `GET /api/cheques?year=<سال شمسی>&month=<1..12>` فقط سررسیدهای همان ماه را تا ۵۰۰۰ ردیف می‌دهد. رویدادها و چک‌ها tenant-scoped هستند.
 - `GET /api/cheques/accounts` حساب‌های فعال معین و تفصیلی همان کسب‌وکار را برای انتخاب کد طرف سند می‌دهد؛ دو حساب کنترلی چک از انتخاب حذف‌اند.
-- `POST /api/cheques` جهت، مبلغ مثبت، سررسید، و `accountingAccountId` را لازم دارد. شناسه حساب باید فعال، tenant-owned و معین/تفصیلی باشد. چک در وضعیت `registered` ایجاد می‌شود؛ ردیف چک، سند پایه و event اولیه در یک تراکنش ذخیره می‌شوند.
+- `GET /api/cheques/beneficiaries` تا ۵۰۰ ذی‌نفع کسب‌وکار را بر اساس نام می‌دهد؛ `POST` نام، کد ملی اختیاری و موبایل اختیاری می‌گیرد. اگر کد ملی یا موبایل فرستاده شود، قالب/اعتبار آن بررسی و کد ملی در همان کسب‌وکار یکتا می‌شود. API فهرست و ایجاد هر دو tenant-scoped هستند. ویرایش/حذف ذی‌نفع در این نسخه وجود ندارد.
+- `POST /api/cheques` جهت، مبلغ مثبت، تاریخ صدور و سررسید، شماره، سریال، بانک، ذی‌نفع و `accountingAccountId` را در فرم جدید لازم دارد. تاریخ‌ها با timezone تهران parse می‌شوند و صدور بعد از سررسید رد می‌شود. شماره/سریال در هر کسب‌وکار یکتا است. شناسه حساب باید فعال، tenant-owned و معین/تفصیلی باشد. چک در وضعیت `registered` ایجاد می‌شود؛ ردیف چک، سند پایه و event اولیه در یک تراکنش ذخیره می‌شوند. نام ذی‌نفع در `partnerName` نیز snapshot می‌شود تا تاریخچه با تغییر دفتر ذی‌نفع وابسته نماند.
 - `PATCH /api/cheques` بدنه `{id,status,requestKey,note?,accountingAccountId?,statusAccountId?}` می‌گیرد. `accountingAccountId` برای ساخت سند پایهٔ چک قدیمی است؛ `statusAccountId` حساب مقصدِ واگذاری چک است. کلید درخواست UUID و یکتا در همان کسب‌وکار است؛ چک قفل سطری می‌شود. تکرار همان درخواست پاسخ idempotent می‌گیرد؛ کلید یکسان برای چک دیگر رد می‌شود.
 
 ## وضعیت‌های قابل انتخاب
@@ -49,14 +50,22 @@ Rollback مهاجرت `0027` عمدی no-op است: نگاشت وضعیت‌ها
 
 تقویم یک ماه شمسی باز را نشان می‌دهد، هفته از شنبه شروع می‌شود و ماه قبل/بعد و ماه جاری دارد. هر روز جمع چک‌های دریافتی و پرداختنی و تعداد را می‌دهد؛ کلیک روز، فهرست را فیلتر می‌کند. voided از جمع روزانه کنار می‌رود. فهرست کارت‌ها وضعیت، سررسید، حساب پایه، شماره سند، eventها و سند/برگشت هر event را نمایش می‌دهد. modal «تغییر وضعیت» فهرست وضعیت‌های معتبر همان جهت را می‌دهد؛ `assigned` کد حساب واگذاری می‌خواهد.
 
-در modal ثبت چک، فیلد «کد حساب طرف سند» پیش از ثبت لازم است. مبلغ به تومان، تاریخ با `PersianDateInput` و یادداشت اختیاری وارد می‌شود. بعد از ساخت، پیام روشن می‌گوید سند حسابداری خودکار ساخته شده است.
+فرم ثبت چک فیلدهای جهت، ذی‌نفع، شماره و سریال چک، تاریخ صدور/سررسید شمسی، بانک، شعبه، شناسه صیادی، مبلغ، بابت، کد حساب طرف سند و یادداشت را دارد. دکمهٔ «ذی‌نفع جدید» فرم مودال جداگانه باز می‌کند؛ پس از ذخیره، ذی‌نفع خودکار در همان چک انتخاب و فرم اصلی باز می‌شود. اطلاعات هویتی ذی‌نفع در کارت چک هم قابل مشاهده است. بانک‌ها از فهرست محلی `src/lib/cheque-metadata.ts` انتخاب می‌شوند؛ «سایر بانک‌ها» و نام دستی هم پشتیبانی می‌شود. این snapshot، feed زنده از بانک مرکزی نیست. گزینه‌های «بابت» راهنمای داخلی ثبت هستند و «سایر» شرح آزاد می‌گیرد.
+
+## یادآوری سررسید
+
+- تنظیم `chequeReminders` در JSON کسب‌وکار شامل `enabled`, `daysBefore` (۰ تا ۳۰، پیش‌فرض ۲), `smsEnabled` و `managerPhone` اختیاری است. PATCH `/api/business` آن را فقط برای entitlement `cheque_register` و با role مدیر می‌پذیرد. اگر شمارهٔ مستقل ثبت نشده باشد، شمارهٔ حساب owner کسب‌وکار گیرنده پیامک است.
+- زنگولهٔ هدر داشبورد از `GET /api/r/dashboard-notifications` چک‌های `registered` با سررسید امروز تا پایان بازهٔ انتخابی را دریافت می‌کند. چک فقط در tenant و entitlement فعلی دیده می‌شود. Notification center فهرست «یادآوری سررسید چک» دارد و با poll یک‌دقیقه‌ای برای چک تازه یک toast نشان می‌دهد؛ برای جلوگیری از تکرار toast در همان نشست مرورگر، کلیدهای چک/سررسید در `sessionStorage` نگه داشته می‌شوند.
+- `runChequeReminders()` با endpoint زمان‌بندی‌شدهٔ `GET /api/cron/sms?key=CRON_SECRET` اجرا می‌شود. روز هدف بر اساس تقویم محلی `Asia/Tehran` محاسبه می‌شود؛ مثلاً ۲ روز یعنی دو تاریخ تقویمی پیش از تاریخ سررسید. ارسال فقط وقتی SMS و cheque entitlement، کلید API و پترن فعال `cheque_due_reminder` وجود داشته باشند انجام می‌شود. شماره از `managerPhone` تنظیمات یا موبایل owner انتخاب می‌شود.
+- پترن یادآوری از پنل `/dashboard/sms` با کاربرد «یادآوری سررسید چک» تعریف می‌شود. متغیرهای `cheque_number`, `cheque_amount`, `cheque_date`, `cheque_bank`, `cheque_direction`, `cheque_beneficiary`, `cheque_purpose` قابل اتصال‌اند. نتیجهٔ ارسال هم در `sms_logs` و هم `cheque_reminders` ثبت می‌شود. قید یکتای کسب‌وکار/چک/روز از ارسال تکراری در اجرای هم‌زمان جلوگیری می‌کند؛ شکست قطعی provider در فراخوانی بعدی همان روز قابل retry است، ولی خطای شبکهٔ مبهم خودکار retry نمی‌شود تا پیام تکراری نرود.
+- اگر پیامک خاموش باشد، طرح SMS فعال نباشد یا پترن/کلید تنظیم نشده باشد، اعلان پنل مستقل از SMS کار می‌کند. cron برای چک‌های overdue یادآوری عقب‌افتاده نمی‌فرستد.
 
 ## محدودیت و کنترل
 
-تمام queryها با `auth.business.id` محدودند. `withAuth` اعمال feature و نقش را بر عهده دارد؛ account ID و document ID نیز tenant-scoped هستند. route قیمت یا عملیات بانکی اجرا نمی‌کند. اتصال بانک/صیاد، پرداخت واقعی، reminder، پیامک و reconciliation خودکار پیاده نشده‌اند. هر سند با تاریخ سرور جاری، سال مالی باز، منبع `cheque` و توصیف روشن ثبت می‌شود.
+تمام queryها با `auth.business.id` محدودند. `withAuth` اعمال feature و نقش را بر عهده دارد؛ account ID، beneficiary ID و document ID نیز tenant-scoped هستند. route قیمت یا عملیات بانکی اجرا نمی‌کند و reminder صرفاً ثبت سررسید/ارسال هشدار است. اتصال بانک/صیاد، پرداخت واقعی، انتقال وجه و reconciliation خودکار پیاده نشده‌اند. هر سند با تاریخ سرور جاری، سال مالی باز، منبع `cheque` و توصیف روشن ثبت می‌شود.
 
 ## آزمون و وضعیت اجرا
 
-`tests/security-regressions.test.cjs` قواعد جهت‌دار status، توازن خطوط همه postingها، محدودیت واگذاری به دریافتنی، tenant guard، idempotency، update قفل‌شده، سند/برگشت در تراکنش و migration را بررسی می‌کند. در این نوبت typecheck و lint هدفمند route/helper/schema/UI/test و regression file موفق بودند. تست دیتابیس PostgreSQL اجرا نشد و migration ۰۰۲۷ روی دیتابیس اجرا نشده است؛ قبل از استفاده باید روی دیتابیس محیط اعمال و یکپارچگی balance با DB test اختصاصی نیز سنجیده شود.
+`tests/security-regressions.test.cjs` قواعد جهت‌دار status، توازن خطوط همه postingها، محدودیت واگذاری به دریافتنی، tenant guard، idempotency و تراکنش حسابداری را بررسی می‌کند. `tests/cheque-reminders.test.cjs` روز تقویمی تهران، تنظیم روزها/شماره، قرارداد tenant ذی‌نفع، فیلدهای چک، قید idempotency SMS و فید اعلان را پوشش می‌دهد. typecheck، ESLint هدفمند و تست‌های هدفمند اجراشده موفق‌اند. تست PostgreSQL اجرا نشده؛ migrationهای ۰۰۲۷ و ۰۰۵۱ روی دیتابیس مقصد اجرا نشده‌اند.
 
 پیشینهٔ اصلاح خطای `updated_at` و تقویم ماهانه در دفتر وضعیت ریشه و تغییرات قبلی این سند نگه داشته شده است.

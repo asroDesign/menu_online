@@ -5,11 +5,14 @@ import { api, useCollection } from "@/lib/api";
 import { formatCompact, formatDate, formatPrice, toFa } from "@/lib/format";
 import { fromJ, JMONTHS, jMonthLength, toJ } from "@/lib/jalali";
 import { chequeStatusesFor } from "@/lib/cheques";
+import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
+import { tehranDayKey } from "@/lib/cheque-reminders-core";
 import { AmountInput, Badge, Button, Card, cn, EmptyState, ErrorState, Field, Icon, Input, Modal, PageHeader, PersianDateInput, Select, Skeleton, useToast } from "@/components/ui";
 
 type Account = { id: number; code: string; name: string; level: string; nature: string; type: string };
+type Beneficiary = { id: number; fullName: string; nationalId: string; phone: string };
 type Event = { id: number; fromStatus: string | null; toStatus: string; note: string; createdAt: string; accountingAccountId: number | null; reversalDocumentId: number | null; accountingDocumentId: number | null };
-type Cheque = { id: number; direction: string; status: string; partnerName: string; amount: number; dueDate: string; bank: string; sayadIdentifier: string; note: string; accountingAccountId: number | null; accountingDocumentId: number | null; events: Event[] };
+type Cheque = { id: number; beneficiaryId: number | null; direction: string; status: string; partnerName: string; amount: number; issueDate: string; dueDate: string; chequeNumber: string; serialNumber: string; bank: string; branch: string; expensePurpose: string; sayadIdentifier: string; note: string; accountingAccountId: number | null; accountingDocumentId: number | null; events: Event[] };
 const labels: Record<string, string> = { payable: "پرداختنی", receivable: "دریافتنی", registered: "ثبت شد", passed: "پاس شد", bounced: "برگشت خورده", returned: "عودت داده شد", assigned: "واگذار شد", voided: "ابطال شد" };
 const weekdays = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"];
 const dayKey = (year: number, month: number, day: number) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -21,11 +24,22 @@ export default function Cheques() {
   const records = useCollection<Cheque>("/api/cheques");
   const toast = useToast();
   const [open, setOpen] = useState(false);
+  const [beneficiaryModalOpen, setBeneficiaryModalOpen] = useState(false);
   const [direction, setDirection] = useState("payable");
-  const [partnerName, setPartnerName] = useState("");
+  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
+  const [beneficiaryId, setBeneficiaryId] = useState("");
+  const [beneficiaryDraft, setBeneficiaryDraft] = useState({ fullName: "", nationalId: "", phone: "" });
+  const [beneficiaryBusy, setBeneficiaryBusy] = useState(false);
   const [amount, setAmount] = useState("");
+  const [issueDate, setIssueDate] = useState(() => tehranDayKey(new Date()));
   const [dueDate, setDueDate] = useState("");
   const [bank, setBank] = useState("");
+  const [bankCustom, setBankCustom] = useState("");
+  const [chequeNumber, setChequeNumber] = useState("");
+  const [serialNumber, setSerialNumber] = useState("");
+  const [branch, setBranch] = useState("");
+  const [expensePurpose, setExpensePurpose] = useState("");
+  const [purposeCustom, setPurposeCustom] = useState("");
   const [sayadIdentifier, setSayadIdentifier] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -58,18 +72,43 @@ export default function Cheques() {
   }, [toast]);
   useEffect(() => {
     let active = true;
+    api<{ items: Beneficiary[] }>("/api/cheques/beneficiaries")
+      .then((result) => { if (active) setBeneficiaries(result.items); })
+      .catch((cause) => { if (active) toast((cause as Error).message, "error"); });
+    return () => { active = false; };
+  }, [toast]);
+  useEffect(() => {
+    let active = true;
     api<{ items: Cheque[] }>(`/api/cheques?year=${viewMonth.year}&month=${viewMonth.month}`)
       .then((result) => { if (active) setCalendarResult({ key: calendarRequestKey, items: result.items, error: "" }); })
       .catch((cause) => { if (active) setCalendarResult({ key: calendarRequestKey, items: [], error: (cause as Error).message }); });
     return () => { active = false; };
   }, [viewMonth, calendarVersion, calendarRequestKey]);
   async function create() {
-    if (!amount || !dueDate) return toast("مبلغ و تاریخ سررسید را وارد کنید.", "error");
+    const selectedBeneficiary = beneficiaries.find((beneficiary) => String(beneficiary.id) === beneficiaryId);
+    const selectedBank = bank === "سایر" ? bankCustom.trim() : bank;
+    const purpose = expensePurpose === "سایر" ? purposeCustom.trim() : expensePurpose;
+    if (!beneficiaryId || !selectedBeneficiary) return toast("ذی‌نفع چک را انتخاب کنید یا در همین فرم بسازید.", "error");
+    if (!amount || !issueDate || !dueDate) return toast("مبلغ و تاریخ صدور و سررسید را وارد کنید.", "error");
+    if (!chequeNumber.trim() || !serialNumber.trim() || !selectedBank) return toast("شماره، سریال و بانک چک را وارد کنید.", "error");
     if (!accountingAccountId) return toast("کد حساب طرف سند را انتخاب کنید.", "error");
     setBusy(true);
-    try { await api("/api/cheques", { method: "POST", body: { direction, partnerName, amount, dueDate, bank, sayadIdentifier, note, accountingAccountId: Number(accountingAccountId) } }); setOpen(false); setPartnerName(""); setAmount(""); setDueDate(""); setBank(""); setSayadIdentifier(""); setNote(""); setAccountingAccountId(""); await records.reload(true); setCalendarVersion((version) => version + 1); toast("چک ثبت و سند حسابداری آن به‌صورت خودکار ایجاد شد."); }
+    try {
+      await api("/api/cheques", { method: "POST", body: { direction, beneficiaryId: Number(beneficiaryId), amount, issueDate, dueDate, chequeNumber, serialNumber, bank: selectedBank, branch, expensePurpose: purpose, sayadIdentifier, note, accountingAccountId: Number(accountingAccountId) } });
+      setOpen(false); setBeneficiaryId(""); setAmount(""); setIssueDate(tehranDayKey(new Date())); setDueDate(""); setBank(""); setBankCustom(""); setChequeNumber(""); setSerialNumber(""); setBranch(""); setExpensePurpose(""); setPurposeCustom(""); setSayadIdentifier(""); setNote(""); setAccountingAccountId("");
+      await records.reload(true); setCalendarVersion((version) => version + 1); toast("چک ثبت و سند حسابداری آن به‌صورت خودکار ایجاد شد.");
+    }
     catch (cause) { toast((cause as Error).message, "error"); }
     finally { setBusy(false); }
+  }
+  async function createBeneficiary() {
+    setBeneficiaryBusy(true);
+    try {
+      const result = await api<{ item: Beneficiary }>("/api/cheques/beneficiaries", { method: "POST", body: beneficiaryDraft });
+      setBeneficiaries((items) => [...items, result.item].sort((a, b) => a.fullName.localeCompare(b.fullName, "fa")));
+      setBeneficiaryId(String(result.item.id)); setBeneficiaryDraft({ fullName: "", nationalId: "", phone: "" }); setBeneficiaryModalOpen(false); setOpen(true); toast("ذی‌نفع ذخیره شد و برای همین چک انتخاب شد.");
+    } catch (cause) { toast((cause as Error).message, "error"); }
+    finally { setBeneficiaryBusy(false); }
   }
   function openTransition(item: Cheque) {
     const latestStateEvent = item.events.find((event) => event.fromStatus !== null && event.toStatus === item.status);
@@ -180,11 +219,43 @@ export default function Cheques() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h2 className="font-extrabold">{selectedDay ? `چک‌های ${selectedTitle}` : "همه چک‌ها"}</h2><p className="mt-1 text-xs text-base-content/55">{toFa(visibleChecks.length)} مورد</p></div>{selectedDay && <Button size="sm" variant="ghost" onClick={() => setSelectedDay(null)}>حذف فیلتر روز</Button>}</div>
       {visibleChecks.length === 0 ? <EmptyState emoji="" title={selectedDay ? "چکی برای این روز ثبت نشده است" : "چکی ثبت نشده است"} description={selectedDay ? "برای این تاریخ سررسیدی در دفتر چک وجود ندارد." : "چک‌های دریافتنی یا پرداختنی را برای پیگیری سررسید در دفتر داخلی وارد کنید."}/> : <div className="grid gap-3 lg:grid-cols-2">{visibleChecks.map((item) => <Card key={item.id} className="overflow-hidden"><article className="p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-extrabold">{item.partnerName || `چک #${toFa(item.id)}`}</h3><Badge color={item.direction === "payable" ? "amber" : "blue"}>{labels[item.direction]}</Badge><Badge color={item.status === "passed" ? "emerald" : item.status === "voided" ? "stone" : ["bounced", "returned"].includes(item.status) ? "rose" : overdue(item) ? "rose" : "blue"}>{labels[item.status]}</Badge>{overdue(item) && <Badge color="rose">سررسید گذشته</Badge>}</div><p className="mt-2 text-sm text-base-content/65">سررسید {formatDate(item.dueDate)} · {item.bank || "بانک نامشخص"}</p><p className="mt-1 text-xs text-base-content/55">شناسه ثبت‌شده: {item.sayadIdentifier || "—"} · کد حساب: {accounts.find((account) => account.id === item.accountingAccountId)?.code ?? "—"} · سند پایه: {item.accountingDocumentId ? `#${toFa(item.accountingDocumentId)}` : "نیازمند تکمیل"}</p></div><b className="text-lg">{formatPrice(item.amount)}</b></div>{item.note && <p className="mt-3 text-sm text-base-content/70">{item.note}</p>}
         <div className="mt-3 space-y-2 border-t border-base-300 pt-3">{item.events.map((event) => <p key={event.id} className="text-xs text-base-content/60">{formatDate(event.createdAt)} · {event.fromStatus ? `${labels[event.fromStatus]} ← ` : "ثبت اولیه · "}{labels[event.toStatus]}{event.note && ` · ${event.note}`}{event.reversalDocumentId ? ` · برگشت سند #${toFa(event.reversalDocumentId)}` : ""}{event.accountingDocumentId ? ` · سند #${toFa(event.accountingDocumentId)}` : ""}</p>)}</div>
+        <div className="mt-3 grid gap-1.5 rounded-xl bg-base-200/50 p-3 text-xs text-base-content/65 sm:grid-cols-2">
+          <p>شماره چک: <b dir="ltr" className="text-base-content">{item.chequeNumber || "—"}</b> · سریال: <b dir="ltr" className="text-base-content">{item.serialNumber || "—"}</b></p>
+          <p>صدور: <b className="text-base-content">{item.issueDate ? formatDate(item.issueDate) : "—"}</b> · شعبه: <b className="text-base-content">{item.branch || "—"}</b></p>
+          {item.expensePurpose && <p className="sm:col-span-2">بابت: <b className="text-base-content">{item.expensePurpose}</b></p>}
+          {item.beneficiaryId && <p className="sm:col-span-2">کد ملی ذی‌نفع: <b dir="ltr" className="text-base-content">{beneficiaries.find((person) => person.id === item.beneficiaryId)?.nationalId || "—"}</b> · تلفن: <b dir="ltr" className="text-base-content">{beneficiaries.find((person) => person.id === item.beneficiaryId)?.phone || "—"}</b></p>}
+        </div>
         <div className="mt-4 flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => openTransition(item)}>تغییر وضعیت</Button></div>
       </article></Card>)}</div>}
     </section>}
-    <Modal open={open} onClose={() => setOpen(false)} title="ثبت چک" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button loading={busy} onClick={() => void create()}>ثبت در دفتر</Button></>}>
-      <div className="space-y-4"><Field label="جهت چک"><Select value={direction} onChange={(event) => { setDirection(event.target.value); setAccountingAccountId(""); }}><option value="payable">پرداختنی · صادرشده</option><option value="receivable">دریافتنی · دریافت‌شده</option></Select></Field><Field label="کد حساب طرف سند · الزامی"><Select value={accountingAccountId} disabled={accountsLoading || accounts.length === 0} onChange={(event) => setAccountingAccountId(event.target.value)}><option value="">{accountsLoading ? "در حال دریافت کدهای حساب…" : "انتخاب کد حساب"}</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.code} — {account.name} ({account.level === "tafsili" ? "تفصیلی" : "معین"})</option>)}</Select><span className="mt-1 block text-xs text-base-content/55">این حساب در برابر سرفصل اسناد دریافتنی یا پرداختنی ثبت می‌شود.</span></Field><Field label="ذی‌نفع / صادرکننده"><Input value={partnerName} maxLength={120} onChange={(event) => setPartnerName(event.target.value)}/></Field><Field label="مبلغ به تومان"><AmountInput value={amount} onValueChange={setAmount}/></Field><Field label="تاریخ سررسید"><PersianDateInput value={dueDate} onChange={setDueDate}/></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="بانک"><Input value={bank} maxLength={60} onChange={(event) => setBank(event.target.value)}/></Field><Field label="شناسه (اختیاری)"><Input dir="ltr" value={sayadIdentifier} maxLength={40} onChange={(event) => setSayadIdentifier(event.target.value)}/></Field></div><Field label="یادداشت"><Input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)}/></Field></div>
+    <Modal open={open} onClose={() => setOpen(false)} title="ثبت چک" description="اطلاعات برگه چک، ذی‌نفع و حساب متناظر را ثبت کنید." size="lg" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>انصراف</Button><Button loading={busy} onClick={() => void create()}>ثبت چک و سند</Button></>}>
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="جهت چک"><Select value={direction} onChange={(event) => { setDirection(event.target.value); setAccountingAccountId(""); }}><option value="payable">پرداختنی · صادرشده</option><option value="receivable">دریافتنی · دریافت‌شده</option></Select></Field>
+          <Field label="ذی‌نفع / طرف چک"><div className="flex gap-2"><Select className="min-w-0 flex-1" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)}><option value="">انتخاب ذی‌نفع</option>{beneficiaries.map((person) => <option key={person.id} value={person.id}>{person.fullName}{person.nationalId ? ` · ${person.nationalId}` : ""}</option>)}</Select><Button type="button" variant="secondary" className="shrink-0 px-3" onClick={() => { setOpen(false); setBeneficiaryModalOpen(true); }} aria-label="ثبت ذی‌نفع جدید"><Icon name="plus" className="size-4"/><span className="hidden sm:inline">ذی‌نفع جدید</span></Button></div><span className="mt-1 block text-xs text-base-content/55">مشخصات هویتی به‌صورت دفتر مشترک همین کسب‌وکار ذخیره می‌شود.</span></Field>
+        </div>
+        {beneficiaryId && (() => { const person = beneficiaries.find((item) => String(item.id) === beneficiaryId); return person ? <p className="rounded-xl bg-primary/5 px-3 py-2 text-xs text-base-content/70">انتخاب‌شده: <b>{person.fullName}</b> · کد ملی {person.nationalId || "ثبت نشده"} · تلفن {person.phone || "ثبت نشده"}</p> : null; })()}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="شماره چک *"><Input dir="ltr" inputMode="numeric" value={chequeNumber} maxLength={40} onChange={(event) => setChequeNumber(event.target.value)} placeholder="شماره روی برگه" /></Field>
+          <Field label="سریال چک *"><Input dir="ltr" value={serialNumber} maxLength={40} onChange={(event) => setSerialNumber(event.target.value)} placeholder="سریال دسته‌چک" /></Field>
+          <Field label="تاریخ صدور *"><PersianDateInput value={issueDate} onChange={setIssueDate} required /></Field>
+          <Field label="تاریخ سررسید *"><PersianDateInput value={dueDate} onChange={setDueDate} required /></Field>
+          <Field label="بانک *"><Select value={bank} onChange={(event) => { setBank(event.target.value); if (event.target.value !== "سایر") setBankCustom(""); }}><option value="">انتخاب بانک</option>{IRANIAN_BANKS.map((name) => <option key={name} value={name}>{name}</option>)}<option value="سایر">سایر بانک‌ها</option></Select></Field>
+          <Field label="شعبه"><Input value={branch} maxLength={100} onChange={(event) => setBranch(event.target.value)} placeholder="نام یا کد شعبه" /></Field>
+          {bank === "سایر" && <Field label="نام بانک"><Input value={bankCustom} maxLength={60} onChange={(event) => setBankCustom(event.target.value)} placeholder="نام بانک را بنویسید" /></Field>}
+          <Field label="شناسه صیادی (اختیاری)"><Input dir="ltr" value={sayadIdentifier} maxLength={40} onChange={(event) => setSayadIdentifier(event.target.value)} /></Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="مبلغ چک به تومان"><AmountInput value={amount} onValueChange={setAmount} /></Field>
+          <Field label="بابت / موضوع چک" hint="گزینه‌ها راهنمای ثبت حسابداری‌اند؛ می‌توانید شرح سفارشی بنویسید."><Select value={expensePurpose} onChange={(event) => setExpensePurpose(event.target.value)}><option value="">انتخاب بابت (اختیاری)</option>{CHEQUE_PURPOSES.map((purpose) => <option key={purpose} value={purpose}>{purpose}</option>)}</Select></Field>
+          {expensePurpose === "سایر" && <Field label="شرح بابت"><Input value={purposeCustom} maxLength={120} onChange={(event) => setPurposeCustom(event.target.value)} placeholder="شرح دلیل صدور یا دریافت چک" /></Field>}
+        </div>
+        <Field label="کد حساب طرف سند · الزامی"><Select value={accountingAccountId} disabled={accountsLoading || accounts.length === 0} onChange={(event) => setAccountingAccountId(event.target.value)}><option value="">{accountsLoading ? "در حال دریافت کدهای حساب…" : "انتخاب کد حساب"}</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.code} — {account.name} ({account.level === "tafsili" ? "تفصیلی" : "معین"})</option>)}</Select><span className="mt-1 block text-xs text-base-content/55">این حساب در برابر سرفصل اسناد دریافتنی یا پرداختنی ثبت می‌شود.</span></Field>
+        <Field label="یادداشت (اختیاری)"><Input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} /></Field>
+      </div>
+    </Modal>
+    <Modal open={beneficiaryModalOpen} onClose={() => { setBeneficiaryModalOpen(false); setOpen(true); }} title="ثبت ذی‌نفع جدید" description="ذی‌نفع ذخیره‌شده برای همین چک انتخاب می‌شود." size="md" footer={<><Button variant="ghost" onClick={() => { setBeneficiaryModalOpen(false); setOpen(true); }}>انصراف</Button><Button loading={beneficiaryBusy} onClick={() => void createBeneficiary()}>ذخیره ذی‌نفع</Button></>}>
+      <div className="space-y-4"><Field label="نام و نام خانوادگی *"><Input autoFocus value={beneficiaryDraft.fullName} maxLength={120} onChange={(event) => setBeneficiaryDraft({ ...beneficiaryDraft, fullName: event.target.value })} /></Field><Field label="کد ملی"><Input dir="ltr" inputMode="numeric" value={beneficiaryDraft.nationalId} maxLength={10} onChange={(event) => setBeneficiaryDraft({ ...beneficiaryDraft, nationalId: event.target.value })} placeholder="۱۰ رقم" /></Field><Field label="شماره تلفن همراه"><Input dir="ltr" inputMode="tel" value={beneficiaryDraft.phone} maxLength={14} onChange={(event) => setBeneficiaryDraft({ ...beneficiaryDraft, phone: event.target.value })} placeholder="09xxxxxxxxx" /></Field></div>
     </Modal>
     <Modal open={!!editingCheque} onClose={() => setEditingCheque(null)} title="تغییر وضعیت چک" footer={<><Button variant="ghost" onClick={() => setEditingCheque(null)}>انصراف</Button><Button loading={transitionBusy} disabled={transitionUnchanged} onClick={() => void transition()}>ثبت وضعیت و سند</Button></>}>
       <div className="space-y-4"><Field label="وضعیت جدید"><Select value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>{editingCheque && chequeStatusesFor(editingCheque.direction).map((status) => <option key={status} value={status}>{labels[status]}</option>)}</Select></Field>{!!editingCheque && !editingCheque.accountingDocumentId && <Field label="کد حساب سند پایه · الزامی"><Select value={transitionAccountId} disabled={accountsLoading} onChange={(event) => setTransitionAccountId(event.target.value)}><option value="">انتخاب کد حساب پایه</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.code} — {account.name} ({account.level === "tafsili" ? "تفصیلی" : "معین"})</option>)}</Select><span className="mt-1 block text-xs text-base-content/55">این چک قدیمی سند پایه ندارد؛ حساب متناظر با ثبت اولیه را انتخاب کنید.</span></Field>}{!!editingCheque && nextStatus === "assigned" && <Field label="کد حساب مقصد واگذاری · الزامی"><Select value={assignedAccountId} disabled={accountsLoading} onChange={(event) => setAssignedAccountId(event.target.value)}><option value="">انتخاب کد حساب مقصد</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.code} — {account.name} ({account.level === "tafsili" ? "تفصیلی" : "معین"})</option>)}</Select><span className="mt-1 block text-xs text-base-content/55">حساب طرف واگذاری چک را انتخاب کنید؛ در چک قدیمی این حساب می‌تواند با حساب سند پایه متفاوت باشد.</span></Field>}<Field label="یادداشت تغییر"><Input value={transitionNote} maxLength={300} onChange={(event) => setTransitionNote(event.target.value)}/></Field></div>

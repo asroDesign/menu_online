@@ -1507,15 +1507,34 @@ export const trialGrants = pgTable("trial_grants", {
   createdAt: created(),
 }, (t) => [index("trial_grants_status_end_idx").on(t.status, t.endsAt)]);
 
+export const chequeBeneficiaries = pgTable("cheque_beneficiaries", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  fullName: text("full_name").notNull(),
+  nationalId: text("national_id").notNull().default(""),
+  phone: text("phone").notNull().default(""),
+  createdAt: created(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("cheque_beneficiaries_business_name_idx").on(t.businessId, t.fullName),
+  uniqueIndex("cheque_beneficiaries_business_national_id_idx").on(t.businessId, t.nationalId).where(sql`${t.nationalId} <> ''`),
+]);
+
 export const cheques = pgTable("cheques", {
   id: serial("id").primaryKey(),
   businessId: bizId(),
+  beneficiaryId: integer("beneficiary_id").references(() => chequeBeneficiaries.id, { onDelete: "set null" }),
   direction: text("direction").notNull(), // payable | receivable
   status: text("status").notNull(), // registered | passed | bounced | returned | assigned | voided
   partnerName: text("partner_name").notNull().default(""),
   amount: bigint("amount", { mode: "number" }).notNull(),
+  issueDate: timestamp("issue_date", { withTimezone: true }).notNull().defaultNow(),
   dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
+  chequeNumber: text("cheque_number").notNull().default(""),
+  serialNumber: text("serial_number").notNull().default(""),
   bank: text("bank").notNull().default(""),
+  branch: text("branch").notNull().default(""),
+  expensePurpose: text("expense_purpose").notNull().default(""),
   sayadIdentifier: text("sayad_identifier").notNull().default(""),
   note: text("note").notNull().default(""),
   createdBy: integer("created_by").notNull().references(() => users.id),
@@ -1523,7 +1542,28 @@ export const cheques = pgTable("cheques", {
   accountingDocumentId: integer("accounting_document_id").references(() => accDocuments.id),
   createdAt: created(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("cheques_business_due_idx").on(t.businessId, t.dueDate), index("cheques_business_status_idx").on(t.businessId, t.status)]);
+}, (t) => [
+  index("cheques_business_due_idx").on(t.businessId, t.dueDate),
+  index("cheques_business_status_idx").on(t.businessId, t.status),
+  uniqueIndex("cheques_business_serial_number_idx").on(t.businessId, t.serialNumber, t.chequeNumber).where(sql`${t.serialNumber} <> '' AND ${t.chequeNumber} <> ''`),
+]);
+
+export const chequeReminders = pgTable("cheque_reminders", {
+  id: serial("id").primaryKey(),
+  businessId: bizId(),
+  chequeId: integer("cheque_id").notNull().references(() => cheques.id, { onDelete: "cascade" }),
+  reminderDate: date("reminder_date").notNull(),
+  leadDays: integer("lead_days").notNull(),
+  status: text("status").notNull().default("processing"), // processing | sent | failed
+  phone: text("phone").notNull().default(""),
+  provider: text("provider").notNull().default(""),
+  detail: text("detail").notNull().default(""),
+  attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("cheque_reminders_once_idx").on(t.businessId, t.chequeId, t.reminderDate),
+  index("cheque_reminders_status_idx").on(t.businessId, t.status, t.reminderDate),
+]);
 
 export const chequeEvents = pgTable("cheque_events", {
   id: serial("id").primaryKey(),

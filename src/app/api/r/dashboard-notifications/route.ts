@@ -1,9 +1,11 @@
-import { and, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { db } from "@/db";
-import { diningTables, orders, reservations, waiterServiceRequests } from "@/db/schema";
+import { cheques, diningTables, orders, reservations, waiterServiceRequests } from "@/db/schema";
 import { withAuth } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { ONLINE_ORDER_ACTION_STATUSES, ONLINE_ORDER_RECENT_STATUSES, ONLINE_ORDER_RECENT_WINDOW_MS } from "@/lib/dashboard-notifications";
+import { startOfDayTehran, endOfDayTehran } from "@/lib/jalali";
+import { normalizeChequeReminderSettings } from "@/lib/cheque-reminders-core";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +13,13 @@ export const GET = withAuth(async (_req, auth) => {
   const canSeeOrders = hasAny(auth.features, "cashier_pos");
   const canSeeReservations = hasAny(auth.features, "reservations");
   const canSeeWaiterCalls = hasAny(auth.features, "waiter_call");
+  const canSeeCheques = hasAny(auth.features, "cheque_register");
+  const chequeReminderSettings = normalizeChequeReminderSettings(auth.business.settings?.chequeReminders);
   const recentOrderCutoff = new Date(Date.now() - ONLINE_ORDER_RECENT_WINDOW_MS);
+  const chequeStart = startOfDayTehran(new Date());
+  const chequeEnd = endOfDayTehran(new Date(chequeStart.getTime() + chequeReminderSettings.daysBefore * 86400_000));
 
-  const [onlineOrders, newReservations, waiterCalls] = await Promise.all([
+  const [onlineOrders, newReservations, waiterCalls, chequeDue] = await Promise.all([
     canSeeOrders ? db.select({
       id: orders.id,
       number: orders.number,
@@ -61,9 +67,23 @@ export const GET = withAuth(async (_req, auth) => {
       .where(and(eq(waiterServiceRequests.businessId, auth.business.id), eq(waiterServiceRequests.status, "open")))
       .orderBy(desc(waiterServiceRequests.createdAt))
       .limit(30) : Promise.resolve([]),
+    canSeeCheques && chequeReminderSettings.enabled ? db.select({
+      id: cheques.id,
+      direction: cheques.direction,
+      partnerName: cheques.partnerName,
+      amount: cheques.amount,
+      dueDate: cheques.dueDate,
+      chequeNumber: cheques.chequeNumber,
+      bank: cheques.bank,
+    }).from(cheques).where(and(
+      eq(cheques.businessId, auth.business.id),
+      eq(cheques.status, "registered"),
+      gte(cheques.dueDate, chequeStart),
+      lte(cheques.dueDate, chequeEnd),
+    )).orderBy(cheques.dueDate).limit(50) : Promise.resolve([]),
   ]);
 
-  return Response.json({ orders: onlineOrders, reservations: newReservations, waiterCalls, checkedAt: new Date().toISOString() }, {
+  return Response.json({ orders: onlineOrders, reservations: newReservations, waiterCalls, cheques: chequeDue, checkedAt: new Date().toISOString() }, {
     headers: { "Cache-Control": "no-store" },
   });
 });

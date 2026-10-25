@@ -35,15 +35,25 @@ type WaiterCallNotification = {
   message: string;
   createdAt: string;
 };
+type ChequeDueNotification = {
+  id: number;
+  direction: string;
+  partnerName: string;
+  amount: number;
+  dueDate: string;
+  chequeNumber: string;
+  bank: string;
+};
 type EventResponse = {
   orders: OnlineOrderNotification[];
   reservations: ReservationNotification[];
   waiterCalls: WaiterCallNotification[];
+  cheques: ChequeDueNotification[];
   checkedAt: string;
 };
 type InventoryResponse = { alerts: InventoryAlert[]; truncated: boolean; checkedAt: string };
 
-const EMPTY_EVENTS: EventResponse = { orders: [], reservations: [], waiterCalls: [], checkedAt: "" };
+const EMPTY_EVENTS: EventResponse = { orders: [], reservations: [], waiterCalls: [], cheques: [], checkedAt: "" };
 const inventoryTitles: Record<InventoryAlertKind, string> = {
   stock_out: "موجودی تمام شده",
   stock_low: "موجودی زیر حد مجاز",
@@ -115,7 +125,22 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
     ]);
     let failed = eventResult.status === "rejected" || (inventoryEnabled && inventoryResult.status === "rejected");
 
-    if (eventResult.status === "fulfilled") setEvents(eventResult.value);
+    if (eventResult.status === "fulfilled") {
+      setEvents(eventResult.value);
+      if (notify && eventResult.value.cheques.length) {
+        const storageKey = `menupeak:cheque-reminders:${businessSlug}`;
+        const previous = new Set<string>(seenRef.current);
+        try {
+          const stored: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
+          if (Array.isArray(stored)) for (const key of stored) if (typeof key === "string") previous.add(key);
+        } catch { /* ignore malformed session state */ }
+        const fresh = eventResult.value.cheques.filter((item) => !previous.has(`${item.id}:${item.dueDate}`));
+        if (fresh.length) toast(`${formatNumber(fresh.length)} چک در بازهٔ یادآوری سررسید قرار دارد؛ جزئیات را در اعلان‌ها ببینید.`, "warning");
+        const remembered = eventResult.value.cheques.map((item) => `${item.id}:${item.dueDate}`).slice(-300);
+        seenRef.current = new Set([...previous, ...remembered]);
+        try { sessionStorage.setItem(storageKey, JSON.stringify([...seenRef.current].slice(-300))); } catch { /* toast still works without session storage */ }
+      }
+    }
     if (inventoryResult.status === "fulfilled") {
       setAlerts(inventoryResult.value.alerts);
       setTruncated(inventoryResult.value.truncated);
@@ -169,7 +194,7 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
   }, [open]);
 
   if (!enabled) return null;
-  const count = dashboardNotificationCount({ orders: events.orders, reservations: events.reservations, waiterCalls: events.waiterCalls, inventory: alerts });
+  const count = dashboardNotificationCount({ orders: events.orders, reservations: events.reservations, waiterCalls: events.waiterCalls, inventory: alerts, cheques: events.cheques });
   const close = () => setOpen(false);
 
   return <div ref={rootRef} className="relative">
@@ -179,7 +204,7 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
     </button>
     {open && <section id="dashboard-notification-popover" role="region" aria-label="اعلان‌های پنل رستوران" className="absolute end-0 top-[calc(100%+0.65rem)] z-50 w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-base-300 bg-base-100 text-base-content shadow-2xl">
       <div className="flex items-center justify-between border-b border-base-300 px-4 py-3">
-        <div><h3 className="text-sm font-extrabold">اعلان‌های پنل</h3><p className="mt-0.5 text-[11px] text-base-content/55">سفارش آنلاین، رزرو، درخواست گارسون و انبار</p></div>
+        <div><h3 className="text-sm font-extrabold">اعلان‌های پنل</h3><p className="mt-0.5 text-[11px] text-base-content/55">سفارش آنلاین، رزرو، درخواست گارسون، انبار و چک</p></div>
         <button type="button" className="btn btn-ghost btn-square btn-xs" aria-label="به‌روزرسانی اعلان‌ها" disabled={loading} onClick={() => void refresh(false)}><Icon name="refresh" className={cn("size-4", loading && "animate-spin")} /></button>
       </div>
       <div className="max-h-[min(68vh,34rem)] overflow-y-auto overscroll-contain">
@@ -195,6 +220,9 @@ export function DashboardNotificationCenter({ businessSlug, enabled, inventoryEn
               </Section>
               <Section title="درخواست‌های رزرو" count={events.reservations.length} icon="calendar">
                 {events.reservations.map((item) => <NotificationLink key={item.id} href="/dashboard/reservations" onClick={close} icon="calendar" tone="bg-info/10 text-info" title={`${item.customerName} · ${formatNumber(item.guestCount)} نفر`} detail={`${item.tableName ? `میز ${item.tableName} · ` : "میز انتخاب نشده · "}زمان رزرو ${dateTime(item.startsAt)}`} time={`ثبت درخواست · ${dateTime(item.createdAt)}`} />)}
+              </Section>
+              <Section title="یادآوری سررسید چک" count={events.cheques.length} icon="file">
+                {events.cheques.map((item) => <NotificationLink key={`${item.id}:${item.dueDate}`} href="/dashboard/cheques" onClick={close} icon="file" tone="bg-amber-100 text-amber-800" title={`${item.direction === "payable" ? "پرداختنی" : "دریافتنی"} · چک ${item.chequeNumber || `#${formatNumber(item.id)}`}`} detail={`${item.partnerName} · ${item.bank || "بانک نامشخص"} · ${formatPrice(item.amount)}`} time={`سررسید ${dateTime(item.dueDate)}`} />)}
               </Section>
               <Section title="هشدارهای انبار" count={alerts.length} icon="warning">
                 {alerts.slice(0, 100).map((alert) => {
