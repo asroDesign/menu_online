@@ -36,6 +36,7 @@ export function ResourcePage<T extends { id: number }>(props: {
   subtitle?: string;
   endpoint: string;
   fields: FieldDef[];
+  fieldGroups?: { label: string; keys: string[] }[];
   columns: ColDef<T>[];
   emoji: string;
   emptyTitle: string;
@@ -69,6 +70,7 @@ export function ResourcePage<T extends { id: number }>(props: {
   const [page, setPage] = useState(1);
   const [remotes, setRemotes] = useState<Record<string, any[]>>({});
   const [sel, setSel] = useState<Set<number>>(new Set());
+  const [activeFieldGroup, setActiveFieldGroup] = useState(0);
 
   const remoteKey = fields.filter((f) => f.remote).map((f) => `${f.key}|${f.remote!.url}`).join(",");
   useEffect(() => {
@@ -94,6 +96,7 @@ export function ResourcePage<T extends { id: number }>(props: {
     const f: Record<string, any> = {};
     for (const x of fields) f[x.key] = x.initial ?? (x.type === "bool" ? true : x.type === "select" && x.options ? x.options[0].value : "");
     setForm(f);
+    setActiveFieldGroup(0);
     setEditing("new");
   }
   function openEdit(r: T) {
@@ -106,6 +109,7 @@ export function ResourcePage<T extends { id: number }>(props: {
       else f[x.key] = v === null || v === undefined ? "" : String(v);
     }
     setForm(f);
+    setActiveFieldGroup(0);
     setEditing(r);
   }
 
@@ -226,8 +230,9 @@ export function ResourcePage<T extends { id: number }>(props: {
         size="md"
         footer={<><Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button><Button data-tour={`${endpoint}-save`} onClick={save}>ذخیره</Button></>}
       >
+        {props.fieldGroups && props.fieldGroups.length > 0 && <div role="tablist" aria-label="بخش‌های فرم" className="mb-5 flex gap-2 overflow-x-auto rounded-xl bg-base-200/70 p-1">{props.fieldGroups.map((group, index) => <button key={group.label} type="button" role="tab" aria-selected={activeFieldGroup === index} onClick={() => setActiveFieldGroup(index)} className={`min-h-9 shrink-0 rounded-lg px-3 text-xs font-bold transition ${activeFieldGroup === index ? "bg-base-100 text-primary shadow-sm" : "text-base-content/60 hover:text-base-content"}`}>{group.label}</button>)}</div>}
         <div className="grid gap-4 sm:grid-cols-2">
-          {fields.map((f) => {
+          {fields.filter((f) => !props.fieldGroups || (props.fieldGroups[activeFieldGroup]?.keys.includes(f.key) ?? true)).map((f) => {
             const v = form[f.key] ?? "";
             const required = f.required || f.requiredWhen?.(form, remotes);
             const set = (x: any) => setForm((s) => ({ ...s, [f.key]: x, ...Object.fromEntries((f.resetOnChange ?? []).map((key) => [key, ""])) }));

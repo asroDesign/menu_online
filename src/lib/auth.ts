@@ -179,6 +179,7 @@ export function errorResponse(e: unknown) {
   let isCustomerReferralSchemaError = false;
   let isLoyaltyWheelSchemaError = false;
   let isCustomerFeedbackSchemaError = false;
+  let isPayrollSchemaError = false;
   for (let depth = 0; depth < 4 && cause; depth++) {
     const current = cause as { code?: unknown; message?: unknown; cause?: unknown };
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /staff_(?:schedules|leave_requests|shift_templates|shift_swap_requests|attendance)/i.test(String(current.message ?? ""))) {
@@ -199,6 +200,10 @@ export function errorResponse(e: unknown) {
     }
     if (["42P01", "42703"].includes(String(current.code ?? "")) && /customer_feedback/i.test(String(current.message ?? ""))) {
       isCustomerFeedbackSchemaError = true;
+      break;
+    }
+    if (["42P01", "42703"].includes(String(current.code ?? "")) && /payroll_(?:policies|runs|items|item_events|settlements)|staff_payroll_(?:adjustments|leaves)|staff\.(?:national_id|birth_date|father_name|marital_status|employment_start_date|employment_end_date|contract_type|job_title|job_code|insurance_number|insured_history_days|children_count|child_allowance_eligible|salary_mode|monthly_base_salary_toman|fixed_agreed_salary_toman|management_allowance_toman|annual_service_base_toman|overtime_eligible|insurance_enabled|income_tax_enabled|include_housing|include_food|include_marital_allowance|include_child_allowance|include_seniority|bank_account_name|bank_account_number|iban)/i.test(String(current.message ?? ""))) {
+      isPayrollSchemaError = true;
       break;
     }
     cause = current.cause;
@@ -222,6 +227,10 @@ export function errorResponse(e: unknown) {
   if (isCustomerFeedbackSchemaError) {
     logError("api.customer_feedback_migration_required", e);
     return Response.json({ error: "ساختار پیشنهادها و شکایت‌ها به‌روز نیست؛ migration 0050 را روی پایگاه داده اجرا کنید." }, { status: 503 });
+  }
+  if (isPayrollSchemaError) {
+    logError("api.payroll_migration_required", e);
+    return Response.json({ error: "ساختار حقوق و دستمزد به‌روز نیست؛ migration 0053 را روی پایگاه داده اجرا کنید." }, { status: 503 });
   }
   logError("api.unhandled_error", e);
   return Response.json({ error: "خطای داخلی سرور" }, { status: 500 });

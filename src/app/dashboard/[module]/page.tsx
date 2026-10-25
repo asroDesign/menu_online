@@ -24,6 +24,7 @@ import Cheques from "@/modules/cheques";
 import Receivables from "@/modules/receivables";
 import LoyaltyWheel from "@/modules/loyalty-wheel";
 import CustomerFeedback from "@/modules/customer-feedback";
+import Payroll from "@/modules/payroll";
 
 const Cashier = () => <Waiter mode="cashier" />;
 
@@ -66,6 +67,7 @@ const MODULES: Record<string, { feature?: string | string[]; C: ComponentType }>
   "stock-control": { feature: "stock_control", C: StockControl },
   "purchase-suggestions": { feature: "purchase_suggestions", C: PurchaseSuggestions },
   "staff-schedule": { feature: "staff_scheduling", C: StaffSchedule },
+  payroll: { feature: "payroll", C: Payroll },
   recipes: { feature: "recipes", C: Recipes },
   costing: { feature: "costing", C: Costing },
   couriers: { feature: "courier", C: Couriers },

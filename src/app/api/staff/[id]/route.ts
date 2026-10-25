@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { staff, users } from "@/db/schema";
 import { HttpError, hashPassword, readJson, withAuth } from "@/lib/auth";
 import { STAFF_ROLE_LABELS } from "@/lib/roles";
+import { staffPayrollPatch } from "@/lib/staff-payroll-profile";
 
 export const PATCH = withAuth<{ id: string }>(
   async (req, auth, { id }) => {
@@ -14,6 +15,10 @@ export const PATCH = withAuth<{ id: string }>(
     if (typeof b.phone === "string") set.phone = b.phone.trim().slice(0, 30);
     if (typeof b.role === "string") { if (!(b.role in STAFF_ROLE_LABELS)) throw new HttpError(400, "نقش نامعتبر است"); set.role = b.role; }
     if (typeof b.isActive === "boolean") set.isActive = b.isActive;
+    try { Object.assign(set, staffPayrollPatch(b)); } catch (error) { throw new HttpError(400, (error as Error).message); }
+    const startDate = String(set.employmentStartDate ?? cur.employmentStartDate ?? "");
+    const endDate = String(set.employmentEndDate ?? cur.employmentEndDate ?? "");
+    if (startDate && endDate && endDate < startDate) throw new HttpError(400, "تاریخ پایان همکاری نباید پیش از شروع به کار باشد");
     const email = typeof b.email === "string" ? b.email.trim().toLowerCase() : "";
     const password = typeof b.password === "string" ? b.password : "";
     let userId = cur.userId;

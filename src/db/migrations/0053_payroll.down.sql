@@ -1,0 +1,42 @@
+BEGIN;
+DROP TABLE IF EXISTS payroll_settlements;
+DROP TABLE IF EXISTS payroll_item_events;
+DROP TABLE IF EXISTS staff_payroll_leaves;
+DROP TABLE IF EXISTS staff_payroll_adjustments;
+DROP TABLE IF EXISTS payroll_items;
+DROP TABLE IF EXISTS payroll_runs;
+DROP TABLE IF EXISTS payroll_policies;
+ALTER TABLE staff
+  DROP CONSTRAINT IF EXISTS staff_payroll_values_nonnegative,
+  DROP CONSTRAINT IF EXISTS staff_salary_mode_valid,
+  DROP CONSTRAINT IF EXISTS staff_marital_status_valid,
+  DROP COLUMN IF EXISTS national_id,
+  DROP COLUMN IF EXISTS birth_date,
+  DROP COLUMN IF EXISTS father_name,
+  DROP COLUMN IF EXISTS marital_status,
+  DROP COLUMN IF EXISTS employment_start_date,
+  DROP COLUMN IF EXISTS employment_end_date,
+  DROP COLUMN IF EXISTS contract_type,
+  DROP COLUMN IF EXISTS job_title,
+  DROP COLUMN IF EXISTS job_code,
+  DROP COLUMN IF EXISTS insurance_number,
+  DROP COLUMN IF EXISTS insured_history_days,
+  DROP COLUMN IF EXISTS children_count,
+  DROP COLUMN IF EXISTS child_allowance_eligible,
+  DROP COLUMN IF EXISTS salary_mode,
+  DROP COLUMN IF EXISTS monthly_base_salary_toman,
+  DROP COLUMN IF EXISTS fixed_agreed_salary_toman,
+  DROP COLUMN IF EXISTS management_allowance_toman,
+  DROP COLUMN IF EXISTS annual_service_base_toman,
+  DROP COLUMN IF EXISTS overtime_eligible,
+  DROP COLUMN IF EXISTS insurance_enabled,
+  DROP COLUMN IF EXISTS income_tax_enabled,
+  DROP COLUMN IF EXISTS include_housing,
+  DROP COLUMN IF EXISTS include_food,
+  DROP COLUMN IF EXISTS include_marital_allowance,
+  DROP COLUMN IF EXISTS include_child_allowance,
+  DROP COLUMN IF EXISTS include_seniority,
+  DROP COLUMN IF EXISTS bank_account_name,
+  DROP COLUMN IF EXISTS bank_account_number,
+  DROP COLUMN IF EXISTS iban;
+COMMIT;

@@ -31,6 +31,7 @@ const NAV: { title?: string; items: Item[] }[] = [
     { href: "/dashboard/payments", label: "درگاه پرداخت", icon: "bank", feature: ["ipg", "installment"] },
     { href: "/dashboard/staff", label: "کارمندان", icon: "users", feature: "cashier_pos" },
     { href: "/dashboard/staff-schedule", label: "شیفت و مرخصی", icon: "calendar", feature: "staff_scheduling" },
+    { href: "/dashboard/payroll", label: "حقوق و دستمزد", icon: "wallet", feature: "payroll" },
   ] },
   { title: "منو و وب‌سایت", items: [
     { href: "/dashboard/products", label: "منو و محصولات", icon: "utensils" },

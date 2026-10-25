@@ -193,6 +193,35 @@ export const staff = pgTable(
     role: text("role").notNull().default("waiter"), // waiter | cashier | chef | manager
     phone: text("phone").notNull().default(""),
     userId: integer("user_id"),
+    nationalId: text("national_id").notNull().default(""),
+    birthDate: date("birth_date", { mode: "string" }),
+    fatherName: text("father_name").notNull().default(""),
+    maritalStatus: text("marital_status").notNull().default("single"),
+    employmentStartDate: date("employment_start_date", { mode: "string" }),
+    employmentEndDate: date("employment_end_date", { mode: "string" }),
+    contractType: text("contract_type").notNull().default("temporary"),
+    jobTitle: text("job_title").notNull().default(""),
+    jobCode: text("job_code").notNull().default(""),
+    insuranceNumber: text("insurance_number").notNull().default(""),
+    insuredHistoryDays: integer("insured_history_days").notNull().default(0),
+    childrenCount: integer("children_count").notNull().default(0),
+    childAllowanceEligible: boolean("child_allowance_eligible").notNull().default(false),
+    salaryMode: text("salary_mode").notNull().default("statutory"), // statutory | fixed
+    monthlyBaseSalaryToman: bigint("monthly_base_salary_toman", { mode: "number" }).notNull().default(0),
+    fixedAgreedSalaryToman: bigint("fixed_agreed_salary_toman", { mode: "number" }).notNull().default(0),
+    managementAllowanceToman: bigint("management_allowance_toman", { mode: "number" }).notNull().default(0),
+    annualServiceBaseToman: bigint("annual_service_base_toman", { mode: "number" }).notNull().default(0),
+    overtimeEligible: boolean("overtime_eligible").notNull().default(true),
+    insuranceEnabled: boolean("insurance_enabled").notNull().default(true),
+    incomeTaxEnabled: boolean("income_tax_enabled").notNull().default(true),
+    includeHousing: boolean("include_housing").notNull().default(true),
+    includeFood: boolean("include_food").notNull().default(true),
+    includeMaritalAllowance: boolean("include_marital_allowance").notNull().default(true),
+    includeChildAllowance: boolean("include_child_allowance").notNull().default(true),
+    includeSeniority: boolean("include_seniority").notNull().default(true),
+    bankAccountName: text("bank_account_name").notNull().default(""),
+    bankAccountNumber: text("bank_account_number").notNull().default(""),
+    iban: text("iban").notNull().default(""),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -289,6 +318,147 @@ export const staffLeaveRequests = pgTable("staff_leave_requests", {
   decisionNote: text("decision_note").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("staff_leave_business_time_idx").on(t.businessId, t.startsAt), index("staff_leave_staff_time_idx").on(t.staffId, t.startsAt)]);
+
+/* ---------------- payroll / Iranian labor rules ---------------- */
+function payrollBizId() {
+  return integer("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" });
+}
+
+export const payrollPolicies = pgTable("payroll_policies", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  jalaliYear: integer("jalali_year").notNull(),
+  minimumDailyWageToman: bigint("minimum_daily_wage_toman", { mode: "number" }).notNull().default(0),
+  monthlyHousingToman: bigint("monthly_housing_toman", { mode: "number" }).notNull().default(0),
+  monthlyFoodToman: bigint("monthly_food_toman", { mode: "number" }).notNull().default(0),
+  monthlyMaritalToman: bigint("monthly_marital_toman", { mode: "number" }).notNull().default(0),
+  monthlyChildToman: bigint("monthly_child_toman", { mode: "number" }).notNull().default(0),
+  monthlySeniorityToman: bigint("monthly_seniority_toman", { mode: "number" }).notNull().default(0),
+  monthlyTaxExemptionToman: bigint("monthly_tax_exemption_toman", { mode: "number" }).notNull().default(0),
+  taxBrackets: jsonb("tax_brackets").$type<{ upToToman: number | null; ratePercent: number }[]>().notNull().default([]),
+  taxableComponentKeys: jsonb("taxable_component_keys").$type<string[]>().notNull().default([]),
+  insurableComponentKeys: jsonb("insurable_component_keys").$type<string[]>().notNull().default([]),
+  employeeInsurancePercent: integer("employee_insurance_percent").notNull().default(7),
+  employerInsurancePercent: integer("employer_insurance_percent").notNull().default(20),
+  unemploymentInsurancePercent: integer("unemployment_insurance_percent").notNull().default(3),
+  overtimePercent: integer("overtime_percent").notNull().default(40),
+  fridayPremiumPercent: integer("friday_premium_percent").notNull().default(40),
+  holidayPremiumPercent: integer("holiday_premium_percent").notNull().default(0),
+  nightPremiumPercent: integer("night_premium_percent").notNull().default(35),
+  standardMonthlyHours: integer("standard_monthly_hours").notNull().default(220),
+  minimumInsuredHistoryDaysForChildAllowance: integer("minimum_insured_history_days_for_child_allowance").notNull().default(720),
+  annualLeaveDays: integer("annual_leave_days").notNull().default(26),
+  legalSourceNote: text("legal_source_note").notNull().default(""),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("payroll_policies_business_year_uq").on(t.businessId, t.jalaliYear)]);
+
+export const payrollRuns = pgTable("payroll_runs", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  jalaliYear: integer("jalali_year").notNull(),
+  jalaliMonth: integer("jalali_month").notNull(),
+  status: text("status").notNull().default("draft"), // draft | approved
+  policySnapshot: jsonb("policy_snapshot").$type<Record<string, unknown>>().notNull().default({}),
+  salaryDocumentId: integer("salary_document_id").references(() => accDocuments.id, { onDelete: "restrict" }),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  approvalNote: text("approval_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("payroll_runs_business_period_uq").on(t.businessId, t.jalaliYear, t.jalaliMonth)]);
+
+export const payrollItems = pgTable("payroll_items", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  runId: integer("run_id").notNull().references(() => payrollRuns.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "restrict" }),
+  staffSnapshot: jsonb("staff_snapshot").$type<Record<string, unknown>>().notNull().default({}),
+  workMinutes: integer("work_minutes").notNull().default(0),
+  overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+  fridayMinutes: integer("friday_minutes").notNull().default(0),
+  holidayMinutes: integer("holiday_minutes").notNull().default(0),
+  nightMinutes: integer("night_minutes").notNull().default(0),
+  leaveMinutes: integer("leave_minutes").notNull().default(0),
+  unpaidLeaveMinutes: integer("unpaid_leave_minutes").notNull().default(0),
+  shortMinutes: integer("short_minutes").notNull().default(0),
+  earnings: jsonb("earnings").$type<{ key: string; label: string; amountToman: number; taxable: boolean; insurable: boolean }[]>().notNull().default([]),
+  deductions: jsonb("deductions").$type<{ key: string; label: string; amountToman: number; accounting: boolean }[]>().notNull().default([]),
+  grossToman: bigint("gross_toman", { mode: "number" }).notNull().default(0),
+  employeeInsuranceToman: bigint("employee_insurance_toman", { mode: "number" }).notNull().default(0),
+  employerInsuranceToman: bigint("employer_insurance_toman", { mode: "number" }).notNull().default(0),
+  incomeTaxToman: bigint("income_tax_toman", { mode: "number" }).notNull().default(0),
+  penaltyToman: bigint("penalty_toman", { mode: "number" }).notNull().default(0),
+  netToman: bigint("net_toman", { mode: "number" }).notNull().default(0),
+  approvedTaxableAdjustmentsToman: bigint("approved_taxable_adjustments_toman", { mode: "number" }).notNull().default(0),
+  approvedInsurableAdjustmentsToman: bigint("approved_insurable_adjustments_toman", { mode: "number" }).notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("payroll_items_run_staff_uq").on(t.runId, t.staffId), index("payroll_items_business_staff_idx").on(t.businessId, t.staffId)]);
+
+export const payrollItemEvents = pgTable("payroll_item_events", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  runId: integer("run_id").notNull().references(() => payrollRuns.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => payrollItems.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "restrict" }),
+  action: text("action").notNull(),
+  beforeData: jsonb("before_data").$type<Record<string, unknown>>().notNull().default({}),
+  afterData: jsonb("after_data").$type<Record<string, unknown>>().notNull().default({}),
+  reason: text("reason").notNull(),
+  actorId: integer("actor_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("payroll_item_events_item_time_idx").on(t.businessId, t.itemId, t.createdAt)]);
+
+export const staffPayrollAdjustments = pgTable("staff_payroll_adjustments", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  jalaliYear: integer("jalali_year").notNull(),
+  jalaliMonth: integer("jalali_month").notNull(),
+  kind: text("kind").notNull(), // reward | penalty
+  amountToman: bigint("amount_toman", { mode: "number" }).notNull(),
+  description: text("description").notNull(),
+  legalBasis: text("legal_basis").notNull().default(""),
+  taxable: boolean("taxable").notNull().default(true),
+  insurable: boolean("insurable").notNull().default(true),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_payroll_adjustments_period_idx").on(t.businessId, t.jalaliYear, t.jalaliMonth, t.staffId)]);
+
+export const staffPayrollLeaves = pgTable("staff_payroll_leaves", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  jalaliYear: integer("jalali_year").notNull(),
+  jalaliMonth: integer("jalali_month").notNull(),
+  kind: text("kind").notNull(), // annual | sick | unpaid | other
+  hours: doublePrecision("hours").notNull(),
+  note: text("note").notNull().default(""),
+  status: text("status").notNull().default("approved"), // pending | approved | rejected
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("staff_payroll_leaves_period_idx").on(t.businessId, t.jalaliYear, t.jalaliMonth, t.staffId)]);
+
+export const payrollSettlements = pgTable("payroll_settlements", {
+  id: serial("id").primaryKey(),
+  businessId: payrollBizId(),
+  runId: integer("run_id").notNull().references(() => payrollRuns.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // salary | insurance | tax
+  amountToman: bigint("amount_toman", { mode: "number" }).notNull(),
+  bankAccountId: integer("bank_account_id").references(() => bankAccounts.id),
+  accountingDocumentId: integer("accounting_document_id").references(() => accDocuments.id, { onDelete: "restrict" }),
+  paidAt: timestamp("paid_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+}, (t) => [uniqueIndex("payroll_settlements_run_kind_uq").on(t.runId, t.kind)]);
 
 export const orders = pgTable(
   "orders",
@@ -436,11 +606,11 @@ export const platformEvents = pgTable("platform_events", {
   index("platform_events_created_idx").on(t.createdAt),
 ]);
 
+const created = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const bizId = () =>
   integer("business_id")
     .notNull()
     .references(() => businesses.id, { onDelete: "cascade" });
-const created = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
 export const customers = pgTable(
   "customers",

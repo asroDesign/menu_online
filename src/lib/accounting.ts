@@ -15,6 +15,7 @@ type Q = typeof db;
 export const C = {
   CASH: "1101", BANK: "1102", AR: "1201", CHEQUE_RECEIVABLE: "1202", INV: "1301", FA_EQ: "1401", FA_FUR: "1402", ACC_DEP: "1409",
   AP: "2101", VAT: "2102", CB_LIAB: "2103", PAYROLL: "2104", CHEQUE_PAYABLE: "2105",
+  PAYROLL_TAX: "2106", PAYROLL_INSURANCE: "2107", PAYROLL_DEDUCTIONS: "2110", PAYROLL_INSURANCE_EXPENSE: "6110",
   CAPITAL: "3101", RETAINED: "3102", DRAW: "3103",
   SALES: "4101", DELIVERY: "4102", SERVICE: "4103", DISCOUNT: "4104", OTHER_INC: "4201", STOCK_GAIN: "4202",
   COGS: "5101", WASTE: "5102",
@@ -43,6 +44,9 @@ const CHART: Def[] = [
   ["2103", "اعتبار کش‌بک مشتریان", "moein", "21", "liability", K],
   ["2104", "حقوق و دستمزد پرداختنی", "moein", "21", "liability", K],
   [C.CHEQUE_PAYABLE, "اسناد پرداختنی (چک)", "moein", "21", "liability", K],
+  [C.PAYROLL_TAX, "مالیات حقوق پرداختنی", "moein", "21", "liability", K],
+  [C.PAYROLL_INSURANCE, "حق بیمه پرداختنی", "moein", "21", "liability", K],
+  [C.PAYROLL_DEDUCTIONS, "کسورات حقوق پرداختنی", "moein", "21", "liability", K],
   ["31", "حقوق صاحبان سرمایه", "kol", null, "equity", K],
   ["3101", "سرمایه", "moein", "31", "equity", K],
   ["3102", "سود (زیان) انباشته", "moein", "31", "equity", K],
@@ -68,6 +72,7 @@ const CHART: Def[] = [
   ["6107", "هزینه کش‌بک مشتریان", "moein", "61", "expense", D],
   ["6108", "اینترنت و نرم‌افزار", "moein", "61", "expense", D],
   ["6109", "سایر هزینه‌ها", "moein", "61", "expense", D],
+  [C.PAYROLL_INSURANCE_EXPENSE, "هزینه بیمه سهم کارفرما", "moein", "61", "expense", D],
   ["71", "حساب‌های انتظامی و بستن", "kol", null, "equity", K],
   ["7101", "خلاصه سود و زیان", "moein", "71", "equity", K],
 ];
@@ -136,6 +141,46 @@ export async function ensureChequeAccountingAccounts(biz: Biz) {
       byCode.set(created.code, created);
     }
   });
+}
+
+/** Ensure payroll control accounts exist for older tenant charts, without editing user-created accounts. */
+export async function ensurePayrollAccountingAccounts(biz: Biz) {
+  await ensureAccounting(biz);
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${biz.id + 779002})`);
+    const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+    const byCode = new Map(all.map((account) => [account.code, account]));
+    const definitions = [
+      { code: C.PAYROLL_TAX, name: "مالیات حقوق پرداختنی", parentCode: "21", type: "liability", nature: "credit" },
+      { code: C.PAYROLL_INSURANCE, name: "حق بیمه پرداختنی", parentCode: "21", type: "liability", nature: "credit" },
+      { code: C.PAYROLL_DEDUCTIONS, name: "کسورات حقوق پرداختنی", parentCode: "21", type: "liability", nature: "credit" },
+      { code: C.PAYROLL_INSURANCE_EXPENSE, name: "هزینه بیمه سهم کارفرما", parentCode: "61", type: "expense", nature: "debit" },
+    ] as const;
+    for (const definition of definitions) {
+      const parent = byCode.get(definition.parentCode);
+      if (!parent || parent.level !== "kol" || parent.type !== definition.type) throw new HttpError(409, `سرفصل کل ${definition.parentCode} برای ثبت سند حقوق آماده نیست.`);
+      const existing = byCode.get(definition.code);
+      if (existing) {
+        if (existing.level !== "moein" || existing.parentId !== parent.id || existing.type !== definition.type || existing.nature !== definition.nature || !existing.isActive)
+          throw new HttpError(409, `کد حساب ${definition.code} با ساختار موردنیاز حقوق سازگار نیست.`);
+        continue;
+      }
+      const [created] = await tx.insert(accAccounts).values({ businessId: biz.id, code: definition.code, name: definition.name, level: "moein", parentId: parent.id, type: definition.type, nature: definition.nature, isSystem: true }).returning();
+      byCode.set(created.code, created);
+    }
+  });
+  const accounts = await loadAccounts(biz.id);
+  const byCode = new Map(accounts.map((account) => [account.code, account]));
+  const required = ["2104", C.PAYROLL_TAX, C.PAYROLL_INSURANCE, C.PAYROLL_DEDUCTIONS, C.PAY_EXP, C.PAYROLL_INSURANCE_EXPENSE];
+  if (required.some((code) => !byCode.get(code)?.isActive)) throw new HttpError(409, "حساب‌های پایه حقوق غیرفعال هستند؛ آن‌ها را در کدینگ فعال کنید.");
+  return {
+    salaryPayableId: byCode.get("2104")!.id,
+    taxPayableId: byCode.get(C.PAYROLL_TAX)!.id,
+    insurancePayableId: byCode.get(C.PAYROLL_INSURANCE)!.id,
+    deductionsPayableId: byCode.get(C.PAYROLL_DEDUCTIONS)!.id,
+    payrollExpenseId: byCode.get(C.PAY_EXP)!.id,
+    insuranceExpenseId: byCode.get(C.PAYROLL_INSURANCE_EXPENSE)!.id,
+  };
 }
 async function codeMap(bizId: number) {
   const all = await loadAccounts(bizId);

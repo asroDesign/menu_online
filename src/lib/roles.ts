@@ -21,7 +21,7 @@ export const ROLE_FEATURES: Record<string, string[] | "*"> = {
   cashier: ["cashier_pos", "self_order", "waiter_call", "delivery_order", "preorder", "discount", "cashback", "loyalty", "cross_sell", "zones", "foodcourt_pager", "pager_voice", "caller_id", "tablet_pos", "scale", "staff_scheduling", "support"],
   chef: ["cashier_pos", "tablet_pos", "pager_voice", "foodcourt_pager", "recipes", "cloud_printer", "staff_scheduling", "support"],
   warehouse: ["inventory", "stock_movements", "stock_control", "purchase_suggestions", "recipes", "costing", "scale", "staff_scheduling", "support"],
-  accountant: ["accounting", "income_expense", "sales_reports", "profit_loss", "bank_report", "assets", "cheque_register", "costing", "cashier_pos", "staff_scheduling", "support"],
+  accountant: ["accounting", "income_expense", "sales_reports", "profit_loss", "bank_report", "assets", "cheque_register", "costing", "cashier_pos", "staff_scheduling", "payroll", "support"],
 };
 
 const M = ["owner", "manager"];
@@ -31,6 +31,7 @@ export const MODULE_ONLY: Record<string, string[]> = {
   waiter: [...M, "waiter", "cashier"], cashier: [...M, "cashier"],
   kiosk: M, suppliers: [...M, "warehouse", "accountant"],
   staff: M, discounts: M, cashback: M, "cross-sell": M, zones: M, printers: M, plan: M, devices: M, surveys: M, sms: M, bale: M,
+  payroll: [...M, "accountant"],
   reservations: M,
   "loyalty-wheel": M,
   "customer-feedback": M,

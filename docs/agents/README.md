@@ -49,7 +49,8 @@
 | `/dashboard/waiter` | [modules/waiter.md](modules/waiter.md) — سفارش‌گیر گارسون، دریافت و رسیدگی درخواست میز مشتری؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
 | `/dashboard/cashier` | [modules/cashier.md](modules/cashier.md) — سفارش‌گیر صندوق و اعلان مشترک درخواست میز؛ میان‌بر شناور ثبت فاکتور در صفحات دیگر داشبورد |
 | `/dashboard/tables` | [modules/tables.md](modules/tables.md) — مدیریت میزها |
-| `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارکنان |
+| `/dashboard/staff` | [modules/staff.md](modules/staff.md) — کارمندان و پروفایل استخدامی/حقوقی با تب‌های اطلاعات پایه، قرارداد/حقوق و بیمه/مالیات/بانک |
+| `/dashboard/payroll` | [modules/payroll.md](modules/payroll.md) — لیست حقوق ماهانه، کارکرد، مرخصی، تشویقی/جریمه، فیش چاپی، CSV کمکی بیمه/مالیات و ثبت تعهد/پرداخت در حسابداری |
 | `/dashboard/customers` | [modules/customers.md](modules/customers.md) — CRM، تحلیل خرید/معرفی، دفتر امتیاز و کیف پول، صف تأیید نظر، تنظیم پاداش معرفی و جایزهٔ QR قابل چاپ با claim احرازشده، انقضا و مصرف یک‌باره در سفارش بعدی |
 | `/dashboard/customer-feedback` | [modules/customer-feedback.md](modules/customer-feedback.md) — صندوق tenant-scoped پیشنهادها و شکایت‌های ثبت‌شده از پروفایل OTP منوی آنلاین |
 | `/dashboard/loyalty-wheel` | [modules/loyalty-wheel.md](modules/loyalty-wheel.md) — پیکربندی گردونهٔ منوی مشتری، وزن احتمال، مبلغ/کد تخفیف/چند محصول رایگان/پوچ/پیام، cooldown و مصرف OTP-bound یک‌باره در سفارش بعدی |

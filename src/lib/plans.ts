@@ -76,6 +76,7 @@ export const FEATURES: FeatureDef[] = [
   { key: "assets", group: "accounting", label: "مدیریت اموال و استهلاک", levels: [N, Y, Y] },
   { key: "cheque_register", group: "accounting", label: "دفتر داخلی چک و سررسیدها", desc: "ثبت و پیگیری وضعیت چک‌ها؛ بدون ادعای اتصال بانکی یا سامانه صیاد.", levels: [N, Y, Y] },
   { key: "staff_scheduling", group: "workforce", label: "برنامه شیفت و مرخصی کارکنان", levels: [N, N, Y] },
+  { key: "payroll", group: "workforce", label: "حقوق و دستمزد، فیش و خروجی بیمه", desc: "محاسبه ماهانه، ثبت سند و گزارش‌های بیمه و مالیات کارکنان.", levels: [N, N, Y] },
 
   { key: "inventory", group: "inventory", label: "سیستم انبارداری", levels: [N, Y, Y] },
   { key: "menu_import", group: "base", label: "ورود گروهی کاتالوگ منو", desc: "پیش‌نمایش و ورود کنترل‌شده محصولات از فایل CSV.", levels: [N, N, Y] },
