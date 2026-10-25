@@ -168,43 +168,37 @@ function DocsTab({ range, accounts, year, openDoc, changed }: { range: Range; ac
         <Button className="ms-auto" onClick={() => router.push("/dashboard/accounting/new")} disabled={year?.isClosed}><Icon name="plus" className="size-4" /> سند جدید</Button>
       </div>
       {err ? <ErrorState message={err} onRetry={load} /> : !items ? <Skeleton className="h-72 rounded-2xl" /> : items.length === 0 ? <EmptyState emoji="" title="سندی یافت نشد" description="بازه و فیلترها را بررسی کنید یا یک سند جدید بسازید." /> : (
-        <div className="space-y-3" aria-label="اسناد ثبت‌شده">
-          {items.map((doc) => {
-            const debit = doc.lines.reduce((sum, line) => sum + line.debit, 0);
-            const credit = doc.lines.reduce((sum, line) => sum + line.credit, 0);
-            return (
-              <article key={doc.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm print:break-inside-avoid" aria-label={`سند ${doc.number}`}>
-                <header className="flex flex-wrap items-start justify-between gap-3 border-b border-base-200 px-4 py-3 sm:px-5">
-                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    <h2 className="break-words text-sm font-bold leading-7"><button className="text-primary hover:underline" onClick={() => openDoc(doc.id)}>سند {toFa(doc.number)}</button><span className="mx-1.5 text-base-content/35">—</span>{doc.description || "بدون شرح"}</h2>
+        <div className="overflow-hidden rounded-2xl border border-base-300 bg-base-100" aria-label="اسناد ثبت‌شده">
+          <div className="hidden grid-cols-[minmax(0,1fr)_auto] items-center gap-4 bg-base-200/50 px-4 py-2.5 text-xs font-bold text-base-content/55 sm:grid">
+            <span>سند و شرح</span><span className="text-end">جمع مبلغ (تومان)</span>
+          </div>
+          {items.map((doc) => (
+            <div key={doc.id} className="flex min-w-0 items-stretch border-t border-base-200 first:border-t-0 hover:bg-base-200/30 print:break-inside-avoid">
+              <button type="button" aria-haspopup="dialog" aria-label={`مشاهده جزئیات سند ${toFa(doc.number)}، ${doc.description || "بدون شرح"}، جمع مبلغ ${formatNumber(doc.totalAmount)} تومان`} onClick={() => openDoc(doc.id)} className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50 sm:gap-5">
+                <span className="min-w-0">
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="shrink-0 text-sm font-extrabold text-primary">سند {toFa(doc.number)}</span>
+                    <span className="min-w-0 truncate text-sm font-semibold text-base-content">{doc.description || "بدون شرح"}</span>
+                  </span>
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-base-content/55">
+                    <span>{fmtJ(doc.date)}</span>
                     <Badge color={doc.status === "draft" ? "amber" : doc.reversed ? "rose" : "emerald"}>{doc.status === "draft" ? "پیش‌نویس" : doc.reversed ? "برگشت‌خورده" : "قطعی"}</Badge>
-                    {doc.source !== "manual" && <Badge color={SRC[doc.source]?.[1] ?? "violet"}>خودکار: {SRC[doc.source]?.[0] ?? doc.source}</Badge>}
+                    {doc.source !== "manual" && <Badge color={SRC[doc.source]?.[1] ?? "violet"}>{SRC[doc.source]?.[0] ?? doc.source}</Badge>}
                     {doc.kind !== "general" && <Badge color="stone">{KIND[doc.kind] ?? doc.kind}</Badge>}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-base-content/60">
-                    <a className="no-print rounded-lg border border-base-300 px-2.5 py-1.5 font-semibold text-base-content hover:bg-base-200" href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer">چاپ روکش</a>
-                    <span className="whitespace-nowrap">تاریخ سند: {fmtJ(doc.date)}</span>
-                    {doc.status === "posted" && !doc.reversed && !doc.reversedOf && doc.kind !== "closing" && <Button size="sm" variant="ghost" className="no-print text-rose-600" disabled={busyId === doc.id} onClick={() => setPending({ doc, action: "reverse" })}>برگشت</Button>}
-                    {doc.status === "draft" && !year?.isClosed && <div className="no-print flex gap-1"><IconButton icon="edit" label="ویرایش پیش‌نویس" onClick={() => edit(doc)} /><IconButton icon="check" label="قطعی کردن سند" onClick={() => setPending({ doc, action: "post" })} /><IconButton icon="trash" label="حذف پیش‌نویس" onClick={() => setDel(doc)} /></div>}
-                  </div>
-                </header>
-                <div className="overflow-x-auto px-4 py-3 sm:px-5" tabIndex={0} role="region" aria-label={`ردیف‌های سند ${doc.number}`}>
-                  <table className="w-full min-w-[560px] text-sm">
-                    <caption className="sr-only">اقلام سند {toFa(doc.number)}؛ مبالغ به تومان</caption>
-                    <thead><tr className="text-xs font-medium text-base-content/50"><th scope="col" className="pb-2 text-start">حساب معین</th><th scope="col" className="pb-2 text-start">تفصیلی</th><th scope="col" className="pb-2 text-end">بدهکار</th><th scope="col" className="pb-2 text-end">بستانکار</th></tr></thead>
-                    <tbody>{doc.lines.map((line) => <tr key={line.id} className="border-t border-base-200/60">
-                      <td className="py-2 pe-3"><span className="me-2 font-mono text-xs text-base-content/60" dir="ltr">{line.moeinCode || line.code}</span>{line.moein || line.name}{line.description && <p className="mt-1 max-w-md text-xs leading-5 text-base-content/50">{line.description}</p>}</td>
-                      <td className="py-2 pe-3 text-xs text-base-content/60">{line.tafsili || "—"}</td>
-                      <td className="whitespace-nowrap py-2 ps-3 text-end tabular-nums">{num(line.debit)}</td>
-                      <td className="whitespace-nowrap py-2 ps-3 text-end tabular-nums">{num(line.credit)}</td>
-                    </tr>)}{!doc.lines.length && <tr><td colSpan={4} className="py-4 text-center text-xs text-base-content/50">هنوز ردیفی برای این پیش‌نویس ثبت نشده است.</td></tr>}</tbody>
-                    <tfoot><tr className="border-t border-base-300 font-bold"><td colSpan={2} className="pt-3">جمع <span className="text-xs font-normal text-base-content/45">(تومان)</span></td><td className="whitespace-nowrap ps-3 pt-3 text-end tabular-nums">{formatNumber(debit)}</td><td className="whitespace-nowrap ps-3 pt-3 text-end tabular-nums">{formatNumber(credit)}</td></tr></tfoot>
-                  </table>
-                  {debit !== credit && <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-800" role="status">سند تراز نیست؛ اختلاف: {formatNumber(Math.abs(debit - credit))} تومان</p>}
-                </div>
-              </article>
-            );
-          })}
+                  </span>
+                </span>
+                <span className="whitespace-nowrap text-end">
+                  <span className="block text-[10px] text-base-content/45 sm:hidden">جمع مبلغ</span>
+                  <span className="text-sm font-extrabold tabular-nums text-base-content">{formatNumber(doc.totalAmount)}</span>
+                  <span className="ms-1 text-[10px] font-medium text-base-content/45">تومان</span>
+                </span>
+              </button>
+              <div className="no-print flex shrink-0 items-center gap-0.5 pe-2">
+                {doc.status === "posted" && !doc.reversed && !doc.reversedOf && doc.kind !== "closing" && <Button size="sm" variant="ghost" className="px-2 text-rose-600" disabled={busyId === doc.id} onClick={() => setPending({ doc, action: "reverse" })}>برگشت</Button>}
+                {doc.status === "draft" && !year?.isClosed && <><IconButton icon="edit" label="ویرایش پیش‌نویس" onClick={() => edit(doc)} /><IconButton icon="check" label="قطعی کردن سند" onClick={() => setPending({ doc, action: "post" })} /><IconButton icon="trash" label="حذف پیش‌نویس" onClick={() => setDel(doc)} /></>}
+              </div>
+            </div>
+          ))}
         </div>
       )}
       <div className="no-print mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-base-content/60">
