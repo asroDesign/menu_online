@@ -9,6 +9,7 @@ import * as Accounting from "@/lib/accounting";
 import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
 import { outstandingAmount, receivableState } from "@/lib/receivables-core";
 import { cashShiftTotalsByShift } from "@/lib/cash-shifts";
+import { startOfDayTehran } from "@/lib/jalali";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -88,6 +89,13 @@ type CashShiftRow = {
   closedByName: string; note: string; cashSales: number; nonCashSales: number; byMethod: { method: string; amount: number }[];
 };
 type CashShiftsPayload = { active: CashShiftRow | null; history: CashShiftRow[]; historyHasMore: boolean };
+type SalesReportsPayload = {
+  from: string; to: string;
+  totals: { revenue: number; orders: number; average: number; discounts: number; tax: number; cogs: number; grossProfit: number; soldItems: number };
+  series: { date: string; revenue: number; orders: number }[];
+  byProduct: { name: string; quantity: number; revenue: number }[];
+  statuses: { status: string; paymentStatus: string; orders: number; amount: number }[];
+};
 
 type OrderHistoryCursor = { createdAt: string; id: number };
 const ORDER_HISTORY_PAGE_SIZE = 50;
@@ -201,7 +209,7 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
@@ -212,6 +220,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "accounting" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت حسابداری آفلاین به مجوز صندوق و حسابداری نیاز دارد");
   if (dataset === "receivables" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "مطالبات آفلاین به مجوز صندوق و حسابداری نیاز دارد");
   if (dataset === "cash_shifts" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت شیفت‌های صندوق به مجوز صندوق نیاز دارد");
+  if (dataset === "reports" && (!hasAny(features, "cashier_pos") || !hasAny(features, "sales_reports"))) throw new HttpError(403, "گزارش آفلاین به مجوز صندوق و گزارش فروش نیاز دارد");
   if (dataset === "accounting") await Accounting.ensureAccounting(business);
 
   return db.transaction(async (tx) => {
@@ -222,7 +231,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | SalesReportsPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -371,6 +380,49 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         };
       };
       payload = { active: active ? present(active) : null, history: historyRows.map(present), historyHasMore: closedRows.length > 100 };
+    } else if (dataset === "reports") {
+      const now = new Date(), today = startOfDayTehran(now), from = new Date(today.getTime() - 89 * 86_400_000), to = new Date(today.getTime() + 86_400_000 - 1);
+      const dateKey = sql<string>`to_char(${orders.createdAt} AT TIME ZONE 'Asia/Tehran', 'YYYY-MM-DD')`;
+      const paidOrders = and(eq(orders.businessId, business.id), eq(orders.status, "paid"), eq(orders.paymentStatus, "paid"), gt(orders.createdAt, new Date(from.getTime() - 1)), lt(orders.createdAt, new Date(to.getTime() + 1)));
+      const [totals] = await tx.select({
+        revenue: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
+        orders: sql<number>`count(*)::int`,
+        discounts: sql<number>`coalesce(sum(${orders.discountAmount}), 0)::float8`,
+        tax: sql<number>`coalesce(sum(${orders.tax}), 0)::float8`,
+        cogs: sql<number>`coalesce(sum(${orders.cogs}), 0)::float8`,
+      }).from(orders).where(paidOrders);
+      const dailyRows = await tx.select({
+        day: dateKey,
+        revenue: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
+        orders: sql<number>`count(*)::int`,
+      }).from(orders).where(paidOrders).groupBy(dateKey).orderBy(dateKey);
+      const dailyByKey = new Map(dailyRows.map((row) => [row.day, row]));
+      const dayFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" });
+      const series = Array.from({ length: 90 }, (_, index) => {
+        const day = new Date(from.getTime() + index * 86_400_000), key = dayFormatter.format(day), row = dailyByKey.get(key);
+        return { date: day.toISOString(), revenue: Number(row?.revenue ?? 0), orders: Number(row?.orders ?? 0) };
+      });
+      const byProductRows = await tx.select({
+        name: orderItems.name,
+        quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::float8`,
+        revenue: sql<number>`coalesce(sum(${orderItems.lineTotal}), 0)::float8`,
+      }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(paidOrders)
+        .groupBy(orderItems.name).orderBy(desc(sql`sum(${orderItems.lineTotal})`)).limit(50);
+      const [sold] = await tx.select({ quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::float8` })
+        .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(paidOrders);
+      const statusRows = await tx.select({
+        status: orders.status, paymentStatus: orders.paymentStatus,
+        orders: sql<number>`count(*)::int`, amount: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
+      }).from(orders).where(and(eq(orders.businessId, business.id), gt(orders.createdAt, new Date(from.getTime() - 1)), lt(orders.createdAt, new Date(to.getTime() + 1))))
+        .groupBy(orders.status, orders.paymentStatus);
+      const revenue = Number(totals?.revenue ?? 0), orderCount = Number(totals?.orders ?? 0), cogs = Number(totals?.cogs ?? 0);
+      payload = {
+        from: from.toISOString(), to: to.toISOString(),
+        totals: { revenue, orders: orderCount, average: orderCount ? Math.round(revenue / orderCount) : 0, discounts: Number(totals?.discounts ?? 0), tax: Number(totals?.tax ?? 0), cogs, grossProfit: revenue - cogs, soldItems: Number(sold?.quantity ?? 0) },
+        series,
+        byProduct: byProductRows.map((row) => ({ name: row.name, quantity: Number(row.quantity), revenue: Number(row.revenue) })),
+        statuses: statusRows.map((row) => ({ status: row.status, paymentStatus: row.paymentStatus, orders: Number(row.orders), amount: Number(row.amount) })),
+      };
     } else if (dataset === "receivables") {
       const rows = await tx.select({
         id: receivables.id, accountId: receivables.accountId, accountName: receivableAccounts.name,
@@ -454,7 +506,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "receivables" ? "اطلاعات مطالبات برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "cash_shifts" ? "اطلاعات شیفت صندوق برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "receivables" ? "اطلاعات مطالبات برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "cash_shifts" ? "اطلاعات شیفت صندوق برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reports" ? "گزارش فروش برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
       throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");

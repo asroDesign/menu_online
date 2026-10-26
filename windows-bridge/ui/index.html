@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-menu">منوی محلی</button><button id="tab-customers">مشتریان</button><button id="tab-inventory">انبار</button><button id="tab-reservations">رزروها</button><button id="tab-shifts">شیفت کارکنان</button><button id="tab-cash-shifts">شیفت صندوق</button><button id="tab-accounting">حسابداری</button><button id="tab-receivables">مطالبات</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
+    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-menu">منوی محلی</button><button id="tab-customers">مشتریان</button><button id="tab-inventory">انبار</button><button id="tab-reservations">رزروها</button><button id="tab-shifts">شیفت کارکنان</button><button id="tab-cash-shifts">شیفت صندوق</button><button id="tab-reports">گزارش فروش</button><button id="tab-accounting">حسابداری</button><button id="tab-receivables">مطالبات</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
     <main id="pos-app" class="pos-app">
       <header class="pos-top"><div><span class="pos-eyebrow">فروش ادامه دارد</span><h1 id="pos-name">صندوق محلی MenuPeak</h1></div><div><span id="pos-health" class="pos-status">در حال آماده‌سازی</span><button id="pos-refresh" class="button secondary">به‌روزرسانی منو</button><button id="pos-pair-toggle" class="button secondary">مدیریت اتصال</button></div></header>
       <section id="pos-pair-card" class="card"><h2>اتصال امن به رستوران</h2><p>در سایت، تنظیمات ← صندوق آفلاین ویندوز، فایل اتصال را مدیر بسازد و در این دستگاه وارد کند.</p><div class="pos-form-row"><label>PIN مدیر محلی (۸ تا ۱۲ رقم)<input id="pos-pair-pin" type="password" inputmode="numeric" dir="ltr" minlength="8" maxlength="12" autocomplete="new-password" required placeholder="فقط مدیر وارد کند"></label><label class="button primary pair-file-button">انتخاب فایل اتصال<input id="pos-pair" type="file" accept=".json" hidden></label></div><p class="muted">PIN روی همین ویندوز به‌صورت رمز‌شده نگه‌داری می‌شود و برای هر ویرایش آفلاین منو لازم است. اطلاعات صندوق با حساب Windows محافظت می‌شود.</p></section>
@@ -95,6 +95,14 @@
       <section class="card"><p id="cash-shifts-state" class="workspace-menu-state" role="status">در حال خواندن نسخهٔ محلی…</p><div id="cash-shifts-summary" class="customers-summary"></div><div id="cash-shifts-active"></div></section>
       <section class="card"><div class="section-heading"><div><h2>شیفت‌های بسته‌شده</h2><p class="muted">آخرین ۱۰۰ شیفت دریافت‌شده از سرور</p></div></div><div id="cash-shifts-history" class="pos-history-scroll"></div></section>
       <p class="pos-footer">اطلاعات فقط‌خواندنی است و هر ۱۰ دقیقه از سرور به دستگاه می‌آید. بازکردن/بستن شیفت و ثبت فروش آفلاین در جمع رسمی شیفت هنوز پشتیبانی نمی‌شود؛ فروش‌های صف همگام‌سازی تا زمان اتصال در این گزارش نیستند.</p>
+    </main>
+    <main id="reports-app" class="pos-app" hidden>
+      <header class="pos-top"><div><span class="pos-eyebrow">گزارش فروش · نسخهٔ محلی</span><h1>خلاصهٔ عملکرد فروش</h1></div><div><span id="reports-sync" class="pos-status">در انتظار دریافت snapshot</span><button id="reports-refresh" class="button secondary" type="button">دریافت نسخهٔ تازه</button></div></header>
+      <section class="card"><p id="reports-state" class="workspace-menu-state" role="status">در حال خواندن گزارش محلی…</p><div id="reports-summary" class="customers-summary"></div></section>
+      <section class="card"><div class="section-heading"><div><h2>روند روزانه · ۳۰ روز اخیر از snapshot</h2><p class="muted">درآمد سفارش‌های پرداخت‌شده، بر اساس روز تهران</p></div></div><div id="reports-chart" class="offline-report-chart"></div></section>
+      <section class="card"><div class="section-heading"><div><h2>محصولات پرفروش · ۹۰ روز</h2><p class="muted">۵۰ محصول اول بر اساس مبلغ فروش</p></div></div><div id="reports-products" class="pos-history-scroll"></div></section>
+      <section class="card"><div class="section-heading"><div><h2>وضعیت سفارش‌ها · ۹۰ روز</h2><p class="muted">تعداد همهٔ سفارش‌ها به تفکیک وضعیت ثبت‌شده</p></div></div><div id="reports-statuses" class="pos-history-scroll"></div></section>
+      <p class="pos-footer">این گزارش فقط‌خواندنی و شامل سفارش‌های ثبت‌شده در سرور تا زمان آخرین snapshot است. فروش‌های آفلاین که هنوز sync نشده‌اند در آن نیستند؛ گزارش تا ۷ روز بدون اتصال قابل مشاهده است و برای محاسبهٔ مالی قطعی باید با سرور تطبیق داده شود.</p>
     </main>
     <main id="hardware-app" class="shell" hidden>
       <header class="topbar">
