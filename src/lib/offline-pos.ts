@@ -43,7 +43,7 @@ export async function offlineCatalog(req: Request) {
     db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.businessId, business.id)),
     db.select({ id: devices.id, name: devices.name, settlementBankAccountId: devices.settlementBankAccountId }).from(devices).where(and(eq(devices.businessId, business.id), eq(devices.kind, "pos"), eq(devices.cashierEnabled, true))),
   ]);
-  const catalog: OfflineCatalog = { version: 1, snapshotId: randomUUID(), businessId: business.id, name: business.name, issuedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(), taxPercent: business.taxPercent, servicePercent: business.servicePercent, products: items.filter(p => p.price > 0), tables, categories: cats, terminals };
+  const catalog: OfflineCatalog = { version: 1, snapshotId: randomUUID(), businessId: business.id, name: business.name, issuedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(), taxPercent: business.taxPercent, servicePercent: business.servicePercent, discountEnabled: hasAny(features, "discount"), products: items.filter(p => p.price > 0), tables, categories: cats, terminals };
   await db.insert(offlineCatalogs).values({ id: catalog.snapshotId, terminalId: terminal.id, payload: catalog });
   return catalog;
 }
@@ -74,9 +74,9 @@ export async function syncOfflineSale(req: Request, raw: unknown) {
     // The catalog was issued while entitled; importing a completed sale is allowed
     // after expiry, but obtaining another catalog requires an active POS entitlement.
     const catalog = snapshot.payload;
-    const input = parseOrderInput({ items: sale.items, type: sale.type, tableId: sale.tableId, customerName: sale.customerName, customerPhone: sale.customerPhone, note: sale.note });
+    const input = parseOrderInput({ items: sale.items, type: sale.type, tableId: sale.tableId, customerName: sale.customerName, customerPhone: sale.customerPhone, note: sale.note, manualDiscountAmount: sale.manualDiscountAmount ?? 0 });
     const order = existingOrderId ? (await tx.select().from(orders).where(and(eq(orders.id, existingOrderId), eq(orders.businessId, business.id))))[0] : await createOrder({ ...business, taxPercent: catalog.taxPercent, servicePercent: catalog.servicePercent }, input, "cashier", features, {
-      executor: tx, deferPrint: true, actorId: terminal.createdBy, offline: { products: catalog.products, occurredAt: new Date(sale.occurredAt) },
+      executor: tx, deferPrint: true, actorId: terminal.createdBy, offline: { products: catalog.products, occurredAt: new Date(sale.occurredAt), discountEnabled: catalog.discountEnabled === true },
     });
     if (existingOrderId && (order.status === "canceled" || order.paymentStatus !== "unpaid")) throw new HttpError(409, "سفارش در سایت بسته یا تسویه شده است؛ دریافت محلی را مدیر بررسی کند");
     if (order.total !== sale.total) throw new HttpError(409, "مبلغ محلی با محاسبه سرور یکسان نیست؛ فروش برای بررسی روی دستگاه محفوظ است");

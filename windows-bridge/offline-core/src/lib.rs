@@ -1809,6 +1809,18 @@ impl Store {
     pub fn save(&mut self, mut sale: Value) -> Result<Value> {
         let id = sale["id"].as_str().ok_or("شناسه فروش لازم است")?.to_string();
         uuid::Uuid::parse_str(&id).map_err(err)?;
+        let manual_discount = match sale.get("manualDiscountAmount") {
+            None | Some(Value::Null) => 0,
+            Some(value) => value.as_i64().ok_or("مبلغ تخفیف صندوق باید عدد صحیح باشد")?,
+        };
+        let manager_pin = sale["managerPin"].as_str().unwrap_or("").to_string();
+        if !(0..=2_147_483_647).contains(&manual_discount) {
+            return Err("مبلغ تخفیف صندوق خارج از محدوده است".into());
+        }
+        if let Some(object) = sale.as_object_mut() {
+            object.remove("managerPin");
+            object.insert("manualDiscountAmount".into(), json!(manual_discount));
+        }
         if let Some(existing) = self.sale(&id)? {
             for key in [
                 "items",
@@ -1824,6 +1836,9 @@ impl Store {
                         "این شناسه قبلاً برای فیش دیگری ذخیره شده است؛ سوابق را بررسی کنید".into(),
                     );
                 }
+            }
+            if existing["manualDiscountAmount"].as_i64().unwrap_or(0) != manual_discount {
+                return Err("این شناسه قبلاً با مبلغ تخفیف دیگری ذخیره شده است؛ سوابق را بررسی کنید".into());
             }
             return Ok(existing);
         }
@@ -1872,11 +1887,19 @@ impl Store {
             return Err("شماره مشتری لازم است".into());
         }
         let (total, lines) = quote(&catalog, &sale)?;
+        if manual_discount > 0 {
+            if manager_pin.is_empty() {
+                return Err("برای تخفیف صندوق تأیید مدیر لازم است".into());
+            }
+            self.verify_local_manager_pin(&manager_pin)?;
+        }
         sale["total"] = json!(total);
         validate_tender(&sale["tender"], total, &catalog)?;
         let subtotal: i64 = lines.iter().map(|line| line["amount"].as_i64().unwrap_or(0)).sum();
-        let tax = (subtotal as f64 * catalog["taxPercent"].as_f64().unwrap_or(0.0) / 100.0).round() as i64;
-        let service = (subtotal as f64 * catalog["servicePercent"].as_f64().unwrap_or(0.0) / 100.0).round() as i64;
+        let discount = sale["manualDiscountAmount"].as_i64().unwrap_or(0);
+        let discounted_subtotal = subtotal - discount;
+        let tax = (discounted_subtotal as f64 * catalog["taxPercent"].as_f64().unwrap_or(0.0) / 100.0).round() as i64;
+        let service = (discounted_subtotal as f64 * catalog["servicePercent"].as_f64().unwrap_or(0.0) / 100.0).round() as i64;
         let table_name = catalog["tables"].as_array().and_then(|tables| tables.iter().find(|table| table["id"] == sale["tableId"])).map(|table| table["name"].clone()).unwrap_or(Value::Null);
         let terminals = catalog["terminals"].as_array().map(|terminals| terminals.iter().map(|terminal| json!({"id":terminal["id"],"name":terminal["name"]})).collect::<Vec<_>>()).unwrap_or_default();
         let display_payload = json!({
@@ -1890,6 +1913,8 @@ impl Store {
             "note": sale["note"],
             "items": lines,
             "subtotal": subtotal,
+            "discountAmount": discount,
+            "discountCode": if discount > 0 { "تخفیف صندوق" } else { "" },
             "tax": tax,
             "service": service,
             "total": total,
@@ -1963,6 +1988,9 @@ impl Store {
                 ));
             }
             if !kitchen {
+                if discount > 0 {
+                    content.push_str(&format!("| جمع اقلام: {subtotal} تومان |\n| تخفیف صندوق: {discount} تومان |\n"));
+                }
                 content.push_str(&format!(
                     "| جمع با مالیات و خدمات: {total} تومان |\n| {} |\n",
                     if sale["tender"].is_null() {
@@ -2325,12 +2353,23 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
             "categoryId":p["categoryId"]
         }));
     }
-    let tax = (subtotal as f64 * catalog["taxPercent"].as_f64().ok_or("مالیات نامعتبر")? / 100.0)
+    let manual_discount = match sale.get("manualDiscountAmount") {
+        None | Some(Value::Null) => 0,
+        Some(value) => value.as_i64().ok_or("مبلغ تخفیف صندوق باید عدد صحیح باشد")?,
+    };
+    if manual_discount < 0 || manual_discount > subtotal || manual_discount > 2_147_483_647 {
+        return Err("مبلغ تخفیف صندوق باید از صفر تا جمع اقلام و در سقف مجاز باشد".into());
+    }
+    if manual_discount > 0 && catalog["discountEnabled"] != true {
+        return Err("تخفیف در نسخهٔ منوی این صندوق فعال نیست".into());
+    }
+    let discounted_subtotal = subtotal - manual_discount;
+    let tax = (discounted_subtotal as f64 * catalog["taxPercent"].as_f64().ok_or("مالیات نامعتبر")? / 100.0)
         .round() as i64;
-    let service = (subtotal as f64 * catalog["servicePercent"].as_f64().ok_or("خدمات نامعتبر")?
+    let service = (discounted_subtotal as f64 * catalog["servicePercent"].as_f64().ok_or("خدمات نامعتبر")?
         / 100.0)
         .round() as i64;
-    let total = subtotal + tax + service;
+    let total = discounted_subtotal + tax + service;
     if !(1..=2_147_483_647).contains(&total) {
         return Err("مبلغ کل خارج از محدوده است".into());
     }
@@ -2354,6 +2393,19 @@ mod tests {
             .unwrap();
         let sale = json!({"id":uuid::Uuid::new_v4().to_string(),"type":"takeaway","tableId":null,"items":[{"productId":1,"quantity":2,"optionIds":[],"weightGrams":null,"tareGrams":0}],"customerName":"","customerPhone":"","note":"","tender":null});
         (store, path, sale)
+    }
+    #[test]
+    fn manual_discount_is_feature_gated_and_reduces_the_taxable_base() {
+        let (store, path, mut sale) = fixture();
+        let mut catalog = store.get("catalog").unwrap().unwrap();
+        sale["manualDiscountAmount"] = json!(500);
+        assert!(quote(&catalog, &sale).is_err());
+        catalog["discountEnabled"] = json!(true);
+        assert_eq!(quote(&catalog, &sale).unwrap().0, 1725);
+        sale["manualDiscountAmount"] = json!(2001);
+        assert!(quote(&catalog, &sale).is_err());
+        drop(store);
+        let _ = std::fs::remove_file(path);
     }
     #[test]
     fn durable_sale_and_print_survive_restart_and_duplicate_submission() {

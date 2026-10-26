@@ -3,13 +3,14 @@ import type { ProductOptionGroup } from "./product-options";
 export type OfflineProduct = { id: number; name: string; price: number; categoryId: number | null; sellingMode: string; yieldRatio: number; modifierGroups: ProductOptionGroup[] };
 export type OfflineCatalog = {
   version: 1; snapshotId: string; businessId: number; name: string; issuedAt: string; validUntil: string;
-  taxPercent: number; servicePercent: number; products: OfflineProduct[];
+  taxPercent: number; servicePercent: number; discountEnabled?: boolean; products: OfflineProduct[];
   tables: { id: number; name: string; capacity?: number; operationalStatus?: string }[]; categories: { id: number; name: string }[];
   terminals: { id: number; name: string; settlementBankAccountId: number | null }[];
 };
 export type OfflineSale = {
   version: 1; id: string; snapshotId: string; occurredAt: string; total: number;
   type: "dine_in" | "takeaway"; tableId: number | null; customerName: string; customerPhone: string; note: string;
+  manualDiscountAmount?: number;
   items: { productId: number; quantity: number; optionIds: string[]; weightGrams: number | null; tareGrams: number }[];
   tender: { cashAmount: number; posAmount: number; posDeviceId: number | null; posRefNo: string } | null;
 };
@@ -23,6 +24,7 @@ export function parseOfflineSale(raw: unknown): OfflineSale {
   for (const [key, max] of [["customerName",80],["customerPhone",20],["note",300]] as const) if (typeof v[key] !== "string" || v[key].length > max) throw new Error("اطلاعات مشتری یا توضیح نامعتبر است");
   if (v.customerPhone && !/^09\d{9}$/.test(v.customerPhone)) throw new Error("شماره مشتری معتبر نیست");
   if (v.customerName && !v.customerPhone) throw new Error("برای ثبت مشتری شماره لازم است");
+  if (v.manualDiscountAmount !== undefined && (!Number.isSafeInteger(v.manualDiscountAmount) || v.manualDiscountAmount < 0 || v.manualDiscountAmount > 2_147_483_647)) throw new Error("مبلغ تخفیف صندوق معتبر نیست");
   if (!Array.isArray(v.items) || v.items.length < 1 || v.items.length > 50) throw new Error("تعداد اقلام نامعتبر است");
   for (const i of v.items) {
     if (!i || typeof i !== "object" || !Number.isSafeInteger(i.productId) || i.productId < 1 || !Number.isInteger(i.quantity) || i.quantity < 1 || i.quantity > 50 || !Array.isArray(i.optionIds) || i.optionIds.length > 40 || i.optionIds.some(x => typeof x !== "string" || x.length > 48)) throw new Error("اقلام سفارش نامعتبر است");
@@ -38,6 +40,7 @@ export function assertOfflineLease(sale: OfflineSale, catalog: OfflineCatalog, n
   const at = Date.parse(sale.occurredAt);
   if (sale.snapshotId !== catalog.snapshotId || at < Date.parse(catalog.issuedAt) - 300_000 || at > Date.parse(catalog.validUntil) || at > now + 300_000) throw new Error("فروش خارج از بازه مجاز منوی ذخیره‌شده است؛ مدیر باید بررسی کند");
   if (sale.items.some(i => !catalog.products.some(p => p.id === i.productId))) throw new Error("محصول در نسخه منوی دستگاه وجود ندارد");
+  if ((sale.manualDiscountAmount ?? 0) > 0 && catalog.discountEnabled !== true) throw new Error("در نسخهٔ منوی این صندوق، تخفیف فعال نبوده است");
   if (sale.tableId && !catalog.tables.some(t => t.id === sale.tableId)) throw new Error("میز در نسخه منوی دستگاه وجود ندارد");
   if (sale.tender?.posAmount && !catalog.terminals.some(t => t.id === sale.tender!.posDeviceId && t.settlementBankAccountId)) throw new Error("کارتخوان در نسخه منوی دستگاه تنظیم نشده است");
 }

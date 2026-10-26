@@ -204,7 +204,7 @@ export async function addWalletEntry(
   return true;
 }
 
-export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; deferPrint?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number; offline?: { products: import("./offline-pos-core").OfflineProduct[]; occurredAt: Date } } = {}) {
+export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; deferPrint?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number; offline?: { products: import("./offline-pos-core").OfflineProduct[]; occurredAt: Date; discountEnabled?: boolean } } = {}) {
   if (input.useCashback && (source !== "customer" || !opts.verifiedCustomerId))
     throw new HttpError(403, "برای مصرف اعتبار کیف پول، از پروفایل مشتری با شمارهٔ تأییدشده وارد شوید");
   if (input.payNow === "credit") {
@@ -357,7 +357,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
   if (input.manualDiscountAmount) {
     if (input.discountCode) throw new HttpError(400, "کد تخفیف و تخفیف دستی را هم‌زمان نمی‌توان اعمال کرد");
     if (source !== "cashier") throw new HttpError(403, "تخفیف دستی فقط از سفارش‌گیر صندوق مجاز است");
-    if (!can("discount")) throw new HttpError(403, "تخفیف در پلن شما فعال نیست");
+    if (!can("discount") && !(source === "cashier" && opts.offline?.discountEnabled === true)) throw new HttpError(403, "تخفیف در پلن یا نسخهٔ صندوق شما فعال نیست");
     if (input.manualDiscountAmount > addSubtotal) throw new HttpError(400, "تخفیف نمی‌تواند از جمع اقلام بیشتر باشد");
     discountAmount = input.manualDiscountAmount;
     discountCode = "تخفیف صندوق";
