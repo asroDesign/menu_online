@@ -35,6 +35,10 @@
 - سایر صفحات در `src/app/dashboard/[module]/page.tsx` registry شده‌اند. registry احراز هویت، `MODULE_ONLY`, `ROLE_HOME` و entitlement هر slug را بررسی می‌کند. URL slug نام فایل راهنما است.
 - `src/modules/*.tsx` قطعات اصلی ماژول هستند؛ بعضی فایل‌ها چند ماژول را export می‌کنند (growth-a, growth-b, finance, inventory, hardware). یک فایل راهنمای جدا برای هر route وجود دارد.
 
+## اپلیکیشن ویندوز آفلاین کامل
+
+- [نقشهٔ تبدیل پنل رستوران به اپ آفلاین](modules/offline-full-dashboard.md) — قرارداد هویت، snapshot محلی، outbox، همگام‌سازی، سیاست تعارض، محدودهٔ اتصال‌های بیرونی و مراحل پوشش همهٔ ماژول‌ها. راهنمای فعلی POS آفلاین: [modules/offline-pos.md](modules/offline-pos.md).
+
 ## ماژول‌های داشبورد
 
 ### قابلیت مشترک هدر و اعلان‌های پنل
