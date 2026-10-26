@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, bankAccounts, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, devices, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, transactions, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, bankAccounts, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, devices, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, recipes, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, transactions, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -24,7 +24,8 @@ const MAX_SNAPSHOT_BYTES = 4_000_000;
 type MenuPayload = {
   business: { id: number; name: string; slug: string; type: string; logoUrl: string; accentColor: string; taxPercent: number; servicePercent: number };
   categories: { id: number; parentCategoryId: number | null; name: string; description: string; emoji: string; imageUrl: string; sortOrder: number; isActive: boolean }[];
-  products: { id: number; categoryId: number | null; name: string; description: string; videoUrl: string; price: number; sellingMode: string; yieldRatio: number; oldPrice: number | null; emoji: string; imageUrl: string; prepMinutes: number; isAvailable: boolean; isFeatured: boolean; modifierGroups: unknown; dietaryTags: string[]; allergenTags: string[] }[];
+  products: { id: number; categoryId: number | null; name: string; description: string; videoUrl: string; price: number; sellingMode: string; yieldRatio: number; oldPrice: number | null; emoji: string; imageUrl: string; prepMinutes: number; isAvailable: boolean; isFeatured: boolean; modifierGroups: unknown; dietaryTags: string[]; allergenTags: string[]; recipes: { itemId: number; quantity: number; wastePercent: number }[] }[];
+  recipeItems?: { id: number; name: string; unit: string; recipeUnit: string; recipeToStockFactor: number; isActive: boolean; trackStock: boolean }[];
   tables: { id: number; name: string; zone: string; capacity: number; operationalStatus: string }[];
 };
 type CustomerPayload = {
@@ -478,8 +479,31 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
       const categoryRows = await tx.select({ id: categories.id, parentCategoryId: categories.parentCategoryId, name: categories.name, description: categories.description, emoji: categories.emoji, imageUrl: categories.imageUrl, sortOrder: categories.sortOrder, isActive: categories.isActive }).from(categories).where(eq(categories.businessId, business.id)).orderBy(asc(categories.sortOrder), asc(categories.id));
       const productRows = await tx.select({ id: products.id, categoryId: products.categoryId, name: products.name, description: products.description, videoUrl: products.videoUrl, price: products.price, sellingMode: products.sellingMode, yieldRatio: products.yieldRatio, oldPrice: products.oldPrice, emoji: products.emoji, imageUrl: products.imageUrl, prepMinutes: products.prepMinutes, isAvailable: products.isAvailable, isFeatured: products.isFeatured, modifierGroups: products.modifierGroups, dietaryTags: products.dietaryTags, allergenTags: products.allergenTags }).from(products).where(eq(products.businessId, business.id)).orderBy(asc(products.id));
+      const canManageRecipes = hasAny(features, "recipes");
+      const [recipeRows, recipeItemRows] = canManageRecipes ? await Promise.all([
+        tx.select({ productId: recipes.productId, itemId: recipes.itemId, quantity: recipes.quantity, wastePercent: recipes.wastePercent })
+          .from(recipes).where(eq(recipes.businessId, business.id)).orderBy(asc(recipes.productId), asc(recipes.itemId)).limit(200_001),
+        tx.select({ id: inventoryItems.id, name: inventoryItems.name, unit: inventoryItems.unit, recipeUnit: inventoryItems.recipeUnit, recipeToStockFactor: inventoryItems.recipeToStockFactor, isActive: inventoryItems.isActive, trackStock: inventoryItems.trackStock })
+          .from(inventoryItems).where(eq(inventoryItems.businessId, business.id)).orderBy(asc(inventoryItems.name), asc(inventoryItems.id)).limit(10_001),
+      ]) : [[], []];
+      if (canManageRecipes && recipeRows.length > 200_000) throw new HttpError(413, "دستورهای تهیه برای snapshot آفلاین از سقف مجاز بیشتر است");
+      if (canManageRecipes && recipeItemRows.length > 10_000) throw new HttpError(413, "فهرست مواد اولیه برای snapshot دستور تهیه از سقف ۱۰٬۰۰۰ قلم بیشتر است");
+      const recipeCounts = new Map<number, number>();
+      const recipesByProduct = new Map<number, { itemId: number; quantity: number; wastePercent: number }[]>();
+      for (const row of recipeRows) {
+        const count = (recipeCounts.get(row.productId) ?? 0) + 1;
+        if (count > 200) throw new HttpError(413, "دستور تهیهٔ یک محصول بیش از ۲۰۰ ماده دارد و برای دریافت آفلاین باید کوچک‌تر شود");
+        recipeCounts.set(row.productId, count);
+        const productRecipes = recipesByProduct.get(row.productId) ?? [];
+        productRecipes.push({ itemId: row.itemId, quantity: row.quantity, wastePercent: row.wastePercent });
+        recipesByProduct.set(row.productId, productRecipes);
+      }
       const tableRows = await tx.select({ id: diningTables.id, name: diningTables.name, zone: diningTables.zone, capacity: diningTables.capacity, operationalStatus: diningTables.operationalStatus }).from(diningTables).where(eq(diningTables.businessId, business.id)).orderBy(asc(diningTables.id));
-      payload = { business: currentBusiness, categories: categoryRows, products: productRows, tables: tableRows };
+      payload = {
+        business: currentBusiness, categories: categoryRows,
+        products: productRows.map((product) => ({ ...product, recipes: recipesByProduct.get(product.id) ?? [] })),
+        ...(canManageRecipes ? { recipeItems: recipeItemRows } : {}), tables: tableRows,
+      };
     } else if (dataset === "customers") {
       const customerRows = await tx.select({ id: customers.id, name: customers.name, phone: customers.phone, points: customers.points, walletBalance: customers.walletBalance, lastOrderAt: customers.lastOrderAt, totalSpent: customers.totalSpent, ordersCount: customers.ordersCount, createdAt: customers.createdAt })
         .from(customers).where(eq(customers.businessId, business.id)).orderBy(desc(customers.totalSpent), desc(customers.id)).limit(10_001);
@@ -965,7 +989,7 @@ type MenuCommand = {
   id: string;
   businessId: number;
   module: "menu";
-  action: "update_product" | "update_category" | "create_product" | "create_category";
+  action: "update_product" | "update_category" | "create_product" | "create_category" | "set_recipe";
   baseDataset: "menu";
   baseSnapshotId: string;
   baseRevision: number;
@@ -981,7 +1005,7 @@ function isIsoTimestamp(value: unknown): value is string {
 }
 
 function parseMenuCommand(raw: unknown): MenuCommand {
-  const actions = ["update_product", "update_category", "create_product", "create_category"];
+  const actions = ["update_product", "update_category", "create_product", "create_category", "set_recipe"];
   if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "menu" || !actions.includes(String(raw.action))) {
     throw new HttpError(400, "قالب فرمان منوی آفلاین معتبر نیست");
   }
@@ -994,6 +1018,24 @@ function parseMenuCommand(raw: unknown): MenuCommand {
   if (!isRecord(raw.payload)) throw new HttpError(400, "محتوای فرمان معتبر نیست");
   const action = raw.action as MenuCommand["action"];
   const payload = raw.payload;
+  if (action === "set_recipe") {
+    if (Object.keys(payload).some((key) => key !== "productId" && key !== "lines") || !Number.isSafeInteger(payload.productId) || Number(payload.productId) < 1 || !Array.isArray(payload.lines) || payload.lines.length > 200) {
+      throw new HttpError(400, "اطلاعات دستور تهیهٔ محصول معتبر نیست");
+    }
+    const usedItems = new Set<number>();
+    for (const line of payload.lines) {
+      if (!isRecord(line) || Object.keys(line).some((key) => !["itemId", "quantity", "wastePercent"].includes(key))
+        || !Number.isSafeInteger(line.itemId) || Number(line.itemId) < 1
+        || typeof line.quantity !== "number" || !Number.isFinite(line.quantity) || line.quantity < 0.0001 || line.quantity > 100_000
+        || typeof line.wastePercent !== "number" || !Number.isFinite(line.wastePercent) || line.wastePercent < 0 || line.wastePercent > 99.9
+        || usedItems.has(Number(line.itemId))) {
+        throw new HttpError(400, "مادهٔ تکراری یا مقدار دستور تهیه نامعتبر است");
+      }
+      usedItems.add(Number(line.itemId));
+    }
+    payload.lines.sort((a, b) => Number((a as Record<string, unknown>).itemId) - Number((b as Record<string, unknown>).itemId));
+    return raw as unknown as MenuCommand;
+  }
   if (action === "create_product" || action === "create_category") {
     const key = action === "create_product" ? "product" : "category";
     if (Object.keys(payload).length !== 1 || !isRecord(payload[key])) throw new HttpError(400, "اطلاعات قلم جدید منو معتبر نیست");
@@ -1049,6 +1091,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
   const command = parseMenuCommand(raw);
   const { terminal, business, features } = await offlineAuth(req);
   if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "همگام‌سازی پنل آفلاین در اشتراک فعلی فعال نیست");
+  if (command.action === "set_recipe" && !hasAny(features, "recipes")) throw new HttpError(403, "ویرایش دستور تهیه در اشتراک فعلی فعال نیست");
   if (command.businessId !== business.id) throw new HttpError(403, "فرمان متعلق به کسب‌وکار این دستگاه نیست");
   const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
 
@@ -1110,6 +1153,45 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
       if (!created) throw new HttpError(500, "ساخت دسته‌بندی منو انجام نشد");
       return record("applied", 200, "", String(created.id));
     }
+    if (command.action === "set_recipe") {
+      const productId = Number(command.payload.productId);
+      const baseProducts = (snapshot.payload.products as Record<string, unknown>[] | undefined) ?? [];
+      const baseProduct = baseProducts.find((row) => row.id === productId);
+      const baseRecipeItems = (snapshot.payload.recipeItems as Record<string, unknown>[] | undefined) ?? [];
+      const baseLines = baseProduct?.recipes;
+      if (!Array.isArray(baseLines) || !snapshot.payload.recipeItems) return record("conflict", 409, "دستور تهیه در نسخهٔ مبنا موجود نیست؛ اشتراک یا snapshot منو را تازه کنید");
+      const [currentProduct] = await tx.select({ id: products.id }).from(products)
+        .where(and(eq(products.id, productId), eq(products.businessId, business.id))).for("update");
+      if (!currentProduct) return record("conflict", 409, "محصول دستور تهیه در سرور پیدا نشد");
+      const currentLines = await tx.select({ itemId: recipes.itemId, quantity: recipes.quantity, wastePercent: recipes.wastePercent })
+        .from(recipes).where(and(eq(recipes.businessId, business.id), eq(recipes.productId, productId)))
+        .orderBy(asc(recipes.itemId)).for("update");
+      const normalizeLines = (lines: unknown) => Array.isArray(lines)
+        ? lines.map((line) => ({ itemId: Number((line as Record<string, unknown>).itemId), quantity: Number((line as Record<string, unknown>).quantity), wastePercent: Number((line as Record<string, unknown>).wastePercent) })).sort((a, b) => a.itemId - b.itemId)
+        : [];
+      if (canonical(normalizeLines(currentLines)) !== canonical(normalizeLines(baseLines))) return record("conflict", 409, "دستور تهیهٔ محصول از زمان دریافت snapshot تغییر کرده است؛ منو را تازه کنید و دوباره بررسی کنید");
+      const lines = command.payload.lines as { itemId: number; quantity: number; wastePercent: number }[];
+      const baseRecipeIds = new Set(normalizeLines(baseLines).map((line) => line.itemId));
+      const itemIds = lines.map((line) => line.itemId);
+      const currentItems = itemIds.length ? await tx.select({ id: inventoryItems.id, name: inventoryItems.name, unit: inventoryItems.unit, recipeUnit: inventoryItems.recipeUnit, recipeToStockFactor: inventoryItems.recipeToStockFactor, isActive: inventoryItems.isActive, trackStock: inventoryItems.trackStock })
+        .from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), inArray(inventoryItems.id, itemIds))).for("update") : [];
+      const currentItemById = new Map(currentItems.map((item) => [item.id, item]));
+      for (const line of lines) {
+        const baseItem = baseRecipeItems.find((item) => item.id === line.itemId);
+        const currentItem = currentItemById.get(line.itemId);
+        if (!baseItem || !currentItem) return record("conflict", 409, "یکی از مواد دستور تهیه از نسخهٔ این دستگاه حذف یا خارج شده است؛ snapshot انبار را تازه کنید");
+        if (baseItem.name !== currentItem.name || baseItem.unit !== currentItem.unit || baseItem.recipeUnit !== currentItem.recipeUnit || Number(baseItem.recipeToStockFactor) !== Number(currentItem.recipeToStockFactor)
+          || baseItem.isActive !== currentItem.isActive || baseItem.trackStock !== currentItem.trackStock) {
+          return record("conflict", 409, "واحد یا وضعیت یکی از مواد اولیه تغییر کرده است؛ دستور تهیه را با snapshot تازه بازبینی کنید");
+        }
+        if (!currentItem.isActive && !baseRecipeIds.has(line.itemId)) return record("rejected", 422, "مادهٔ غیرفعال را نمی‌توان به دستور تهیه افزود");
+      }
+      await tx.delete(recipes).where(and(eq(recipes.businessId, business.id), eq(recipes.productId, productId)));
+      if (lines.length) await tx.insert(recipes).values(lines.map((line) => ({
+        businessId: business.id, productId, itemId: line.itemId, quantity: line.quantity, wastePercent: line.wastePercent,
+      })));
+      return record("applied", 200, "", String(productId));
+    }
     const targetId = Number(command.action === "update_product" ? command.payload.productId : command.payload.categoryId);
     const patch = command.payload.patch as Record<string, unknown>;
 
@@ -1145,7 +1227,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
     }
 
     return record("applied", 200, "", randomUUID());
-  }, { isolationLevel: "repeatable read" });
+  }, { isolationLevel: command.action === "set_recipe" ? "serializable" : "repeatable read" });
 
   if (outcome.httpStatus !== 200) {
     const error = typeof outcome.response.error === "string" ? outcome.response.error : "فرمان پنل آفلاین اعمال نشد";

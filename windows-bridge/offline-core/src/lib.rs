@@ -815,6 +815,7 @@ impl Store {
                 "update_product",
                 "archive_product",
                 "update_category",
+                "set_recipe",
             ]
             .contains(&action),
             "customers" => ["create", "update"].contains(&action),
@@ -1174,6 +1175,47 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":id,"state":"pending","action":action}))
+    }
+
+    pub fn enqueue_menu_recipe_with_pin(&mut self, pin: &str, product_id: i64, lines: Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if product_id < 1 { return Err("شناسهٔ محصول معتبر نیست".into()); }
+        let lines = lines.as_array().ok_or("مواد دستور تهیه باید فهرست باشند")?;
+        if lines.len() > 200 { return Err("برای هر محصول حداکثر ۲۰۰ ماده در دستور تهیه مجاز است".into()); }
+        let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی منو دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ منو منقضی است؛ برای ویرایش دستور تهیه ابتدا آن را تازه کنید".into()); }
+        let products = snapshot["payload"]["products"].as_array().ok_or("فهرست محصولات snapshot معتبر نیست")?;
+        let product = products.iter().find(|row| row["id"].as_i64() == Some(product_id)).ok_or("محصول در نسخهٔ منوی این صندوق نیست")?;
+        let base_lines = product["recipes"].as_array().ok_or("این snapshot شامل دستور تهیه نیست؛ مجوز دستور تهیه را بررسی و منو را تازه کنید")?;
+        let items = snapshot["payload"]["recipeItems"].as_array().ok_or("فهرست مواد اولیه آفلاین دریافت نشده است")?;
+        let mut seen = std::collections::HashSet::new();
+        let mut clean_lines = Vec::with_capacity(lines.len());
+        for line in lines {
+            let item_id = number(line, "itemId")?;
+            if item_id < 1 || !seen.insert(item_id) { return Err("مادهٔ دستور تهیه نامعتبر یا تکراری است".into()); }
+            let quantity = line["quantity"].as_f64().ok_or("مقدار ماده باید عددی باشد")?;
+            let waste = line["wastePercent"].as_f64().ok_or("درصد ضایعات باید عددی باشد")?;
+            if !quantity.is_finite() || !(0.0001..=100_000.0).contains(&quantity) || !waste.is_finite() || !(0.0..=99.9).contains(&waste) {
+                return Err("مقدار یا درصد ضایعات ماده خارج از بازهٔ مجاز است".into());
+            }
+            let item = items.iter().find(|row| row["id"].as_i64() == Some(item_id)).ok_or("ماده در فهرست مواد این نسخه نیست")?;
+            let was_in_recipe = base_lines.iter().any(|row| row["itemId"].as_i64() == Some(item_id));
+            if item["isActive"].as_bool() != Some(true) && !was_in_recipe { return Err("مادهٔ غیرفعال را نمی‌توان به دستور تهیه افزود".into()); }
+            clean_lines.push(json!({"itemId":item_id,"quantity":quantity,"wastePercent":waste}));
+        }
+        clean_lines.sort_by_key(|line| line["itemId"].as_i64().unwrap_or_default());
+        let pending = self.workspace_menu_pending_changes()?;
+        if pending.as_array().is_some_and(|commands| commands.iter().any(|row| row["action"] == "set_recipe" && row["payload"]["productId"].as_i64() == Some(product_id))) {
+            return Err("برای دستور تهیهٔ این محصول تغییر در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"menu",
+            "action":"set_recipe","baseDataset":"menu","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"productId":product_id,"lines":clean_lines}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"set_recipe","productId":product_id}))
     }
 
     pub fn enqueue_customer_create_with_pin(&mut self, pin: &str, name: &str, phone: &str) -> Result<Value> {
