@@ -802,6 +802,80 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","itemId":item_id,"type":movement_type,"quantity":quantity}))
     }
 
+    pub fn enqueue_inventory_transfer_request_with_pin(&mut self, pin: &str, raw_lines: &Value, note: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if note.chars().count() > 500 { return Err("توضیح انتقال بیش از حد طولانی است".into()); }
+        let snapshot = self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ انبار منقضی است؛ ابتدا داده‌ها را تازه کنید".into()); }
+        let source_lines = raw_lines.as_array().ok_or("اقلام انتقال باید به‌شکل فهرست باشند")?;
+        if source_lines.is_empty() || source_lines.len() > 100 { return Err("انتقال باید بین ۱ تا ۱۰۰ قلم داشته باشد".into()); }
+        let items = snapshot["payload"]["items"].as_array().ok_or("فهرست محلی انبار معتبر نیست")?;
+        let mut seen = std::collections::HashSet::new();
+        let mut lines = Vec::with_capacity(source_lines.len());
+        for raw in source_lines {
+            let source_id = raw["sourceItemId"].as_i64().filter(|id| *id > 0).ok_or("قلم مبدأ انتقال معتبر نیست")?;
+            let destination_id = raw["destinationItemId"].as_i64().filter(|id| *id > 0 && *id != source_id).ok_or("قلم مقصد انتقال معتبر نیست")?;
+            let quantity = raw["quantity"].as_f64().ok_or("مقدار انتقال معتبر نیست")?;
+            if !quantity.is_finite() || quantity <= 0.0 || quantity > 1_000_000.0 || !seen.insert((source_id, destination_id)) { return Err("مقدار یا مسیر انتقال نامعتبر یا تکراری است".into()); }
+            let source = items.iter().find(|item| item["id"].as_i64() == Some(source_id)).ok_or("قلم مبدأ در snapshot انبار پیدا نشد")?;
+            let destination = items.iter().find(|item| item["id"].as_i64() == Some(destination_id)).ok_or("قلم مقصد در snapshot انبار پیدا نشد")?;
+            if source["isActive"].as_bool() != Some(true) || destination["isActive"].as_bool() != Some(true) || source["trackStock"].as_bool() != Some(true) || destination["trackStock"].as_bool() != Some(true) || source["warehouseId"].is_null() || destination["warehouseId"].is_null() || source["warehouseId"] == destination["warehouseId"] || source["unit"] != destination["unit"] || source["name"].as_str().unwrap_or("").trim().to_lowercase() != destination["name"].as_str().unwrap_or("").trim().to_lowercase() {
+                return Err("مبدأ و مقصد باید اقلام فعال، قابل‌ردیابی، هم‌نام و هم‌واحد در دو انبار متفاوت باشند".into());
+            }
+            for item_id in [source_id, destination_id] {
+                if snapshot["localProjection"][item_id.to_string()]["stale"].as_bool() == Some(true) { return Err("گردش قبلی یکی از اقلام با این نسخه سازگار نیست؛ snapshot تازه بگیرید".into()); }
+            }
+            lines.push(json!({"sourceItemId":source_id,"destinationItemId":destination_id,"quantity":quantity}));
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({"schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory","action":"transfer","baseDataset":"inventory","baseSnapshotId":snapshot_id,"baseRevision":snapshot["revision"],"payload":{"intent":"request","lines":lines,"note":note.trim(),"occurredAt":Utc::now().to_rfc3339()}});
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","intent":"request","lineCount":lines.len()}))
+    }
+
+    pub fn enqueue_inventory_transfer_decision_with_pin(&mut self, pin: &str, transfer_id: i64, decision: &str, note: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if transfer_id < 1 || !["approve", "reject"].contains(&decision) || note.chars().count() > 500 { return Err("شناسه یا تصمیم انتقال معتبر نیست".into()); }
+        let snapshot = self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ انبار منقضی است؛ ابتدا داده‌ها را تازه کنید".into()); }
+        let transfers = snapshot["payload"]["transfers"].as_array().ok_or("فهرست درخواست‌های انتقال در snapshot موجود نیست")?;
+        let transfer = transfers.iter().find(|row| row["id"].as_i64() == Some(transfer_id)).ok_or("درخواست انتقال در نسخهٔ محلی پیدا نشد")?;
+        if transfer["status"].as_str() != Some("pending") { return Err("فقط درخواست انتقال در انتظار بررسی قابل تصمیم‌گیری است".into()); }
+        let lines = transfer["lines"].as_array().ok_or("اقلام درخواست انتقال معتبر نیستند")?;
+        if lines.is_empty() || lines.len() > 100 { return Err("تعداد اقلام درخواست انتقال معتبر نیست".into()); }
+        let mut item_ids = lines.iter().flat_map(|line| [line["sourceItemId"].as_i64(), line["destinationItemId"].as_i64()]).flatten().collect::<Vec<_>>();
+        item_ids.sort_unstable(); item_ids.dedup();
+        let mut expected_items = Vec::new();
+        let decision_lines = lines.iter().map(|line| json!({"sourceItemId":line["sourceItemId"],"destinationItemId":line["destinationItemId"],"quantity":line["quantity"]})).collect::<Vec<_>>();
+        if decision == "approve" {
+            for item_id in &item_ids {
+                let projection = &snapshot["localProjection"][item_id.to_string()];
+                if projection["stale"].as_bool() == Some(true) { return Err("گردش قبلی یکی از اقلام با این نسخه سازگار نیست؛ snapshot تازه بگیرید".into()); }
+                expected_items.push(json!({"itemId":item_id,"expectedStock":projection["stock"],"expectedCostPerUnit":projection["costPerUnit"]}));
+            }
+            let mut projected = item_ids.iter().map(|id| (*id, snapshot["localProjection"][id.to_string()]["stock"].as_f64().ok_or("موجودی پیش‌بینی‌شده معتبر نیست"))).collect::<Result<std::collections::HashMap<_,_>>>()?;
+            for line in lines {
+                let source = line["sourceItemId"].as_i64().ok_or("مبدأ انتقال معتبر نیست")?;
+                let destination = line["destinationItemId"].as_i64().ok_or("مقصد انتقال معتبر نیست")?;
+                let quantity = line["quantity"].as_f64().ok_or("مقدار انتقال معتبر نیست")?;
+                let source_stock = *projected.get(&source).ok_or("موجودی مبدأ در snapshot نیست")?;
+                let destination_stock = *projected.get(&destination).ok_or("موجودی مقصد در snapshot نیست")?;
+                if !quantity.is_finite() || quantity <= 0.0 || source_stock + 1e-9 < quantity || destination_stock + quantity > 1_000_000_000.0 { return Err("موجودی مبدأ/مقصد برای تأیید این انتقال کافی یا معتبر نیست".into()); }
+                projected.insert(source, (source_stock - quantity).max(0.0));
+                projected.insert(destination, destination_stock + quantity);
+            }
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?;
+        let expected_created_at = transfer["createdAt"].as_str().ok_or("زمان درخواست انتقال پیدا نشد")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({"schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory","action":"transfer","baseDataset":"inventory","baseSnapshotId":snapshot_id,"baseRevision":snapshot["revision"],"payload":{"intent":decision,"transferId":transfer_id,"expectedCreatedAt":expected_created_at,"lines":decision_lines,"expectedItems":expected_items,"note":note.trim(),"occurredAt":Utc::now().to_rfc3339()}});
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","intent":decision,"transferId":transfer_id}))
+    }
+
     pub fn enqueue_inventory_receive_with_pin(
         &mut self, pin: &str, occurred_at: &str, invoice_no: &str, supplier_id: Option<i64>,
         discount: i64, extra_cost: i64, shipping_cost: i64, tax_amount: i64, paid_amount: i64,
@@ -999,7 +1073,7 @@ impl Store {
                 states.insert(item_id, (item["stock"].as_f64().unwrap_or(0.0), item["costPerUnit"].as_i64().unwrap_or(0), false));
             }
         }
-        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement') AND base_snapshot_id=?2 ORDER BY sequence ASC").map_err(err)?;
+        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement','transfer') AND base_snapshot_id=?2 ORDER BY sequence ASC").map_err(err)?;
         let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Vec<u8>>(1)?,row.get::<_, String>(2)?))).map_err(err)?;
         for row in commands {
             let (state, payload, created_at) = row.map_err(err)?;
@@ -1014,6 +1088,9 @@ impl Store {
                     },
                     Some("movement") => if let Some(item_id) = payload["itemId"].as_i64() {
                         if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
+                    },
+                    Some("transfer") if payload["intent"].as_str() == Some("approve") => if let Some(expected_items) = payload["expectedItems"].as_array() {
+                        for item in expected_items { if let Some(item_id) = item["itemId"].as_i64() { if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; } } }
                     },
                     Some("receive") => if let Some(lines) = payload["lines"].as_array() {
                         for line in lines {
@@ -1054,6 +1131,33 @@ impl Store {
                         }
                     }
                 },
+                Some("transfer") if payload["intent"].as_str() == Some("approve") => {
+                    let expected_items = payload["expectedItems"].as_array().cloned().unwrap_or_default();
+                    let lines = payload["lines"].as_array().cloned().unwrap_or_default();
+                    let mut planned = std::collections::HashMap::<i64, (f64, i64)>::new();
+                    let mut invalid = lines.is_empty();
+                    for item in &expected_items {
+                        let Some(item_id) = item["itemId"].as_i64() else { invalid = true; continue; };
+                        let Some((stock, cost, stale)) = states.get(&item_id) else { invalid = true; continue; };
+                        let expected_stock = item["expectedStock"].as_f64().unwrap_or(f64::NAN);
+                        let expected_cost = item["expectedCostPerUnit"].as_i64().unwrap_or(-1);
+                        if *stale || !expected_stock.is_finite() || (expected_stock - *stock).abs() > 1e-9 || expected_cost != *cost { invalid = true; }
+                        planned.insert(item_id, (*stock, *cost));
+                    }
+                    for line in &lines {
+                        let (Some(source),Some(destination),Some(quantity)) = (line["sourceItemId"].as_i64(),line["destinationItemId"].as_i64(),line["quantity"].as_f64()) else { invalid = true; continue; };
+                        let Some((source_stock, source_cost)) = planned.get(&source).copied() else { invalid = true; continue; };
+                        let Some((destination_stock, destination_cost)) = planned.get(&destination).copied() else { invalid = true; continue; };
+                        if !quantity.is_finite() || quantity <= 0.0 || source_stock + 1e-9 < quantity || destination_stock + quantity > 1_000_000_000.0 { invalid = true; continue; }
+                        planned.insert(source, ((source_stock - quantity).max(0.0), source_cost));
+                        planned.insert(destination, (destination_stock + quantity, destination_cost));
+                    }
+                    if invalid {
+                        for item in &expected_items { if let Some(item_id) = item["itemId"].as_i64() { if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; } } }
+                    } else {
+                        for (item_id,(stock,cost)) in planned { if let Some(state) = states.get_mut(&item_id) { state.0=stock; state.1=cost; } }
+                    }
+                },
                 Some("receive") => if let Some(lines) = payload["lines"].as_array() {
                     for line in lines {
                         let Some(item_id) = line["itemId"].as_i64() else { continue; };
@@ -1083,7 +1187,7 @@ impl Store {
         let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else {
             return Ok(json!([]));
         };
-        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement','transfer') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
         let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?, row.get::<_, Option<String>>(6)?))).map_err(err)?;
         rows.map(|row| {
             let (id,state,error,payload,created_at,sequence,base_snapshot_id) = row.map_err(err)?;

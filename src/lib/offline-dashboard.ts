@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -29,6 +29,7 @@ type InventoryPayload = {
   warehouses: { id: number; name: string; location: string }[];
   suppliers: { id: number; name: string; isActive: boolean; hasPayableAccount: boolean }[];
   movements: { id: number; itemId: number; type: string; delta: number; balanceAfter: number; unitCost: number; invoiceNo: string; amount: number; createdAt: string }[];
+  transfers: { id: number; status: string; note: string; createdAt: string; decidedAt: string | null; lines: { id: number; transferId: number; sourceItemId: number; destinationItemId: number; quantity: number; unitCost: number; source: { id: number; name: string; unit: string; warehouseId: number | null } | null; destination: { id: number; name: string; unit: string; warehouseId: number | null } | null }[] }[];
   totalItems: number;
 };
 type OrdersPayload = {
@@ -267,11 +268,27 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         amount: stockMovements.amount, createdAt: stockMovements.createdAt,
       }).from(stockMovements).where(eq(stockMovements.businessId, business.id))
         .orderBy(desc(stockMovements.createdAt), desc(stockMovements.id)).limit(300);
+      const transferRows = await tx.select({ id: stockTransfers.id, status: stockTransfers.status, note: stockTransfers.note, createdAt: stockTransfers.createdAt, decidedAt: stockTransfers.decidedAt })
+        .from(stockTransfers).where(eq(stockTransfers.businessId, business.id)).orderBy(desc(stockTransfers.createdAt), desc(stockTransfers.id)).limit(100);
+      const transferLineRows = transferRows.length
+        ? await tx.select().from(stockTransferLines).where(inArray(stockTransferLines.transferId, transferRows.map((row) => row.id))).orderBy(asc(stockTransferLines.id))
+        : [];
+      const itemById = new Map(itemRows.map((item) => [item.id, item]));
       payload = {
         items: itemRows,
         warehouses: warehouseRows,
         suppliers: supplierRows,
         movements: movementRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+        transfers: transferRows.map((transfer) => ({
+          ...transfer,
+          createdAt: transfer.createdAt.toISOString(),
+          decidedAt: transfer.decidedAt?.toISOString() ?? null,
+          lines: transferLineRows.filter((line) => line.transferId === transfer.id).map((line) => ({
+            ...line,
+            source: itemById.get(line.sourceItemId) ? { id: line.sourceItemId, name: itemById.get(line.sourceItemId)!.name, unit: itemById.get(line.sourceItemId)!.unit, warehouseId: itemById.get(line.sourceItemId)!.warehouseId } : null,
+            destination: itemById.get(line.destinationItemId) ? { id: line.destinationItemId, name: itemById.get(line.destinationItemId)!.name, unit: itemById.get(line.destinationItemId)!.unit, warehouseId: itemById.get(line.destinationItemId)!.warehouseId } : null,
+          })),
+        })),
         totalItems: itemRows.length,
       };
     } else if (dataset === "reservations") {

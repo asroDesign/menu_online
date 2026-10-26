@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, suppliers, users } from "@/db/schema";
+import { businesses, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, stockMovements, stockTransferLines, stockTransfers, suppliers, users } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { ensureAccounting } from "@/lib/accounting";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -224,6 +224,159 @@ export async function syncOfflineInventoryMovement(req: Request, raw: unknown) {
     return record("applied", 200, "", String(result.receipt.id));
   }, { isolationLevel: "repeatable read" });
   if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "گردش انبار آفلاین اعمال نشد");
+  return outcome.response;
+}
+
+type InventoryTransferCommand = {
+  schemaVersion: 1; id: string; businessId: number; module: "inventory"; action: "transfer";
+  baseDataset: "inventory"; baseSnapshotId: string; baseRevision: number;
+  payload: {
+    intent: "request" | "approve" | "reject";
+    note: string;
+    occurredAt: string;
+    lines?: { sourceItemId: number; destinationItemId: number; quantity: number }[];
+    transferId?: number;
+    expectedCreatedAt?: string;
+    expectedItems?: { itemId: number; expectedStock: number; expectedCostPerUnit: number }[];
+  };
+};
+
+function parseInventoryTransfer(raw: unknown): InventoryTransferCommand {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HttpError(400, "فرمان انتقال آفلاین معتبر نیست");
+  const command = raw as Record<string, unknown>;
+  const allowed = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(command).some((key) => !allowed.includes(key)) || command.schemaVersion !== 1 || command.module !== "inventory" || command.action !== "transfer" || command.baseDataset !== "inventory") throw new HttpError(400, "نسخه یا نوع فرمان انتقال پشتیبانی نمی‌شود");
+  if (typeof command.id !== "string" || !UUID.test(command.id) || !Number.isSafeInteger(command.businessId) || Number(command.businessId) < 1 || typeof command.baseSnapshotId !== "string" || !UUID.test(command.baseSnapshotId) || !Number.isSafeInteger(command.baseRevision) || Number(command.baseRevision) < 1) throw new HttpError(400, "شناسهٔ فرمان یا snapshot انبار معتبر نیست");
+  if (!command.payload || typeof command.payload !== "object" || Array.isArray(command.payload)) throw new HttpError(400, "اطلاعات انتقال معتبر نیست");
+  const payload = command.payload as Record<string, unknown>, commonKeys = ["intent", "note", "occurredAt"], requestKeys = [...commonKeys, "lines"], decisionKeys = [...commonKeys, "transferId", "expectedCreatedAt", "expectedItems"];
+  if (!["request", "approve", "reject"].includes(String(payload.intent)) || typeof payload.note !== "string" || [...payload.note].length > 500 || typeof payload.occurredAt !== "string" || payload.occurredAt.length > 40 || !RFC3339.test(payload.occurredAt) || !Number.isFinite(Date.parse(payload.occurredAt))) throw new HttpError(400, "نوع، توضیح یا زمان انتقال معتبر نیست");
+  if (payload.intent === "request") {
+    if (Object.keys(payload).some((key) => !requestKeys.includes(key)) || !Array.isArray(payload.lines) || payload.lines.length < 1 || payload.lines.length > 100) throw new HttpError(400, "اقلام درخواست انتقال معتبر نیستند");
+    const pairs = new Set<string>();
+    for (const rawLine of payload.lines) {
+      if (!rawLine || typeof rawLine !== "object" || Array.isArray(rawLine)) throw new HttpError(400, "ردیف انتقال معتبر نیست");
+      const line = rawLine as Record<string, unknown>, pair = `${line.sourceItemId}:${line.destinationItemId}`;
+      if (Object.keys(line).some((key) => !["sourceItemId", "destinationItemId", "quantity"].includes(key)) || !Number.isSafeInteger(line.sourceItemId) || Number(line.sourceItemId) < 1 || !Number.isSafeInteger(line.destinationItemId) || Number(line.destinationItemId) < 1 || line.sourceItemId === line.destinationItemId || pairs.has(pair) || typeof line.quantity !== "number" || !Number.isFinite(line.quantity) || line.quantity <= 0 || line.quantity > 1_000_000) throw new HttpError(400, "قلم یا مقدار انتقال معتبر نیست");
+      pairs.add(pair);
+    }
+  } else {
+    if (Object.keys(payload).some((key) => !decisionKeys.includes(key)) || !Number.isSafeInteger(payload.transferId) || Number(payload.transferId) < 1 || typeof payload.expectedCreatedAt !== "string" || payload.expectedCreatedAt.length > 40 || !RFC3339.test(payload.expectedCreatedAt) || !Number.isFinite(Date.parse(payload.expectedCreatedAt)) || !Array.isArray(payload.lines) || payload.lines.length < 1 || payload.lines.length > 100 || !Array.isArray(payload.expectedItems) || payload.expectedItems.length > 200) throw new HttpError(400, "تصمیم انتقال معتبر نیست");
+    const pairs = new Set<string>();
+    for (const rawLine of payload.lines) {
+      if (!rawLine || typeof rawLine !== "object" || Array.isArray(rawLine)) throw new HttpError(400, "ردیف تصمیم انتقال معتبر نیست");
+      const line = rawLine as Record<string, unknown>, pair = `${line.sourceItemId}:${line.destinationItemId}`;
+      if (Object.keys(line).some((key) => !["sourceItemId", "destinationItemId", "quantity"].includes(key)) || !Number.isSafeInteger(line.sourceItemId) || Number(line.sourceItemId) < 1 || !Number.isSafeInteger(line.destinationItemId) || Number(line.destinationItemId) < 1 || line.sourceItemId === line.destinationItemId || pairs.has(pair) || typeof line.quantity !== "number" || !Number.isFinite(line.quantity) || line.quantity <= 0 || line.quantity > 1_000_000) throw new HttpError(400, "ردیف تصمیم انتقال معتبر نیست");
+      pairs.add(pair);
+    }
+    const itemIds = new Set<number>();
+    for (const rawItem of payload.expectedItems) {
+      if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) throw new HttpError(400, "موجودی مورد انتظار انتقال معتبر نیست");
+      const item = rawItem as Record<string, unknown>;
+      if (Object.keys(item).some((key) => !["itemId", "expectedStock", "expectedCostPerUnit"].includes(key)) || !Number.isSafeInteger(item.itemId) || Number(item.itemId) < 1 || itemIds.has(Number(item.itemId)) || typeof item.expectedStock !== "number" || !Number.isFinite(item.expectedStock) || item.expectedStock < 0 || item.expectedStock > 1_000_000_000 || !moneyValue(item.expectedCostPerUnit) || item.expectedCostPerUnit > 2_147_483_647) throw new HttpError(400, "موجودی مورد انتظار انتقال معتبر نیست");
+      itemIds.add(Number(item.itemId));
+    }
+  }
+  return raw as InventoryTransferCommand;
+}
+
+export async function syncOfflineInventoryTransfer(req: Request, raw: unknown) {
+  const command = parseInventoryTransfer(raw), { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory") || !hasAny(features, "stock_movements")) throw new HttpError(403, "صندوق آفلاین، انبار و گردش انبار باید در اشتراک فعال باشند");
+  if (command.businessId !== business.id) throw new HttpError(403, "فرمان انتقال متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+  const outcome = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این دستگاه لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.payloadHash !== payloadHash) return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "") => {
+      const response = { commandId: command.id, state, receipt, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({ id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy, module: command.module, action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>, state, httpStatus, error, receipt, result: response });
+      return { httpStatus, response };
+    };
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "inventory"), eq(offlineWorkspaceSnapshots.revision, command.baseRevision))).for("update");
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ موجودی مبنا منقضی شده یا پیدا نمی‌شود؛ snapshot تازه دریافت کنید");
+    const occurredAt = new Date(command.payload.occurredAt);
+    if (occurredAt.getTime() > Date.now() + 5 * 60_000 || occurredAt.getTime() < snapshot.issuedAt.getTime() - 5 * 60_000) return record("rejected", 422, "زمان انتقال بیرون از بازهٔ snapshot محلی است");
+
+    if (command.payload.intent === "request") {
+      const lines = command.payload.lines!;
+      const itemIds = [...new Set(lines.flatMap((line) => [line.sourceItemId, line.destinationItemId]))].sort((a, b) => a - b);
+      const baseItems = Array.isArray(snapshot.payload.items) ? snapshot.payload.items as Record<string, unknown>[] : [];
+      const baseById = new Map(baseItems.map((item) => [Number(item.id), item]));
+      for (const line of lines) {
+        const source = baseById.get(line.sourceItemId), destination = baseById.get(line.destinationItemId);
+        if (!source || !destination || source.isActive !== true || destination.isActive !== true || source.trackStock !== true || destination.trackStock !== true || !source.warehouseId || !destination.warehouseId || source.warehouseId === destination.warehouseId || source.unit !== destination.unit || String(source.name).trim().toLocaleLowerCase() !== String(destination.name).trim().toLocaleLowerCase()) return record("conflict", 409, "اقلام مبدأ و مقصد در snapshot دیگر سازگار نیستند؛ انبار را تازه کنید");
+      }
+      await tx.execute(sql`select pg_advisory_xact_lock(${business.id})`);
+      const locked = await tx.select().from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), inArray(inventoryItems.id, itemIds))).orderBy(inventoryItems.id).for("update");
+      const liveById = new Map(locked.map((item) => [item.id, item]));
+      if (locked.length !== itemIds.length) return record("conflict", 409, "یکی از اقلام انتقال در سرور پیدا نشد");
+      for (const line of lines) {
+        const source = liveById.get(line.sourceItemId)!, destination = liveById.get(line.destinationItemId)!;
+        if (!source.isActive || !destination.isActive || !source.trackStock || !destination.trackStock || !source.warehouseId || !destination.warehouseId || source.warehouseId === destination.warehouseId || source.unit !== destination.unit || source.name.trim().toLocaleLowerCase() !== destination.name.trim().toLocaleLowerCase()) return record("conflict", 409, "قلم یا مقصد انتقال در سرور تغییر کرده است");
+      }
+      const [transfer] = await tx.insert(stockTransfers).values({ businessId: business.id, requestKey: command.id, note: command.payload.note, createdBy: terminal.createdBy }).returning();
+      for (const line of lines) await tx.insert(stockTransferLines).values({ transferId: transfer.id, ...line, unitCost: liveById.get(line.sourceItemId)!.costPerUnit });
+      return record("applied", 200, "", String(transfer.id));
+    }
+
+    const [baseTransfer] = ((Array.isArray(snapshot.payload.transfers) ? snapshot.payload.transfers : []) as Record<string, unknown>[]).filter((row) => Number(row.id) === command.payload.transferId);
+    if (!baseTransfer || baseTransfer.status !== "pending" || baseTransfer.createdAt !== command.payload.expectedCreatedAt) return record("conflict", 409, "درخواست انتقال در snapshot موجود یا در انتظار بررسی نیست؛ فهرست را تازه کنید");
+    await tx.execute(sql`select pg_advisory_xact_lock(${business.id})`);
+    const [transfer] = await tx.select().from(stockTransfers).where(and(eq(stockTransfers.id, command.payload.transferId!), eq(stockTransfers.businessId, business.id))).for("update");
+    if (!transfer || transfer.status !== "pending" || transfer.createdAt.toISOString() !== command.payload.expectedCreatedAt) return record("conflict", 409, "درخواست انتقال هم‌زمان بررسی یا تغییر کرده است");
+    const lines = await tx.select().from(stockTransferLines).where(eq(stockTransferLines.transferId, transfer.id)).orderBy(stockTransferLines.id);
+    const baseLines = Array.isArray(baseTransfer.lines) ? baseTransfer.lines as Record<string, unknown>[] : [];
+    const commandLines = command.payload.lines!;
+    if (lines.length === 0 || baseLines.length !== lines.length || commandLines.length !== lines.length || lines.some((line, index) => line.sourceItemId !== Number(baseLines[index]?.sourceItemId) || line.destinationItemId !== Number(baseLines[index]?.destinationItemId) || line.quantity !== Number(baseLines[index]?.quantity) || line.sourceItemId !== commandLines[index]?.sourceItemId || line.destinationItemId !== commandLines[index]?.destinationItemId || line.quantity !== commandLines[index]?.quantity)) return record("conflict", 409, "اقلام درخواست انتقال نسبت به snapshot تغییر کرده‌اند");
+    if (command.payload.intent === "reject") {
+      const [saved] = await tx.update(stockTransfers).set({ status: "rejected", decidedBy: terminal.createdBy, decidedAt: new Date() }).where(and(eq(stockTransfers.id, transfer.id), eq(stockTransfers.status, "pending"))).returning();
+      if (!saved) return record("conflict", 409, "درخواست انتقال قبلاً بررسی شده است");
+      return record("applied", 200, "", String(saved.id));
+    }
+
+    const expected = command.payload.expectedItems!, itemIds = [...new Set(lines.flatMap((line) => [line.sourceItemId, line.destinationItemId]))].sort((a, b) => a - b);
+    const expectedById = new Map(expected.map((item) => [item.itemId, item]));
+    if (expected.length !== itemIds.length || itemIds.some((itemId) => !expectedById.has(itemId))) return record("rejected", 422, "موجودی مبنا برای همهٔ اقلام انتقال لازم است");
+    const locked = await tx.select().from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), inArray(inventoryItems.id, itemIds))).orderBy(inventoryItems.id).for("update");
+    const liveById = new Map(locked.map((item) => [item.id, item]));
+    if (locked.length !== itemIds.length) return record("conflict", 409, "یکی از اقلام انتقال در سرور پیدا نشد");
+    for (const itemId of itemIds) {
+      const item = liveById.get(itemId)!, expectedItem = expectedById.get(itemId)!;
+      if (!item.isActive || !item.trackStock || Math.abs(item.stock - expectedItem.expectedStock) > STOCK_EPSILON || item.costPerUnit !== expectedItem.expectedCostPerUnit) return record("conflict", 409, "موجودی یا بهای یکی از اقلام انتقال تغییر کرده است؛ snapshot تازه دریافت کنید");
+    }
+    const balances = new Map(locked.map((item) => [item.id, item.stock]));
+    const movementBalances = new Map(balances);
+    const movementRows: { businessId: number; itemId: number; type: "out" | "in"; delta: number; balanceAfter: number; note: string; unitCost: number }[] = [];
+    for (const line of lines) {
+      const source = liveById.get(line.sourceItemId)!, destination = liveById.get(line.destinationItemId)!;
+      if (!source.warehouseId || !destination.warehouseId || source.warehouseId === destination.warehouseId || source.unit !== destination.unit || source.name.trim().toLocaleLowerCase() !== destination.name.trim().toLocaleLowerCase()) return record("conflict", 409, "مبدأ و مقصد دیگر برای انتقال سازگار نیستند");
+      const sourceStock = balances.get(source.id)!, destinationStock = balances.get(destination.id)!;
+      if (sourceStock + STOCK_EPSILON < line.quantity) return record("conflict", 409, `موجودی ${source.name} برای انتقال کافی نیست`);
+      if (destinationStock + line.quantity > 1_000_000_000) return record("rejected", 422, `موجودی مقصد ${destination.name} از سقف مجاز بیشتر می‌شود`);
+      balances.set(source.id, Math.max(0, sourceStock - line.quantity));
+      balances.set(destination.id, destinationStock + line.quantity);
+      movementBalances.set(source.id, movementBalances.get(source.id)! - line.quantity);
+      movementBalances.set(destination.id, movementBalances.get(destination.id)! + line.quantity);
+      movementRows.push(
+        { businessId: business.id, itemId: source.id, type: "out", delta: -line.quantity, balanceAfter: movementBalances.get(source.id)!, note: `انتقال انبار #${transfer.id} · خروج`, unitCost: line.unitCost },
+        { businessId: business.id, itemId: destination.id, type: "in", delta: line.quantity, balanceAfter: movementBalances.get(destination.id)!, note: `انتقال انبار #${transfer.id} · ورود`, unitCost: line.unitCost },
+      );
+    }
+    const [saved] = await tx.update(stockTransfers).set({ status: "approved", decidedBy: terminal.createdBy, decidedAt: new Date() }).where(and(eq(stockTransfers.id, transfer.id), eq(stockTransfers.status, "pending"))).returning();
+    if (!saved) return record("conflict", 409, "درخواست انتقال هم‌زمان بررسی شده است");
+    for (const item of locked) await tx.update(inventoryItems).set({ stock: balances.get(item.id)! }).where(eq(inventoryItems.id, item.id));
+    if (movementRows.length) await tx.insert(stockMovements).values(movementRows);
+    return record("applied", 200, "", String(saved.id));
+  }, { isolationLevel: "repeatable read" });
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "درخواست انتقال آفلاین اعمال نشد");
   return outcome.response;
 }
 

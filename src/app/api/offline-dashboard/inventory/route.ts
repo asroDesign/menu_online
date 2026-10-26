@@ -1,5 +1,5 @@
 import { errorResponse, readJson } from "@/lib/auth";
-import { syncOfflineInventoryMovement, syncOfflineInventoryReceive, syncOfflineInventoryWaste } from "@/lib/offline-inventory";
+import { syncOfflineInventoryMovement, syncOfflineInventoryReceive, syncOfflineInventoryTransfer, syncOfflineInventoryWaste } from "@/lib/offline-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,9 @@ export async function POST(req: Request) {
       ? await syncOfflineInventoryReceive(req, command)
       : action === "movement"
         ? await syncOfflineInventoryMovement(req, command)
-        : await syncOfflineInventoryWaste(req, command);
+        : action === "transfer"
+          ? await syncOfflineInventoryTransfer(req, command)
+          : await syncOfflineInventoryWaste(req, command);
     return Response.json(response, {
       headers: { "Cache-Control": "no-store" },
     });
