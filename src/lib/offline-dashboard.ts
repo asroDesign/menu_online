@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, suppliers, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, suppliers, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
 import * as Accounting from "@/lib/accounting";
 import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
+import { outstandingAmount, receivableState } from "@/lib/receivables-core";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -72,6 +73,13 @@ type AccountingPayload = {
   years: { id: number; title: string; startDate: string; endDate: string; isClosed: boolean }[];
   documents: { id: number; number: number; date: string; kind: string; source: string; description: string; status: string; reversed: boolean; reversedOf: number | null; totalAmount: number; lines: { accountId: number; accountCode: string; accountName: string; debit: number; credit: number; description: string }[] }[];
   totalDocuments: number;
+};
+type ReceivablesPayload = {
+  receivables: { id: number; accountId: number; accountName: string; accountType: string; phone: string; orderId: number | null; orderNumber: number | null; source: string; amount: number; received: number; balance: number; status: string; dueAt: string | null; description: string; accountingDocumentId: number | null; createdAt: string }[];
+  payments: { id: number; receivableId: number; amount: number; method: string; note: string; createdAt: string }[];
+  reversals: { id: number; paymentId: number; amount: number; reason: string; createdAt: string }[];
+  totalReceivables: number;
+  totalBalance: number;
 };
 
 type OrderHistoryCursor = { createdAt: string; id: number };
@@ -186,7 +194,7 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
@@ -195,6 +203,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "reservations" && (!hasAny(features, "cashier_pos") || !hasAny(features, "reservations"))) throw new HttpError(403, "دریافت تاریخچهٔ رزرو به مجوز صندوق آفلاین و رزرو میز نیاز دارد");
   if (dataset === "shifts" && (!hasAny(features, "cashier_pos") || !hasAny(features, "staff_scheduling"))) throw new HttpError(403, "دریافت برنامهٔ شیفت به مجوز صندوق آفلاین و برنامه‌ریزی کارکنان نیاز دارد");
   if (dataset === "accounting" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت حسابداری آفلاین به مجوز صندوق و حسابداری نیاز دارد");
+  if (dataset === "receivables" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "مطالبات آفلاین به مجوز صندوق و حسابداری نیاز دارد");
   if (dataset === "accounting") await Accounting.ensureAccounting(business);
 
   return db.transaction(async (tx) => {
@@ -205,7 +214,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -334,6 +343,48 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         documents: documentRows.map((doc) => ({ ...doc, date: doc.date.toISOString(), lines: linesByDocument.get(doc.id) ?? [] })),
         totalDocuments: documentRows.length,
       };
+    } else if (dataset === "receivables") {
+      const rows = await tx.select({
+        id: receivables.id, accountId: receivables.accountId, accountName: receivableAccounts.name,
+        accountType: receivableAccounts.type, phone: receivableAccounts.phone, orderId: receivables.orderId,
+        orderNumber: orders.number, source: receivables.source, amount: receivables.amount, dueAt: receivables.dueAt,
+        description: receivables.description, accountingDocumentId: receivables.accountingDocumentId, createdAt: receivables.createdAt,
+      }).from(receivables)
+        .innerJoin(receivableAccounts, and(eq(receivableAccounts.id, receivables.accountId), eq(receivableAccounts.businessId, business.id)))
+        .leftJoin(orders, and(eq(orders.id, receivables.orderId), eq(orders.businessId, business.id)))
+        .where(eq(receivables.businessId, business.id)).orderBy(desc(receivables.createdAt), desc(receivables.id)).limit(501);
+      if (rows.length > 500) throw new HttpError(413, "دفتر مطالبات بیش از ۵۰۰ ردیف است؛ برای دریافت آفلاین باید صفحه‌بندی شود");
+      const ids = rows.map((row) => row.id);
+      const paymentRows = ids.length ? await tx.select({ id: receivablePayments.id, receivableId: receivablePayments.receivableId, amount: receivablePayments.amount, method: receivablePayments.method, note: receivablePayments.note, createdAt: receivablePayments.createdAt })
+        .from(receivablePayments).where(and(eq(receivablePayments.businessId, business.id), inArray(receivablePayments.receivableId, ids)))
+        .orderBy(asc(receivablePayments.id)).limit(5001) : [];
+      if (paymentRows.length > 5000) throw new HttpError(413, "گردش دریافت مطالبات برای snapshot آفلاین بیش از ۵٬۰۰۰ ردیف است؛ دریافت صفحه‌بندی‌شده لازم است");
+      const paymentIds = paymentRows.map((row) => row.id);
+      const reversalRows = paymentIds.length ? await tx.select({ id: receivablePaymentReversals.id, paymentId: receivablePaymentReversals.paymentId, amount: receivablePaymentReversals.amount, reason: receivablePaymentReversals.reason, createdAt: receivablePaymentReversals.createdAt })
+        .from(receivablePaymentReversals).where(and(eq(receivablePaymentReversals.businessId, business.id), inArray(receivablePaymentReversals.paymentId, paymentIds)))
+        .orderBy(asc(receivablePaymentReversals.id)).limit(5001) : [];
+      if (reversalRows.length > 5000) throw new HttpError(413, "گردش برگشت مطالبات برای snapshot آفلاین بیش از ۵٬۰۰۰ ردیف است؛ دریافت صفحه‌بندی‌شده لازم است");
+      const paidById = new Map<number, number>();
+      for (const payment of paymentRows) paidById.set(payment.receivableId, (paidById.get(payment.receivableId) ?? 0) + Number(payment.amount));
+      const reversedByPayment = new Map<number, number>();
+      for (const reversal of reversalRows) reversedByPayment.set(reversal.paymentId, (reversedByPayment.get(reversal.paymentId) ?? 0) + Number(reversal.amount));
+      const reversedByReceivable = new Map<number, number>();
+      for (const payment of paymentRows) reversedByReceivable.set(payment.receivableId, (reversedByReceivable.get(payment.receivableId) ?? 0) + (reversedByPayment.get(payment.id) ?? 0));
+      const now = new Date();
+      const receivableRows = rows.map((row) => {
+        const received = (paidById.get(row.id) ?? 0) - (reversedByReceivable.get(row.id) ?? 0);
+        return {
+          ...row, received, balance: outstandingAmount(Number(row.amount), received), status: receivableState(Number(row.amount), received, row.dueAt, now),
+          dueAt: row.dueAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(),
+        };
+      });
+      payload = {
+        receivables: receivableRows,
+        payments: paymentRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+        reversals: reversalRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+        totalReceivables: rows.length,
+        totalBalance: receivableRows.reduce((sum, row) => sum + row.balance, 0),
+      };
     } else {
       const orderRows = await tx.select({
         id: orders.id, number: orders.number, tableId: orders.tableId, tableName: diningTables.name,
@@ -375,7 +426,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "receivables" ? "اطلاعات مطالبات برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
       throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");

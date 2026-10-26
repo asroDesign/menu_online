@@ -429,6 +429,7 @@ impl Store {
             "reservations" => ["create", "set_status"].contains(&action),
             "inventory" => ["receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
+            "receivables" => ["record_payment"].contains(&action),
             "staff" => ["attendance", "create_shift", "leave_request", "shift_change"].contains(&action),
             "payroll" => ["adjustment", "settlement"].contains(&action),
             "settings" => ["update"].contains(&action),
@@ -446,6 +447,7 @@ impl Store {
             ("reservations", _) => "reservations",
             ("inventory", _) => "inventory",
             ("accounting", _) => "accounting",
+            ("receivables", _) => "receivables",
             ("staff", _) => "shifts",
             ("payroll", _) => "payroll",
             ("settings", _) => "settings",
@@ -888,6 +890,43 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"create_document","totalAmount":debit_total}))
     }
 
+    pub fn enqueue_receivable_cash_payment_with_pin(&mut self, pin: &str, receivable_id: i64, amount: i64, note: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if receivable_id < 1 || amount < 1 || amount > 2_000_000_000 || note.chars().count() > 300 {
+            return Err("شناسه، مبلغ یا توضیح دریافت معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("receivables")?.ok_or_else(|| "نسخهٔ مطالبات دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ مطالبات منقضی است؛ برای ثبت دریافت، ابتدا اتصال را تازه کنید".into()); }
+        let rows = snapshot["payload"]["receivables"].as_array().ok_or("فهرست مطالبات محلی معتبر نیست")?;
+        let receivable = rows.iter().find(|row| row["id"].as_i64() == Some(receivable_id)).ok_or("طلب در نسخهٔ محلی پیدا نشد؛ فهرست را تازه کنید")?;
+        let expected_balance = receivable["balance"].as_i64().filter(|value| *value > 0).ok_or("ماندهٔ طلب صفر یا نامعتبر است")?;
+        if amount > expected_balance { return Err("مبلغ دریافت از ماندهٔ طلب بیشتر است".into()); }
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ نسخهٔ مطالبات پیدا نشد")?;
+        let issued_at = DateTime::parse_from_rfc3339(snapshot["issuedAt"].as_str().ok_or("زمان نسخهٔ مطالبات پیدا نشد")?).map_err(err)?;
+        let business_id = number(&snapshot, "businessId")?;
+        let mut query = self.conn.prepare("SELECT state,created_at,payload FROM workspace_commands WHERE business_id=?1 AND module='receivables' AND action='record_payment' AND base_snapshot_id=?2 ORDER BY sequence").map_err(err)?;
+        let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, Vec<u8>>(2)?))).map_err(err)?;
+        for row in commands {
+            let (state, created_at, payload) = row.map_err(err)?;
+            let command = value(payload)?;
+            if command["payload"]["receivableId"].as_i64() != Some(receivable_id) { continue; }
+            if state == "pending" || DateTime::parse_from_rfc3339(&created_at).map_err(err)? > issued_at {
+                return Err("برای این طلب دریافت محلی ثبت شده است؛ تا دریافت نسخهٔ تازه، دریافت دیگری ثبت نکنید".into());
+            }
+        }
+        drop(query);
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"receivables",
+            "action":"record_payment","baseDataset":"receivables","baseSnapshotId":snapshot_id,
+            "baseRevision":snapshot["revision"],"payload":{
+                "receivableId":receivable_id,"amount":amount,"method":"cash","note":note.trim(),"expectedBalance":expected_balance
+            }
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","receivableId":receivable_id,"amount":amount}))
+    }
+
     pub fn workspace_inventory_snapshot(&self) -> Result<Option<Value>> {
         let Some(mut snapshot) = self.workspace_snapshot("inventory")? else { return Ok(None); };
         let business_id = number(&snapshot, "businessId")?;
@@ -1230,7 +1269,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "reservations", "staff", "inventory", "accounting"].contains(&module) {
+        if !["menu", "reservations", "staff", "inventory", "accounting", "receivables"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;
@@ -1348,6 +1387,11 @@ impl Store {
                 let command = value(payload)?;
                 item["reservationId"] = command["payload"]["reservationId"].clone();
                 item["targetStatus"] = command["payload"]["status"].clone();
+            }
+            if module == "receivables" && action == "record_payment" {
+                let command = value(payload)?;
+                item["receivableId"] = command["payload"]["receivableId"].clone();
+                item["amount"] = command["payload"]["amount"].clone();
             }
             recent.push(item);
         }

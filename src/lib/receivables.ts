@@ -11,6 +11,17 @@ import { outstandingAmount, paymentFitsBalance, receivableState, validMoneyAmoun
 type Biz = typeof businesses.$inferSelect;
 type Q = typeof db;
 
+function validateReceivablePaymentInput(input: {
+  amount: number; method: string; bankAccountId?: number | null; idempotencyKey: string;
+}) {
+  if (!validMoneyAmount(input.amount)) throw new HttpError(400, "مبلغ دریافتی معتبر نیست");
+  if (!/^[A-Za-z0-9:_-]{16,120}$/.test(input.idempotencyKey)) throw new HttpError(400, "شناسه یکتای دریافت معتبر نیست");
+  if (!["cash", "bank", "pos", "transfer"].includes(input.method)) throw new HttpError(400, "روش دریافت معتبر نیست");
+  const bankAccountId = input.bankAccountId ?? null;
+  if (input.method !== "cash" && !bankAccountId) throw new HttpError(400, "حساب بانکی را انتخاب کنید");
+  if (bankAccountId !== null && (!Number.isSafeInteger(bankAccountId) || bankAccountId < 1)) throw new HttpError(400, "حساب بانکی معتبر نیست");
+}
+
 export async function listReceivableAccounts(businessId: number) {
   return db.select().from(receivableAccounts)
     .where(and(eq(receivableAccounts.businessId, businessId), eq(receivableAccounts.isActive, true)))
@@ -118,20 +129,27 @@ export async function createManualReceivable(biz: Biz, actorId: number, input: {
 export async function recordReceivablePayment(biz: Biz, actorId: number, receivableId: number, input: {
   amount: number; method: string; bankAccountId?: number | null; idempotencyKey: string; note?: string;
 }) {
-  if (!validMoneyAmount(input.amount)) throw new HttpError(400, "مبلغ دریافتی معتبر نیست");
-  if (!/^[A-Za-z0-9:_-]{16,120}$/.test(input.idempotencyKey)) throw new HttpError(400, "شناسه یکتای دریافت معتبر نیست");
-  if (!["cash", "bank", "pos", "transfer"].includes(input.method)) throw new HttpError(400, "روش دریافت معتبر نیست");
+  validateReceivablePaymentInput(input);
   const bankAccountId = input.bankAccountId ?? null;
-  if (input.method !== "cash" && !bankAccountId) throw new HttpError(400, "حساب بانکی را انتخاب کنید");
-  if (bankAccountId !== null && (!Number.isSafeInteger(bankAccountId) || bankAccountId < 1)) throw new HttpError(400, "حساب بانکی معتبر نیست");
   if (bankAccountId) {
     const [account] = await db.select({ id: bankAccounts.id }).from(bankAccounts)
       .where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.businessId, biz.id))).limit(1);
     if (!account) throw new HttpError(400, "حساب بانکی در این کسب‌وکار پیدا نشد");
   }
   await ensureAccounting(biz);
-  return db.transaction(async (rawTx) => {
-    const tx = rawTx as unknown as Q;
+  return db.transaction(async (rawTx) => recordReceivablePaymentInTransaction(rawTx as unknown as Q, biz, actorId, receivableId, input));
+}
+
+export async function recordReceivablePaymentInTransaction(tx: Q, biz: Biz, actorId: number, receivableId: number, input: {
+  amount: number; method: string; bankAccountId?: number | null; idempotencyKey: string; note?: string;
+}, actorType = "user") {
+  validateReceivablePaymentInput(input);
+  const bankAccountId = input.bankAccountId ?? null;
+  if (bankAccountId) {
+    const [account] = await tx.select({ id: bankAccounts.id }).from(bankAccounts)
+      .where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.businessId, biz.id))).limit(1);
+    if (!account) throw new HttpError(400, "حساب بانکی در این کسب‌وکار پیدا نشد");
+  }
     const [locked] = await tx.select().from(receivables)
       .where(and(eq(receivables.id, receivableId), eq(receivables.businessId, biz.id))).for("update").limit(1);
     if (!locked) throw new HttpError(404, "حساب دریافتنی پیدا نشد");
@@ -198,12 +216,11 @@ export async function recordReceivablePayment(biz: Biz, actorId: number, receiva
         const nextStatus = order.status === "served" ? "paid" : order.status;
         await tx.update(orders).set({ paymentStatus: "paid", status: nextStatus, updatedAt: new Date() })
           .where(and(eq(orders.id, order.id), eq(orders.businessId, biz.id)));
-        await tx.insert(orderStatusEvents).values({ businessId: biz.id, orderId: order.id, kind: "payment", fromValue: order.paymentStatus, toValue: "paid", actorType: "user", actorId });
-        if (nextStatus !== order.status) await tx.insert(orderStatusEvents).values({ businessId: biz.id, orderId: order.id, kind: "order", fromValue: order.status, toValue: nextStatus, actorType: "user", actorId });
+        await tx.insert(orderStatusEvents).values({ businessId: biz.id, orderId: order.id, kind: "payment", fromValue: order.paymentStatus, toValue: "paid", actorType, actorId });
+        if (nextStatus !== order.status) await tx.insert(orderStatusEvents).values({ businessId: biz.id, orderId: order.id, kind: "order", fromValue: order.status, toValue: nextStatus, actorType, actorId });
       }
     }
     return { item: { ...payment, accountingDocumentId: document.id, transactionId: transaction.id }, duplicate: false };
-  });
 }
 
 export async function reverseReceivablePayment(biz: Biz, actorId: number, receivableId: number, paymentId: number, input: {

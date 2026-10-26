@@ -150,7 +150,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "reservations", "staff", "inventory", "accounting"] {
+                    'workspace_modules: for module in ["menu", "reservations", "staff", "inventory", "accounting", "receivables"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -171,6 +171,7 @@ impl OfflineState {
                         }
                         let route = match module {
                             "reservations" => "reservations",
+                            "receivables" => "receivables",
                             "staff" if command["action"].as_str() == Some("attendance") => "staff/attendance",
                             "staff" => "commands",
                             "inventory" => "inventory",
@@ -196,7 +197,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    if module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" { let _ = store.set("workspace_refresh", &json!(true)); }
+                                    if module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -217,7 +218,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 && (module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting") {
+                                    if status == 409 && (module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
@@ -672,6 +673,7 @@ impl OfflineState {
                                 }
                             }
                         }
+                        refresh_receivables_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                     }
                 }
                 // Keep the recent-order window fresh even after the initial archive is complete.
@@ -825,6 +827,43 @@ fn refresh_order_snapshot(
         }
     }
 }
+fn refresh_receivables_snapshot(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    match decode(client.get(format!("{server}/api/offline-dashboard/snapshots/receivables")).bearer_auth(token).send()) {
+        Ok((200, snapshot))
+            if snapshot["schemaVersion"] == 1
+                && snapshot["dataset"].as_str() == Some("receivables")
+                && snapshot["businessId"].as_i64() == Some(business_id)
+                && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                && snapshot["payload"]["receivables"].is_array()
+                && snapshot["payload"]["payments"].is_array()
+                && snapshot["payload"]["reversals"].is_array() =>
+        {
+            if let Ok(mut store) = state.store.lock() {
+                match store.save_workspace_snapshot(&snapshot) {
+                    Ok(()) => { let _ = store.set("workspace_sync_receivables", &json!({"ok":true,"dataset":"receivables","revision":snapshot["revision"],"checkedAt":chrono::Utc::now().to_rfc3339()})); }
+                    Err(error) => { let _ = store.set("workspace_sync_receivables", &json!({"ok":false,"dataset":"receivables","message":error})); }
+                }
+            }
+        }
+        Ok((status, data)) => {
+            if let Ok(mut store) = state.store.lock() {
+                if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("receivables"); }
+                let _ = store.set("workspace_sync_receivables", &json!({"ok":false,"dataset":"receivables","message":data["error"].as_str().unwrap_or("دریافت مطالبات ناموفق بود")}));
+            }
+        }
+        Err(_) => {
+            if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_receivables", &json!({"ok":false,"dataset":"receivables","message":"ارتباط مطالبات در دسترس نیست"})); }
+        }
+    }
+}
 fn sync_order_history_batch(
     state: &OfflineState,
     client: &reqwest::blocking::Client,
@@ -918,6 +957,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceReservationsSync": s.get("workspace_sync_reservations")?,
         "workspaceShiftsSync": s.get("workspace_sync_shifts")?,
         "workspaceAccountingSync": s.get("workspace_sync_accounting")?,
+        "workspaceReceivablesSync": s.get("workspace_sync_receivables")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -1014,6 +1054,17 @@ pub fn offline_workspace_create_shift(
 pub fn offline_workspace_accounting(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("accounting")
+}
+
+#[tauri::command]
+pub fn offline_workspace_receivables(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("receivables")
+}
+
+#[tauri::command]
+pub fn offline_workspace_record_receivable_cash(receivable_id: i64, amount: i64, note: String, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_receivable_cash_payment_with_pin(&manager_pin, receivable_id, amount, &note)
 }
 
 #[tauri::command]
