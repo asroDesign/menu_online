@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::Path;
 pub type Result<T> = std::result::Result<T, String>;
-const LOCAL_SCHEMA_VERSION: i64 = 3;
+const LOCAL_SCHEMA_VERSION: i64 = 4;
 const WORKSPACE_DATASETS: &[&str] = &[
     "overview",
     "orders",
@@ -128,6 +128,20 @@ impl Store {
             conn.execute_batch("BEGIN IMMEDIATE;
             ALTER TABLE sales ADD COLUMN display_payload BLOB;
             PRAGMA user_version=3;
+            COMMIT;").map_err(err)?;
+        }
+        if version < 4 {
+            conn.execute_batch("BEGIN IMMEDIATE;
+            CREATE TABLE IF NOT EXISTS offline_order_history(
+                business_id INTEGER NOT NULL,
+                order_id INTEGER NOT NULL,
+                order_number INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                PRIMARY KEY(business_id,order_id)
+            );
+            CREATE INDEX IF NOT EXISTS offline_order_history_page_idx ON offline_order_history(business_id,created_at DESC,order_id DESC);
+            PRAGMA user_version=4;
             COMMIT;").map_err(err)?;
         }
         Ok(Self { conn })
@@ -279,6 +293,70 @@ impl Store {
         tx.execute("INSERT INTO workspace_snapshots(business_id,dataset,revision,schema_version,snapshot_id,issued_at,valid_until,payload)
             VALUES(?1,?2,?3,1,?4,?5,?6,?7) ON CONFLICT(business_id,dataset) DO UPDATE SET revision=excluded.revision,schema_version=excluded.schema_version,snapshot_id=excluded.snapshot_id,issued_at=excluded.issued_at,valid_until=excluded.valid_until,payload=excluded.payload",
             params![business_id,dataset,revision,snapshot_id,issued.to_rfc3339(),valid_until.to_rfc3339(),blob(&snapshot["payload"])?]).map_err(err)?;
+        if dataset == "orders" {
+            let orders = snapshot["payload"]["orders"].as_array().ok_or("فهرست سفارش snapshot معتبر نیست")?;
+            for order in orders {
+                let order_id = number(order, "id")?;
+                let order_number = number(order, "number")?;
+                let created_at = order["createdAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان سفارش snapshot معتبر نیست")?;
+                tx.execute("INSERT INTO offline_order_history(business_id,order_id,order_number,created_at,payload) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(business_id,order_id) DO UPDATE SET order_number=excluded.order_number,created_at=excluded.created_at,payload=excluded.payload",
+                    params![business_id,order_id,order_number,created_at,blob(order)?]).map_err(err)?;
+            }
+        }
+        tx.commit().map_err(err)
+    }
+
+    pub fn save_order_history_page(&mut self, page: &Value, requested_cursor: Option<&str>) -> Result<()> {
+        let business_id = number(page, "businessId")?;
+        if business_id != self.paired_business_id()? || page["dataset"].as_str() != Some("orders-history") || page["schemaVersion"].as_i64() != Some(1) {
+            return Err("صفحهٔ تاریخچه متعلق به صندوق یا نسخهٔ دیگری است".into());
+        }
+        let response_cursor = page["requestCursor"].as_str();
+        if response_cursor != requested_cursor { return Err("نشانگر صفحهٔ پاسخ با درخواست هم‌خوان نیست".into()); }
+        let sync = self.get("workspace_order_history_sync")?.unwrap_or(json!({"cursor":null,"complete":false}));
+        if sync["complete"].as_bool() == Some(true) { return Err("آرشیو سفارش قبلاً کامل شده است".into()); }
+        if sync["cursor"].as_str() != requested_cursor { return Err("وضعیت دریافت تاریخچه هم‌زمان تغییر کرده است".into()); }
+        let has_more = page["hasMore"].as_bool().ok_or("وضعیت صفحهٔ سفارش معتبر نیست")?;
+        let next_cursor = page["nextCursor"].as_str();
+        if (has_more && (next_cursor.is_none() || next_cursor == requested_cursor)) || (!has_more && next_cursor.is_some()) {
+            return Err("ادامهٔ صفحه‌بندی تاریخچه معتبر نیست".into());
+        }
+        let orders = page["orders"].as_array().ok_or("فهرست سفارش صفحه معتبر نیست")?;
+        if orders.len() > 50 || (has_more && orders.is_empty()) { return Err("اندازه یا ترتیب صفحهٔ سفارش معتبر نیست".into()); }
+        let issued_at = page["issuedAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان صفحهٔ تاریخچه معتبر نیست")?;
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        for order in orders {
+            let order_id = number(order, "id")?;
+            let order_number = number(order, "number")?;
+            let created_at = order["createdAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان سفارش صفحه معتبر نیست")?;
+            tx.execute("INSERT INTO offline_order_history(business_id,order_id,order_number,created_at,payload) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(business_id,order_id) DO UPDATE SET order_number=excluded.order_number,created_at=excluded.created_at,payload=excluded.payload",
+                params![business_id,order_id,order_number,created_at,blob(order)?]).map_err(err)?;
+        }
+        let cached_orders: i64 = tx.query_row("SELECT count(*) FROM offline_order_history WHERE business_id=?1", [business_id], |row| row.get(0)).map_err(err)?;
+        let next_state = json!({"cursor":next_cursor,"complete":!has_more,"cachedOrders":cached_orders,"checkedAt":issued_at});
+        tx.execute("INSERT INTO settings(key,value) VALUES('workspace_order_history_sync',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [blob(&next_state)?]).map_err(err)?;
+        tx.commit().map_err(err)
+    }
+
+    pub fn workspace_order_history_page(&self, offset: i64, requested_limit: i64) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let limit = requested_limit.clamp(1, 500) as usize;
+        let total: i64 = self.conn.query_row("SELECT count(*) FROM offline_order_history WHERE business_id=?1", [business_id], |row| row.get(0)).map_err(err)?;
+        let mut query = self.conn.prepare("SELECT payload FROM offline_order_history WHERE business_id=?1 ORDER BY created_at DESC,order_id DESC LIMIT ?2 OFFSET ?3").map_err(err)?;
+        let rows = query.query_map(params![business_id,(limit + 1) as i64,offset.max(0)], |row| row.get::<_, Vec<u8>>(0)).map_err(err)?;
+        let mut orders = rows.map(|row| row.map_err(err).and_then(value)).collect::<Result<Vec<_>>>()?;
+        let has_more = orders.len() > limit;
+        if has_more { orders.truncate(limit); }
+        let sync = self.get("workspace_order_history_sync")?.unwrap_or(json!({"cursor":null,"complete":false,"cachedOrders":total}));
+        Ok(json!({"orders":orders,"totalOrders":total,"hasMore":has_more,"complete":sync["complete"].as_bool()==Some(true),"checkedAt":sync["checkedAt"]}))
+    }
+
+    pub fn delete_workspace_order_history(&mut self) -> Result<()> {
+        let business_id = self.paired_business_id()?;
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        tx.execute("DELETE FROM workspace_snapshots WHERE business_id=?1 AND dataset='orders'", [business_id]).map_err(err)?;
+        tx.execute("DELETE FROM offline_order_history WHERE business_id=?1", [business_id]).map_err(err)?;
+        tx.execute("DELETE FROM settings WHERE key IN ('workspace_order_history_sync','workspace_sync_orders','workspace_sync_orders_history')", []).map_err(err)?;
         tx.commit().map_err(err)
     }
 
@@ -368,8 +446,7 @@ impl Store {
             ("reservations", _) => "reservations",
             ("inventory", _) => "inventory",
             ("accounting", _) => "accounting",
-            ("staff", "attendance") => "shifts",
-            ("staff", _) => "staff",
+            ("staff", _) => "shifts",
             ("payroll", _) => "payroll",
             ("settings", _) => "settings",
             ("loyalty", _) => "loyalty",
@@ -565,6 +642,144 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","action":action,"targetId":target_id}))
     }
 
+    pub fn enqueue_inventory_waste_with_pin(
+        &mut self,
+        pin: &str,
+        item_id: i64,
+        quantity: f64,
+        waste_reason: &str,
+        note: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if item_id < 1 || !quantity.is_finite() || quantity <= 0.0 || quantity > 1_000_000_000.0 {
+            return Err("کالا یا مقدار ضایعات معتبر نیست".into());
+        }
+        if !["spoilage", "expired", "prep_loss", "quality", "damaged", "other"].contains(&waste_reason) {
+            return Err("دلیل ضایعات را انتخاب کنید".into());
+        }
+        if note.chars().count() > 300 {
+            return Err("توضیح ضایعات بیش از حد طولانی است".into());
+        }
+        let snapshot = self.workspace_snapshot("inventory")?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ موجودی منقضی است؛ برای ثبت ضایعات آن را به‌روز کنید".into());
+        }
+        let items = snapshot["payload"]["items"].as_array().ok_or("فهرست محلی انبار معتبر نیست")?;
+        let item = items.iter().find(|row| row["id"].as_i64() == Some(item_id)).ok_or("کالا در نسخهٔ انبار این دستگاه پیدا نشد")?;
+        if item["isActive"].as_bool() != Some(true) || item["trackStock"].as_bool() != Some(true) {
+            return Err("ثبت ضایعات فقط برای کالای فعال و دارای ردیابی موجودی ممکن است".into());
+        }
+        let stock = item["stock"].as_f64().ok_or("موجودی ذخیره‌شده معتبر نیست")?;
+        let business_id = number(&snapshot, "businessId")?;
+        let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?;
+        let mut query = self.conn.prepare("SELECT payload FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action='waste' AND base_snapshot_id=?2 AND state IN ('pending','synced')").map_err(err)?;
+        let rows = query.query_map(params![business_id,base_snapshot_id], |row| row.get::<_, Vec<u8>>(0)).map_err(err)?;
+        let mut queued_quantity = 0.0;
+        for row in rows {
+            let command = value(row.map_err(err)?)?;
+            if command["payload"]["itemId"].as_i64() == Some(item_id) {
+                queued_quantity += command["payload"]["quantity"].as_f64().unwrap_or(0.0);
+            }
+        }
+        drop(query);
+        let expected_stock = stock - queued_quantity;
+        if !queued_quantity.is_finite() || expected_stock < -1e-9 || quantity > expected_stock + 1e-9 {
+            return Err("مقدار ضایعات از موجودی قابل استفادهٔ این نسخه بیشتر است".into());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory",
+            "action":"waste","baseDataset":"inventory","baseSnapshotId":base_snapshot_id,
+            "baseRevision":snapshot["revision"],"payload":{
+                "itemId":item_id,"quantity":quantity,"expectedStock":expected_stock.max(0.0),"wasteReason":waste_reason,
+                "note":note.trim(),"occurredAt":Utc::now().to_rfc3339()
+            }
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","itemId":item_id,"quantity":quantity}))
+    }
+
+    pub fn enqueue_accounting_document_with_pin(
+        &mut self,
+        pin: &str,
+        date: &str,
+        description: &str,
+        raw_lines: &Value,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if description.trim().chars().count() < 2 || description.chars().count() > 300 {
+            return Err("شرح سند باید بین ۲ تا ۳۰۰ نویسه باشد".into());
+        }
+        let date = DateTime::parse_from_rfc3339(date).map_err(|_| "تاریخ سند معتبر نیست")?;
+        let snapshot = self.workspace_snapshot("accounting")?.ok_or_else(|| "نسخهٔ حسابداری محلی دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ حسابداری منقضی است؛ برای ثبت سند، ابتدا اتصال و حساب‌ها را تازه کنید".into());
+        }
+        let years = snapshot["payload"]["years"].as_array().ok_or("فهرست سال مالی محلی معتبر نیست")?;
+        let year_is_open = years.iter().any(|year| {
+            let start = year["startDate"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            let end = year["endDate"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            year["isClosed"].as_bool() == Some(false) && start.is_some_and(|value| date >= value) && end.is_some_and(|value| date <= value)
+        });
+        if !year_is_open {
+            return Err("تاریخ باید در یکی از سال‌های مالی بازِ نسخهٔ محلی باشد".into());
+        }
+        let accounts = snapshot["payload"]["accounts"].as_array().ok_or("فهرست حساب‌های محلی معتبر نیست")?;
+        let rows = raw_lines.as_array().ok_or("ردیف‌های سند باید یک فهرست باشند")?;
+        if rows.len() < 2 || rows.len() > 200 {
+            return Err("سند باید دست‌کم دو ردیف و حداکثر ۲۰۰ ردیف داشته باشد".into());
+        }
+        let mut lines = Vec::with_capacity(rows.len());
+        let mut debit_total = 0_i64;
+        let mut credit_total = 0_i64;
+        for row in rows {
+            let account_id = row["accountId"].as_i64().filter(|value| *value > 0).ok_or("حساب یک ردیف معتبر نیست")?;
+            if !accounts.iter().any(|account| account["id"].as_i64() == Some(account_id) && account["isActive"].as_bool() == Some(true) && account["level"].as_str() != Some("kol")) {
+                return Err("حساب ردیف در نسخهٔ محلی فعال نیست یا امکان ثبت سند روی آن وجود ندارد".into());
+            }
+            let debit = row["debit"].as_i64().filter(|value| *value >= 0).ok_or("مبلغ بدهکار باید عدد صحیح نامنفی باشد")?;
+            let credit = row["credit"].as_i64().filter(|value| *value >= 0).ok_or("مبلغ بستانکار باید عدد صحیح نامنفی باشد")?;
+            if debit > 0 && credit > 0 { return Err("هر ردیف فقط می‌تواند بدهکار یا بستانکار باشد".into()); }
+            let line_description = row["description"].as_str().ok_or("شرح ردیف معتبر نیست")?;
+            if line_description.chars().count() > 200 { return Err("شرح ردیف بیش از حد طولانی است".into()); }
+            debit_total = debit_total.checked_add(debit).ok_or("جمع بدهکار از محدوده مجاز خارج شد")?;
+            credit_total = credit_total.checked_add(credit).ok_or("جمع بستانکار از محدوده مجاز خارج شد")?;
+            lines.push(json!({"accountId":account_id,"debit":debit,"credit":credit,"description":line_description.trim()}));
+        }
+        if debit_total <= 0 || debit_total != credit_total {
+            return Err("سند تراز نیست؛ جمع بدهکار و بستانکار باید برابر و غیرصفر باشد".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ نسخهٔ حسابداری پیدا نشد")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"accounting",
+            "action":"create_document","baseDataset":"accounting","baseSnapshotId":base_snapshot_id,
+            "baseRevision":snapshot["revision"],"payload":{
+                "date":date.with_timezone(&Utc).to_rfc3339(),"kind":"general","description":description.trim(),"lines":lines
+            }
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"create_document","totalAmount":debit_total}))
+    }
+
+    pub fn workspace_inventory_waste_requests(&self) -> Result<Value> {
+        let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else {
+            return Ok(json!([]));
+        };
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action='waste' ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?))).map_err(err)?;
+        rows.map(|row| {
+            let (id,state,error,payload,created_at) = row.map_err(err)?;
+            let command = value(payload)?;
+            Ok(json!({
+                "id":id,"state":state,"error":error,"createdAt":created_at,
+                "itemId":command["payload"]["itemId"],"quantity":command["payload"]["quantity"],
+                "wasteReason":command["payload"]["wasteReason"]
+            }))
+        }).collect::<Result<Vec<_>>>().map(|items| json!(items))
+    }
+
     pub fn enqueue_staff_attendance_with_pin(
         &mut self,
         pin: &str,
@@ -650,16 +865,101 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","action":action,"scheduleId":schedule_id}))
     }
 
+    pub fn enqueue_staff_leave_request_with_pin(
+        &mut self,
+        manager_pin: &str,
+        staff_id: i64,
+        starts_at: &str,
+        ends_at: &str,
+        kind: &str,
+        reason: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(manager_pin)?;
+        if staff_id < 1 || !["personal", "sick", "unpaid"].contains(&kind) || reason.chars().count() > 500 {
+            return Err("اطلاعات درخواست مرخصی معتبر نیست".into());
+        }
+        let starts = DateTime::parse_from_rfc3339(starts_at).map_err(err)?;
+        let ends = DateTime::parse_from_rfc3339(ends_at).map_err(err)?;
+        if ends <= starts || ends - starts > chrono::Duration::days(31) {
+            return Err("بازهٔ مرخصی باید حداکثر ۳۱ روز باشد".into());
+        }
+        let snapshot = self.workspace_snapshot("shifts")?.ok_or_else(|| "نسخهٔ محلی کارکنان دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ برنامهٔ کارکنان منقضی است؛ ابتدا آن را تازه کنید".into());
+        }
+        let roster = snapshot["payload"]["staff"].as_array().ok_or("فهرست کارکنان محلی معتبر نیست")?;
+        if !roster.iter().any(|row| row["id"].as_i64() == Some(staff_id)) {
+            return Err("کارمند در نسخهٔ محلی پیدا نشد".into());
+        }
+        let from = DateTime::parse_from_rfc3339(snapshot["payload"]["range"]["from"].as_str().ok_or("ابتدای بازهٔ کارکنان پیدا نشد")?).map_err(err)?;
+        let to = DateTime::parse_from_rfc3339(snapshot["payload"]["range"]["to"].as_str().ok_or("انتهای بازهٔ کارکنان پیدا نشد")?).map_err(err)?;
+        if starts < from || ends > to {
+            return Err("بازهٔ درخواست باید داخل بازهٔ ذخیره‌شدهٔ برنامهٔ کارکنان باشد".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"staff","action":"leave_request",
+            "baseDataset":"shifts","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"staffId":staff_id,"startsAt":starts.to_rfc3339(),"endsAt":ends.to_rfc3339(),"kind":kind,"reason":reason.trim()}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"leave_request","staffId":staff_id}))
+    }
+
+    pub fn enqueue_staff_shift_change_with_pin(
+        &mut self,
+        manager_pin: &str,
+        schedule_id: i64,
+        target_staff_id: i64,
+        reason: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(manager_pin)?;
+        if schedule_id < 1 || target_staff_id < 1 || reason.chars().count() > 300 {
+            return Err("اطلاعات درخواست تعویض شیفت معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("shifts")?.ok_or_else(|| "نسخهٔ محلی کارکنان دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ برنامهٔ کارکنان منقضی است؛ ابتدا آن را تازه کنید".into());
+        }
+        let schedules = snapshot["payload"]["schedules"].as_array().ok_or("فهرست شیفت‌های محلی معتبر نیست")?;
+        let shift = schedules.iter().find(|row| row["id"].as_i64() == Some(schedule_id)).ok_or("شیفت در نسخهٔ محلی پیدا نشد")?;
+        if shift["status"].as_str() != Some("scheduled") {
+            return Err("فقط برای شیفت برنامه‌ریزی‌شده می‌توان درخواست تعویض ثبت کرد".into());
+        }
+        let from_staff_id = number(shift, "staffId")?;
+        if from_staff_id == target_staff_id {
+            return Err("کارمند مقصد باید با صاحب فعلی شیفت متفاوت باشد".into());
+        }
+        let starts = DateTime::parse_from_rfc3339(shift["startsAt"].as_str().ok_or("زمان شروع شیفت پیدا نشد")?).map_err(err)?;
+        if starts <= Utc::now() {
+            return Err("برای شیفت شروع‌شده یا گذشته نمی‌توان درخواست تعویض ثبت کرد".into());
+        }
+        let roster = snapshot["payload"]["staff"].as_array().ok_or("فهرست کارکنان محلی معتبر نیست")?;
+        if !roster.iter().any(|row| row["id"].as_i64() == Some(target_staff_id)) {
+            return Err("کارمند مقصد در نسخهٔ محلی پیدا نشد".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"staff","action":"shift_change",
+            "baseDataset":"shifts","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"scheduleId":schedule_id,"targetStaffId":target_staff_id,"reason":reason.trim()}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"shift_change","scheduleId":schedule_id,"targetStaffId":target_staff_id}))
+    }
+
     pub fn workspace_staff_attendance_events(&self) -> Result<Value> {
         let business_id = self.paired_business_id()?;
         let reviews = self.workspace_snapshot("shifts")?.and_then(|snapshot| snapshot["payload"]["offlineAttendanceRequests"].as_array().cloned()).unwrap_or_default();
-        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='staff' AND action='attendance' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
-        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?))).map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='staff' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Vec<u8>>(4)?, row.get::<_, String>(5)?))).map_err(err)?;
         rows.map(|row| {
-            let (id, state, error, payload, created_at) = row.map_err(err)?;
+            let (id, action, state, error, payload, created_at) = row.map_err(err)?;
             let command = value(payload)?;
-            let review = reviews.iter().find(|request| request["id"].as_str() == Some(id.as_str()));
-            Ok(json!({"commandId":id,"state":state,"error":error,"reviewStatus":review.map(|value|value["status"].clone()).unwrap_or(Value::Null),"reviewNote":review.map(|value|value["reviewNote"].clone()).unwrap_or(Value::Null),"payload":command["payload"],"createdAt":created_at}))
+            let review = (action == "attendance").then(|| reviews.iter().find(|request| request["id"].as_str() == Some(id.as_str()))).flatten();
+            Ok(json!({"commandId":id,"action":action,"state":state,"error":error,"reviewStatus":review.map(|value|value["status"].clone()).unwrap_or(Value::Null),"reviewNote":review.map(|value|value["reviewNote"].clone()).unwrap_or(Value::Null),"payload":command["payload"],"createdAt":created_at}))
         }).collect::<Result<Vec<_>>>().map(Value::Array)
     }
 
@@ -677,7 +977,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "reservations", "staff"].contains(&module) {
+        if !["menu", "reservations", "staff", "accounting"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;

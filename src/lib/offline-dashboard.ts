@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, stockMovements, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
+import * as Accounting from "@/lib/accounting";
+import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -56,10 +58,112 @@ type ShiftsPayload = {
     id: number; staffId: number; staffName: string; startsAt: string; endsAt: string; kind: string;
     reason: string; status: string; decisionNote: string; createdAt: string;
   }[];
+  shiftSwapRequests: {
+    id: number; scheduleId: number; fromStaffId: number; toStaffId: number; fromStaffName: string; toStaffName: string;
+    status: string; reason: string; decisionNote: string; startsAt: string; endsAt: string; createdAt: string;
+  }[];
   offlineAttendanceRequests: { id: string; scheduleId: number; action: string; occurredAt: string; status: string; reviewNote: string }[];
   totalSchedules: number;
   totalLeaveRequests: number;
 };
+type AccountingPayload = {
+  accounts: { id: number; code: string; name: string; level: string; parentId: number | null; type: string; nature: string; isSystem: boolean; isActive: boolean }[];
+  years: { id: number; title: string; startDate: string; endDate: string; isClosed: boolean }[];
+  documents: { id: number; number: number; date: string; kind: string; source: string; description: string; status: string; reversed: boolean; reversedOf: number | null; totalAmount: number; lines: { accountId: number; accountCode: string; accountName: string; debit: number; credit: number; description: string }[] }[];
+  totalDocuments: number;
+};
+
+type OrderHistoryCursor = { createdAt: string; id: number };
+const ORDER_HISTORY_PAGE_SIZE = 50;
+const ORDER_HISTORY_CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+function encodeOrderHistoryCursor(cursor: OrderHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function parseOrderHistoryCursor(value: string | null): OrderHistoryCursor | null {
+  if (value === null) return null;
+  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new HttpError(400, "نشانگر صفحهٔ تاریخچهٔ سفارش معتبر نیست");
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (Object.keys(decoded).length !== 2 || typeof decoded.createdAt !== "string" || !ORDER_HISTORY_CURSOR_TIME.test(decoded.createdAt) || !Number.isSafeInteger(decoded.id) || Number(decoded.id) < 1 || !Number.isFinite(Date.parse(decoded.createdAt))) {
+      throw new Error("invalid cursor");
+    }
+    return { createdAt: decoded.createdAt, id: Number(decoded.id) };
+  } catch {
+    throw new HttpError(400, "نشانگر صفحهٔ تاریخچهٔ سفارش معتبر نیست");
+  }
+}
+
+export async function offlineOrderHistoryPage(req: Request) {
+  const cursor = parseOrderHistoryCursor(new URL(req.url).searchParams.get("cursor"));
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت تاریخچهٔ سفارش به مجوز صندوق آفلاین نیاز دارد");
+  return db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این صندوق لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const cursorTimestamp = cursor ? sql`${cursor.createdAt}::timestamptz` : undefined;
+    const cursorPredicate = cursor && cursorTimestamp ? or(
+      lt(orders.createdAt, cursorTimestamp),
+      and(eq(orders.createdAt, cursorTimestamp), lt(orders.id, cursor.id)),
+    ) : undefined;
+    const orderRows = await tx.select({
+      id: orders.id, number: orders.number, tableId: orders.tableId, tableName: diningTables.name,
+      customerName: orders.customerName, customerPhone: orders.customerPhone, type: orders.type, source: orders.source,
+      status: orders.status, note: orders.note, address: orders.address, deliveryFee: orders.deliveryFee,
+      discountCode: orders.discountCode, discountAmount: orders.discountAmount, membershipDiscount: orders.membershipDiscount,
+      cashbackUsed: orders.cashbackUsed, scheduledFor: orders.scheduledFor, deliveryStatus: orders.deliveryStatus,
+      subtotal: orders.subtotal, tax: orders.tax, service: orders.service, total: orders.total,
+      paymentMethod: orders.paymentMethod, paymentStatus: orders.paymentStatus, paymentBreakdown: orders.paymentBreakdown,
+      createdAt: orders.createdAt,
+      createdAtCursor: sql<string>`to_char(${orders.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    }).from(orders).leftJoin(diningTables, and(eq(diningTables.id, orders.tableId), eq(diningTables.businessId, business.id)))
+      .where(and(eq(orders.businessId, business.id), isNull(orders.deletedAt), cursorPredicate))
+      .orderBy(desc(orders.createdAt), desc(orders.id)).limit(ORDER_HISTORY_PAGE_SIZE + 1);
+    const hasMore = orderRows.length > ORDER_HISTORY_PAGE_SIZE;
+    const pageRows = hasMore ? orderRows.slice(0, ORDER_HISTORY_PAGE_SIZE) : orderRows;
+    const itemRows = pageRows.length ? await tx.select({
+      id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, name: orderItems.name,
+      price: orderItems.price, quantity: orderItems.quantity, weightGrams: orderItems.weightGrams,
+      tareGrams: orderItems.tareGrams, lineTotal: orderItems.lineTotal, note: orderItems.note,
+      optionSnapshot: orderItems.optionSnapshot,
+    }).from(orderItems).where(inArray(orderItems.orderId, pageRows.map((row) => row.id))).orderBy(asc(orderItems.id)) : [];
+    const itemsByOrder = new Map<number, typeof itemRows>();
+    for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), item]);
+    const ordersPage = pageRows.map((row) => {
+      const { createdAtCursor: _createdAtCursor, ...order } = row;
+      return {
+      ...order,
+      createdAt: order.createdAt.toISOString(),
+      scheduledFor: order.scheduledFor?.toISOString() ?? null,
+      paymentBreakdown: order.paymentBreakdown ? (() => {
+        const payment = order.paymentBreakdown as Record<string, unknown>;
+        return {
+          cashAmount: payment.cashAmount, bankAmount: payment.bankAmount, bankAccountName: payment.bankAccountName,
+          posAmount: payment.posAmount, posDeviceName: payment.posDeviceName, posBankAccountName: payment.posBankAccountName,
+          posTerminalNumber: payment.posTerminalNumber, posRefNo: payment.posRefNo, creditAmount: payment.creditAmount,
+          settledAt: payment.settledAt,
+        };
+      })() : null,
+      items: itemsByOrder.get(order.id) ?? [],
+    }; });
+    if (Buffer.byteLength(JSON.stringify(ordersPage), "utf8") > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "صفحهٔ سفارش‌ها از سقف دریافت آفلاین بیشتر است");
+    const last = pageRows.at(-1);
+    const issuedAt = new Date().toISOString();
+    return {
+      schemaVersion: 1,
+      dataset: "orders-history",
+      businessId: business.id,
+      requestCursor: new URL(req.url).searchParams.get("cursor"),
+      nextCursor: hasMore && last ? encodeOrderHistoryCursor({ createdAt: last.createdAtCursor, id: last.id }) : null,
+      hasMore,
+      issuedAt,
+      orders: ordersPage,
+    };
+  }, { isolationLevel: "repeatable read" });
+}
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -81,7 +185,7 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
@@ -89,6 +193,8 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "orders" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت تاریخچهٔ سفارش به مجوز صندوق آفلاین نیاز دارد");
   if (dataset === "reservations" && (!hasAny(features, "cashier_pos") || !hasAny(features, "reservations"))) throw new HttpError(403, "دریافت تاریخچهٔ رزرو به مجوز صندوق آفلاین و رزرو میز نیاز دارد");
   if (dataset === "shifts" && (!hasAny(features, "cashier_pos") || !hasAny(features, "staff_scheduling"))) throw new HttpError(403, "دریافت برنامهٔ شیفت به مجوز صندوق آفلاین و برنامه‌ریزی کارکنان نیاز دارد");
+  if (dataset === "accounting" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت حسابداری آفلاین به مجوز صندوق و حسابداری نیاز دارد");
+  if (dataset === "accounting") await Accounting.ensureAccounting(business);
 
   return db.transaction(async (tx) => {
     const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
@@ -98,7 +204,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -158,7 +264,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       const now = new Date();
       const from = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
       const to = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      const [staffRows, scheduleRows, leaveRows] = await Promise.all([
+      const [staffRows, scheduleRows, leaveRows, shiftSwapRows] = await Promise.all([
         tx.select({ id: staff.id, name: staff.name, role: staff.role }).from(staff)
           .where(and(eq(staff.businessId, business.id), eq(staff.isActive, true))).orderBy(asc(staff.name), asc(staff.id)).limit(301),
         tx.select({ id: staffSchedules.id, staffId: staffSchedules.staffId, staffName: staff.name, startsAt: staffSchedules.startsAt, endsAt: staffSchedules.endsAt, location: staffSchedules.location, status: staffSchedules.status, absenceNote: staffSchedules.absenceNote, version: staffSchedules.version, updatedAt: staffSchedules.updatedAt })
@@ -169,13 +275,18 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
           .from(staffLeaveRequests).innerJoin(staff, and(eq(staff.id, staffLeaveRequests.staffId), eq(staff.businessId, business.id)))
           .where(and(eq(staffLeaveRequests.businessId, business.id), lt(staffLeaveRequests.startsAt, to), gt(staffLeaveRequests.endsAt, from)))
           .orderBy(asc(staffLeaveRequests.startsAt), asc(staffLeaveRequests.id)).limit(501),
+        tx.select({ id: staffShiftSwapRequests.id, scheduleId: staffShiftSwapRequests.scheduleId, fromStaffId: staffShiftSwapRequests.fromStaffId, toStaffId: staffShiftSwapRequests.toStaffId, status: staffShiftSwapRequests.status, reason: staffShiftSwapRequests.reason, decisionNote: staffShiftSwapRequests.decisionNote, startsAt: staffSchedules.startsAt, endsAt: staffSchedules.endsAt, createdAt: staffShiftSwapRequests.createdAt })
+          .from(staffShiftSwapRequests).innerJoin(staffSchedules, and(eq(staffSchedules.id, staffShiftSwapRequests.scheduleId), eq(staffSchedules.businessId, business.id)))
+          .where(and(eq(staffShiftSwapRequests.businessId, business.id), lt(staffSchedules.startsAt, to), gt(staffSchedules.endsAt, from)))
+          .orderBy(desc(staffShiftSwapRequests.createdAt), desc(staffShiftSwapRequests.id)).limit(501),
       ]);
       if (staffRows.length > 300) throw new HttpError(413, "فهرست کارکنان از سقف دریافت یک‌جای آفلاین بیشتر است");
-      if (scheduleRows.length > 500 || leaveRows.length > 500) throw new HttpError(413, "برنامهٔ شیفت یا مرخصی‌های بازه از سقف ۵۰۰ ردیف بیشتر است؛ دریافت صفحه‌بندی‌شده لازم است");
+      if (scheduleRows.length > 500 || leaveRows.length > 500 || shiftSwapRows.length > 500) throw new HttpError(413, "برنامه یا درخواست‌های شیفت از سقف ۵۰۰ ردیف بیشتر است؛ دریافت صفحه‌بندی‌شده لازم است");
       const scheduleIds = scheduleRows.map((row) => row.id);
       const attendanceRows = scheduleIds.length ? await tx.select({ scheduleId: staffAttendanceRecords.scheduleId, checkInAt: staffAttendanceRecords.checkInAt, checkOutAt: staffAttendanceRecords.checkOutAt })
         .from(staffAttendanceRecords).where(and(eq(staffAttendanceRecords.businessId, business.id), inArray(staffAttendanceRecords.scheduleId, scheduleIds))) : [];
       const attendanceBySchedule = new Map(attendanceRows.map((row) => [row.scheduleId, row]));
+      const staffNameById = new Map(staffRows.map((row) => [row.id, row.name]));
       const offlineAttendanceRows = await tx.select({ id: offlineStaffAttendanceRequests.id, scheduleId: offlineStaffAttendanceRequests.scheduleId, action: offlineStaffAttendanceRequests.action, occurredAt: offlineStaffAttendanceRequests.occurredAt, status: offlineStaffAttendanceRequests.status, reviewNote: offlineStaffAttendanceRequests.reviewNote })
         .from(offlineStaffAttendanceRequests).where(and(eq(offlineStaffAttendanceRequests.businessId, business.id), eq(offlineStaffAttendanceRequests.terminalId, terminal.id)))
         .orderBy(desc(offlineStaffAttendanceRequests.createdAt), desc(offlineStaffAttendanceRequests.id)).limit(200);
@@ -191,9 +302,32 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
           };
         }),
         leaveRequests: leaveRows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(), createdAt: row.createdAt.toISOString() })),
+        shiftSwapRequests: shiftSwapRows.map((row) => ({ ...row, fromStaffName: staffNameById.get(row.fromStaffId) ?? `کارمند ${row.fromStaffId}`, toStaffName: staffNameById.get(row.toStaffId) ?? `کارمند ${row.toStaffId}`, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(), createdAt: row.createdAt.toISOString() })),
         offlineAttendanceRequests: offlineAttendanceRows.map((row) => ({ ...row, occurredAt: row.occurredAt.toISOString() })),
         totalSchedules: scheduleRows.length,
         totalLeaveRequests: leaveRows.length,
+      };
+    } else if (dataset === "accounting") {
+      const [accountRows, yearRows, documentRows] = await Promise.all([
+        tx.select({ id: accAccounts.id, code: accAccounts.code, name: accAccounts.name, level: accAccounts.level, parentId: accAccounts.parentId, type: accAccounts.type, nature: accAccounts.nature, isSystem: accAccounts.isSystem, isActive: accAccounts.isActive })
+          .from(accAccounts).where(eq(accAccounts.businessId, business.id)).orderBy(asc(accAccounts.code), asc(accAccounts.id)).limit(1001),
+        tx.select({ id: accFiscalYears.id, title: accFiscalYears.title, startDate: accFiscalYears.startDate, endDate: accFiscalYears.endDate, isClosed: accFiscalYears.isClosed })
+          .from(accFiscalYears).where(eq(accFiscalYears.businessId, business.id)).orderBy(desc(accFiscalYears.startDate)).limit(101),
+        tx.select({ id: accDocuments.id, fiscalYearId: accDocuments.fiscalYearId, number: accDocuments.number, date: accDocuments.date, kind: accDocuments.kind, source: accDocuments.source, description: accDocuments.description, status: accDocuments.status, reversed: accDocuments.reversed, reversedOf: accDocuments.reversedOf, totalAmount: accDocuments.totalAmount })
+          .from(accDocuments).where(eq(accDocuments.businessId, business.id)).orderBy(desc(accDocuments.date), desc(accDocuments.id)).limit(101),
+      ]);
+      if (accountRows.length > 1000 || yearRows.length > 100 || documentRows.length > 100) throw new HttpError(413, "دادهٔ حسابداری از سقف snapshot آفلاین بیشتر است؛ دریافت صفحه‌بندی‌شده لازم است");
+      const documentIds = documentRows.map((row) => row.id);
+      const lineRows = documentIds.length ? await tx.select({ documentId: accLines.documentId, accountId: accLines.accountId, debit: accLines.debit, credit: accLines.credit, description: accLines.description, accountCode: accAccounts.code, accountName: accAccounts.name })
+        .from(accLines).innerJoin(accAccounts, and(eq(accAccounts.id, accLines.accountId), eq(accAccounts.businessId, business.id)))
+        .where(and(eq(accLines.businessId, business.id), inArray(accLines.documentId, documentIds))).orderBy(asc(accLines.id)) : [];
+      const linesByDocument = new Map<number, typeof lineRows>();
+      for (const line of lineRows) linesByDocument.set(line.documentId, [...(linesByDocument.get(line.documentId) ?? []), line]);
+      payload = {
+        accounts: accountRows,
+        years: yearRows.map((year) => ({ ...year, startDate: year.startDate.toISOString(), endDate: year.endDate.toISOString() })),
+        documents: documentRows.map((doc) => ({ ...doc, date: doc.date.toISOString(), lines: linesByDocument.get(doc.id) ?? [] })),
+        totalDocuments: documentRows.length,
       };
     } else {
       const orderRows = await tx.select({
@@ -236,7 +370,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
       throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");
@@ -274,6 +408,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value));
+}
+
 function parseMenuCommand(raw: unknown): MenuCommand {
   if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "menu" || !["update_product", "update_category"].includes(String(raw.action))) {
     throw new HttpError(400, "قالب فرمان منوی آفلاین معتبر نیست");
@@ -305,6 +443,8 @@ function parseMenuCommand(raw: unknown): MenuCommand {
 }
 
 export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
+  if (isRecord(raw) && raw.module === "staff") return syncOfflineStaffRequest(req, parseStaffCommand(raw));
+  if (isRecord(raw) && raw.module === "accounting") return syncOfflineAccountingCommand(req, raw);
   const command = parseMenuCommand(raw);
   const { terminal, business, features } = await offlineAuth(req);
   if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "همگام‌سازی پنل آفلاین در اشتراک فعلی فعال نیست");
@@ -385,5 +525,86 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
     const error = typeof outcome.response.error === "string" ? outcome.response.error : "فرمان پنل آفلاین اعمال نشد";
     throw new HttpError(outcome.httpStatus, error);
   }
+  return outcome.response;
+}
+
+type StaffCommand = {
+  schemaVersion: 1;
+  id: string;
+  businessId: number;
+  module: "staff";
+  action: "leave_request" | "shift_change";
+  baseDataset: "shifts";
+  baseSnapshotId: string;
+  baseRevision: number;
+  payload: Record<string, unknown>;
+};
+
+function parseStaffCommand(raw: unknown): StaffCommand {
+  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["leave_request", "shift_change"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
+  const allowedCommandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(raw).some((key) => !allowedCommandKeys.includes(key))) throw new HttpError(400, "فرمان کارکنان فیلد ناشناخته دارد");
+  if (typeof raw.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id)) throw new HttpError(400, "شناسهٔ درخواست معتبر نیست");
+  if (!Number.isSafeInteger(raw.businessId) || Number(raw.businessId) < 1 || raw.baseDataset !== "shifts" || typeof raw.baseSnapshotId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.baseSnapshotId) || !Number.isSafeInteger(raw.baseRevision) || Number(raw.baseRevision) < 1 || !isRecord(raw.payload)) throw new HttpError(400, "شناسه یا نسخهٔ مبنای درخواست کارکنان معتبر نیست");
+  const payload = raw.payload;
+  if (raw.action === "leave_request") {
+    if (Object.keys(payload).some((key) => !["staffId", "startsAt", "endsAt", "kind", "reason"].includes(key)) || !Number.isSafeInteger(payload.staffId) || Number(payload.staffId) < 1 || !isIsoTimestamp(payload.startsAt) || !isIsoTimestamp(payload.endsAt) || Date.parse(payload.endsAt) <= Date.parse(payload.startsAt) || Date.parse(payload.endsAt) - Date.parse(payload.startsAt) > 31 * 86_400_000 || !["personal", "sick", "unpaid"].includes(String(payload.kind)) || typeof payload.reason !== "string" || payload.reason.length > 500) throw new HttpError(400, "اطلاعات درخواست مرخصی معتبر نیست");
+  } else if (Object.keys(payload).some((key) => !["scheduleId", "targetStaffId", "reason"].includes(key)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.targetStaffId) || Number(payload.targetStaffId) < 1 || typeof payload.reason !== "string" || payload.reason.length > 300) {
+    throw new HttpError(400, "اطلاعات درخواست تعویض شیفت معتبر نیست");
+  }
+  return raw as unknown as StaffCommand;
+}
+
+async function syncOfflineStaffRequest(req: Request, command: StaffCommand) {
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "staff_scheduling")) throw new HttpError(403, "صندوق آفلاین و برنامه‌ریزی کارکنان باید در اشتراک فعال باشند");
+  if (command.businessId !== business.id) throw new HttpError(403, "درخواست متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+  const outcome = await db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این صندوق لغو شده است");
+    const [currentBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.payloadHash !== payloadHash) return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسهٔ درخواست قبلاً با محتوای دیگری ثبت شده است" } };
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "shifts"), eq(offlineWorkspaceSnapshots.revision, command.baseRevision))).for("update");
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "", details: Record<string, unknown> = {}) => {
+      const response = { commandId: command.id, state, receipt, ...details, ...(error ? { error } : {}) };
+      const ledgerPayload = { ...command, payload: { ...command.payload, reason: "" } };
+      await tx.insert(offlineWorkspaceCommands).values({ id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy, module: "staff", action: command.action, payloadHash, payload: ledgerPayload as unknown as Record<string, unknown>, state, httpStatus, error, receipt, result: response });
+      return { httpStatus, response };
+    };
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ برنامهٔ کارکنان پیدا نشد یا اعتبارش پایان یافته است؛ ابتدا نسخهٔ تازه را دریافت کنید");
+    const snapshotStaff = (snapshot.payload.staff as Record<string, unknown>[] | undefined) ?? [];
+    if (command.action === "leave_request") {
+      const staffId = Number(command.payload.staffId);
+      if (!snapshotStaff.some((row) => row.id === staffId)) return record("conflict", 409, "کارمند در نسخهٔ مبنای این درخواست حضور ندارد");
+      const [member] = await tx.select({ id: staff.id }).from(staff).where(and(eq(staff.id, staffId), eq(staff.businessId, business.id), eq(staff.isActive, true))).for("update");
+      if (!member) return record("conflict", 409, "کارمند حذف یا غیرفعال شده است");
+      const startsAt = new Date(String(command.payload.startsAt)), endsAt = new Date(String(command.payload.endsAt));
+      const from = new Date(String((snapshot.payload.range as Record<string, unknown>).from)), to = new Date(String((snapshot.payload.range as Record<string, unknown>).to));
+      if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || startsAt < from || endsAt > to) return record("conflict", 409, "بازهٔ مرخصی بیرون از محدودهٔ نسخهٔ ذخیره‌شده است؛ برنامه را به‌روز کنید");
+      const [created] = await tx.insert(staffLeaveRequests).values({ businessId: business.id, staffId, startsAt, endsAt, kind: String(command.payload.kind), reason: String(command.payload.reason).trim() }).returning({ id: staffLeaveRequests.id });
+      return record("applied", 200, "", randomUUID(), { requestId: created.id });
+    }
+    const scheduleId = Number(command.payload.scheduleId), targetStaffId = Number(command.payload.targetStaffId);
+    const snapshotSchedules = (snapshot.payload.schedules as Record<string, unknown>[] | undefined) ?? [];
+    const baseShift = snapshotSchedules.find((row) => row.id === scheduleId);
+    if (!baseShift || baseShift.status !== "scheduled") return record("conflict", 409, "شیفت در نسخهٔ مبنا پیدا نشد یا برنامه‌ریزی‌شده نیست");
+    const [shift] = await tx.select().from(staffSchedules).where(and(eq(staffSchedules.id, scheduleId), eq(staffSchedules.businessId, business.id))).for("update");
+    if (!shift || shift.status !== "scheduled" || shift.version !== baseShift.version || shift.staffId !== baseShift.staffId || shift.startsAt.toISOString() !== baseShift.startsAt) return record("conflict", 409, "شیفت از زمان دریافت نسخه تغییر کرده است؛ برنامه را تازه کنید");
+    if (shift.startsAt <= new Date()) return record("rejected", 422, "برای شیفت شروع‌شده یا گذشته درخواست تعویض ثبت نمی‌شود");
+    if (shift.staffId === targetStaffId || !snapshotStaff.some((row) => row.id === targetStaffId)) return record("rejected", 422, "کارمند مقصد در نسخهٔ کارکنان پیدا نشد یا با صاحب فعلی شیفت یکسان است");
+    const lockedStaff = await tx.select({ id: staff.id, isActive: staff.isActive }).from(staff).where(and(eq(staff.businessId, business.id), inArray(staff.id, [shift.staffId, targetStaffId]))).orderBy(asc(staff.id)).for("update");
+    if (lockedStaff.length !== 2 || lockedStaff.some((row) => !row.isActive)) return record("conflict", 409, "یکی از کارکنان حذف یا غیرفعال شده است");
+    const [pending] = await tx.select({ id: staffShiftSwapRequests.id }).from(staffShiftSwapRequests).where(and(eq(staffShiftSwapRequests.businessId, business.id), eq(staffShiftSwapRequests.scheduleId, scheduleId), inArray(staffShiftSwapRequests.status, ["pending_target", "pending_manager"]))).limit(1);
+    if (pending) return record("conflict", 409, "برای این شیفت درخواست تعویض دیگری در حال بررسی است");
+    const [created] = await tx.insert(staffShiftSwapRequests).values({ businessId: business.id, scheduleId, fromStaffId: shift.staffId, toStaffId: targetStaffId, requestedBy: terminal.createdBy, reason: String(command.payload.reason).trim() }).returning({ id: staffShiftSwapRequests.id });
+    return record("applied", 200, "", randomUUID(), { requestId: created.id });
+  }, { isolationLevel: "repeatable read" });
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "درخواست کارکنان اعمال نشد");
   return outcome.response;
 }

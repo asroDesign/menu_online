@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
+  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceAccounting, workspaceAccountingLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceOrderHistorySyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceAccountingMetaKey='', workspaceAccountingSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, activeInventoryWasteItem=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -57,6 +57,7 @@
       const localOrdersMeta=state.workspaceSnapshots?.find(item=>item.dataset==='orders');
       const localReservationsMeta=state.workspaceSnapshots?.find(item=>item.dataset==='reservations');
       const localShiftsMeta=state.workspaceSnapshots?.find(item=>item.dataset==='shifts');
+      const localAccountingMeta=state.workspaceSnapshots?.find(item=>item.dataset==='accounting');
       const nextWorkspaceSync=JSON.stringify(state.workspaceSync||null);
       const workspaceSyncChanged=nextWorkspaceSync!==workspaceSyncKey;workspaceSyncKey=nextWorkspaceSync;
       const nextWorkspaceCommands=JSON.stringify(state.workspaceCommands||null);
@@ -67,18 +68,24 @@
       const nextInventorySync=JSON.stringify(state.workspaceInventorySync||null),inventorySyncChanged=nextInventorySync!==workspaceInventorySyncKey;workspaceInventorySyncKey=nextInventorySync;
       const nextOrdersMeta=JSON.stringify(localOrdersMeta||null),ordersMetaChanged=nextOrdersMeta!==workspaceOrdersMetaKey;workspaceOrdersMetaKey=nextOrdersMeta;
       const nextOrdersSync=JSON.stringify(state.workspaceOrdersSync||null),ordersSyncChanged=nextOrdersSync!==workspaceOrdersSyncKey;workspaceOrdersSyncKey=nextOrdersSync;
+      const nextOrderHistorySync=JSON.stringify([state.workspaceOrderHistorySync||null,state.workspaceOrderHistoryError||null]),orderHistorySyncChanged=nextOrderHistorySync!==workspaceOrderHistorySyncKey;workspaceOrderHistorySyncKey=nextOrderHistorySync;
       const nextReservationsMeta=JSON.stringify(localReservationsMeta||null),reservationsMetaChanged=nextReservationsMeta!==workspaceReservationsMetaKey;workspaceReservationsMetaKey=nextReservationsMeta;
       const nextReservationsSync=JSON.stringify(state.workspaceReservationsSync||null),reservationsSyncChanged=nextReservationsSync!==workspaceReservationsSyncKey;workspaceReservationsSyncKey=nextReservationsSync;
       const nextShiftsMeta=JSON.stringify(localShiftsMeta||null),shiftsMetaChanged=nextShiftsMeta!==workspaceShiftsMetaKey;workspaceShiftsMetaKey=nextShiftsMeta;
       const nextShiftsSync=JSON.stringify(state.workspaceShiftsSync||null),shiftsSyncChanged=nextShiftsSync!==workspaceShiftsSyncKey;workspaceShiftsSyncKey=nextShiftsSync;
+      const nextAccountingMeta=JSON.stringify(localAccountingMeta||null),accountingMetaChanged=nextAccountingMeta!==workspaceAccountingMetaKey;workspaceAccountingMetaKey=nextAccountingMeta;
+      const nextAccountingSync=JSON.stringify(state.workspaceAccountingSync||null),accountingSyncChanged=nextAccountingSync!==workspaceAccountingSyncKey;workspaceAccountingSyncKey=nextAccountingSync;
       renderWorkspaceCommands();
       renderWorkspaceReservations();
+      renderWorkspaceAccountingCommands();
+      if(!$('inventory-app').hidden)renderWorkspaceInventoryWasteRequests();
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
       if(!$('customers-app').hidden&&(customerMetaChanged||customerSyncChanged||!workspaceCustomers))void loadWorkspaceCustomers();
       if(!$('inventory-app').hidden&&(inventoryMetaChanged||inventorySyncChanged||!workspaceInventory))void loadWorkspaceInventory();
-      if(!$('pos-app').hidden&&(ordersMetaChanged||ordersSyncChanged||!workspaceOrdersLoaded))void loadWorkspaceOrders();
+      if(!$('pos-app').hidden&&(ordersMetaChanged||ordersSyncChanged||orderHistorySyncChanged||!workspaceOrdersLoaded))void loadWorkspaceOrders(0,Math.max(100,workspaceOrders?.payload?.orders?.length||0));
       if(!$('reservations-app').hidden&&(reservationsMetaChanged||reservationsSyncChanged||!workspaceReservationsLoaded))void loadWorkspaceReservations();
       if(!$('shifts-app').hidden&&(shiftsMetaChanged||shiftsSyncChanged||workspaceCommandsChanged||!workspaceShiftsLoaded))void loadWorkspaceShifts();
+      if(!$('accounting-app').hidden&&(accountingMetaChanged||accountingSyncChanged||workspaceCommandsChanged||!workspaceAccountingLoaded))void loadWorkspaceAccounting();
       if(next&&(!catalog||catalog.snapshotId!==next.snapshotId)){
         catalog=next;$('pos-name').textContent=catalog.name;
         const selected=$('pos-category').value,table=$('pos-table').value;
@@ -130,6 +137,60 @@
     const states={pending:'در انتظار اتصال · غیرقطعی',synced:'درخواست در سرور ثبت شد',conflict:'نیازمند بررسی',rejected:'ثبت نشد'};
     $('reservation-commands').innerHTML=recent.length?recent.slice(0,30).map(item=>`<div class="workspace-command-row"><span><b>درخواست رزرو · ${esc(item.id.slice(0,8))}</b><small>${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`).join(''):'<p class="muted">درخواستی در صف این دستگاه وجود ندارد.</p>';
   }
+  function renderWorkspaceAccountingCommands(){
+    const summary=state?.workspaceCommands||{},recent=(summary.recent||[]).filter(item=>item.module==='accounting');
+    const states={pending:'در انتظار اتصال',conflict:'نیازمند بررسی',rejected:'رد شد',synced:'ثبت شد'};
+    $('accounting-commands').innerHTML=recent.length?recent.slice(0,30).map(item=>`<div class="workspace-command-row"><span><b>سند عمومی · ${esc(item.id.slice(0,8))}</b><small>${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`).join(''):'<p class="muted">سند آفلاینی در صف نیست.</p>';
+  }
+  function activeAccountingAccounts(){return (workspaceAccounting?.payload?.accounts||[]).filter(account=>account.isActive&&account.level!=='kol');}
+  function appendAccountingLine(){
+    const accounts=activeAccountingAccounts(),tbody=$('accounting-lines');
+    const row=document.createElement('tr');
+    row.innerHTML=`<td><select data-account required aria-label="حساب سند"><option value="">انتخاب حساب</option>${accounts.map(account=>`<option value="${account.id}">${esc(account.code)} · ${esc(account.name)} (${account.level==='tafsili'?'تفصیلی':'معین'})</option>`).join('')}</select></td><td><input data-debit inputmode="numeric" value="0" aria-label="بدهکار به تومان"></td><td><input data-credit inputmode="numeric" value="0" aria-label="بستانکار به تومان"></td><td><input data-line-description maxlength="200" aria-label="شرح ردیف" placeholder="اختیاری"></td><td><button class="text-button" data-remove-accounting-line type="button" aria-label="حذف ردیف">حذف</button></td>`;
+    tbody.append(row);renderAccountingTotals();
+  }
+  function accountingLineAmounts(){
+    return [...$('accounting-lines').querySelectorAll('tr')].map(row=>({
+      accountId:Number(row.querySelector('[data-account]').value),
+      debit:Number(digits(row.querySelector('[data-debit]').value)||0),
+      credit:Number(digits(row.querySelector('[data-credit]').value)||0),
+      description:row.querySelector('[data-line-description]').value.trim(),
+    }));
+  }
+  function renderAccountingTotals(){
+    const lines=accountingLineAmounts(),debit=lines.reduce((sum,line)=>sum+line.debit,0),credit=lines.reduce((sum,line)=>sum+line.credit,0);
+    const valid=!!workspaceAccounting?.payload&&!workspaceAccounting.expired&&lines.length>=2&&lines.every(line=>line.accountId>0&&Number.isSafeInteger(line.debit)&&Number.isSafeInteger(line.credit)&&line.debit>=0&&line.credit>=0&&!(line.debit>0&&line.credit>0))&&debit>0&&debit===credit;
+    $('accounting-debit-total').textContent=money(debit);$('accounting-credit-total').textContent=money(credit);
+    $('accounting-balance-state').textContent=debit===credit&&debit>0?'سند تراز است':'تراز نشده';$('accounting-balance-state').className=valid?'accounting-balanced':'accounting-unbalanced';
+    $('accounting-submit').disabled=!valid||!state?.paired;
+  }
+  function renderWorkspaceAccounting(){
+    const snapshot=workspaceAccounting,payload=snapshot?.payload,sync=state?.workspaceAccountingSync;
+    if(!snapshot||!payload){
+      $('accounting-sync').textContent=sync?.message||'snapshot دریافت نشده';$('accounting-sync').className='pos-status offline';
+      $('accounting-state').textContent=sync?.message||'برای مشاهده و ثبت سند آفلاین، یک‌بار هنگام اتصال حساب‌ها و سال مالی را دریافت کنید.';
+      $('accounting-revision').textContent='—';$('accounting-summary').innerHTML='';$('accounting-documents').innerHTML='';$('accounting-lines').innerHTML='';renderAccountingTotals();return;
+    }
+    const accounts=Array.isArray(payload.accounts)?payload.accounts:[],years=Array.isArray(payload.years)?payload.years:[],documents=Array.isArray(payload.documents)?payload.documents:[];
+    const openYears=years.filter(year=>!year.isClosed),activeAccounts=accounts.filter(account=>account.isActive&&account.level!=='kol');
+    const updated=snapshot.issuedAt?new Date(snapshot.issuedAt).toLocaleString('fa-IR'):'زمان دریافت ثبت نشده';
+    $('accounting-sync').textContent=snapshot.expired?'نسخهٔ منقضی · فقط مشاهده':'نسخهٔ محلی رمزگذاری‌شده';$('accounting-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
+    $('accounting-revision').textContent=`نسخه ${money(snapshot.revision)}`;
+    $('accounting-state').textContent=`${money(documents.length)} سند اخیر · ${money(payload.totalDocuments)} سند در snapshot · ${money(activeAccounts.length)} حساب قابل ثبت · ${money(openYears.length)} سال مالی باز · آخرین دریافت ${updated}${sync?.message?` · ${sync.message}`:''}`;
+    $('accounting-summary').innerHTML=`<article><span>حساب قابل انتخاب</span><b>${money(activeAccounts.length)}</b></article><article><span>سال مالی باز</span><b>${money(openYears.length)}</b></article><article><span>اسناد cache شده</span><b>${money(documents.length)}</b></article>`;
+    $('accounting-documents').innerHTML=documents.length?documents.map(doc=>`<article class="offline-shift-card accounting-document"><div class="offline-shift-head"><b>سند #${money(doc.number)}</b><span class="pos-badge ${doc.status==='posted'?'synced':'conflict'}">${doc.status==='posted'?'قطعی':'پیش‌نویس'}</span></div><p>${esc(doc.description||'بدون شرح')}</p><div class="offline-shift-meta"><span>${new Date(doc.date).toLocaleDateString('fa-IR')}</span><span>${money(doc.totalAmount)} تومان</span><span>${esc(doc.source||'manual')}</span>${doc.reversed?'<span>برگشت‌خورده</span>':''}</div><div class="accounting-document-lines">${(doc.lines||[]).map(line=>`<div><span>${esc(line.accountCode)} · ${esc(line.accountName)}</span><b>${line.debit?`بدهکار ${money(line.debit)}`:`بستانکار ${money(line.credit)}`} تومان</b></div>`).join('')}</div></article>`).join(''):'<p class="muted">سندی در نسخهٔ حسابداری محلی موجود نیست.</p>';
+    const previous=Array.from($('accounting-lines').querySelectorAll('tr')).map(row=>({account:row.querySelector('[data-account]')?.value||'',debit:row.querySelector('[data-debit]')?.value||'0',credit:row.querySelector('[data-credit]')?.value||'0',description:row.querySelector('[data-line-description]')?.value||''}));
+    if(!previous.length){appendAccountingLine();appendAccountingLine();}
+    else for(const [index,row] of Array.from($('accounting-lines').querySelectorAll('tr')).entries()){
+      const accountsMarkup=`<option value="">انتخاب حساب</option>${activeAccounts.map(account=>`<option value="${account.id}">${esc(account.code)} · ${esc(account.name)} (${account.level==='tafsili'?'تفصیلی':'معین'})</option>`).join('')}`;
+      row.querySelector('[data-account]').innerHTML=accountsMarkup;row.querySelector('[data-account]').value=previous[index]?.account||'';
+    }
+    renderAccountingTotals();
+  }
+  async function loadWorkspaceAccounting(){
+    try{workspaceAccounting=await call('offline_workspace_accounting');workspaceAccountingLoaded=true;renderWorkspaceAccounting();}
+    catch(error){workspaceAccountingLoaded=true;$('accounting-state').textContent=String(error);$('accounting-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('accounting-sync').className='pos-status offline';}
+  }
   function renderReservationTables(){
     const selected=$('reservation-table').value,tables=(catalog?.tables||[]).filter(table=>!table.operationalStatus||table.operationalStatus==='available');
     $('reservation-table').innerHTML='<option value="">انتخاب میز هنگام بررسی سرور</option>'+tables.map(table=>`<option value="${table.id}">${esc(table.name)}</option>`).join('');
@@ -164,12 +225,26 @@
     const expiry=Date.parse(`${item.expiryDate}T00:00:00Z`),current=Date.parse(`${today}T00:00:00Z`);
     return Number.isFinite(expiry)&&Number.isFinite(current)?Math.ceil((expiry-current)/86400000):null;
   }
+  function appendInventoryWasteActions(visible){
+    const table=$('inventory-list').querySelector('table');if(!table)return;
+    const header=table.querySelector('thead tr');if(header){const cell=document.createElement('th');cell.textContent='عملیات';header.append(cell);}
+    table.querySelectorAll('tbody tr').forEach((row,index)=>{const item=visible[index];if(!item)return;const cell=document.createElement('td'),button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='ثبت ضایعات';button.dataset.inventoryWaste=String(item.id);button.disabled=!item.isActive||!item.trackStock||Number(item.stock)<=0;cell.append(button);row.append(cell);});
+  }
+  function renderWorkspaceInventoryWasteRequests(){
+    const requests=state?.workspaceInventoryWasteRequests||[],reasons={spoilage:'خرابی یا فساد',expired:'انقضا',prep_loss:'پرت آماده‌سازی',quality:'افت کیفیت',damaged:'آسیب‌دیدگی',other:'سایر'},states={pending:'در انتظار همگام‌سازی',synced:'در سرور ثبت شد',conflict:'نیازمند بررسی',rejected:'رد شد'};
+    $('inventory-waste-requests').innerHTML=requests.length?requests.slice(0,30).map(row=>{const item=(workspaceInventory?.payload?.items||[]).find(candidate=>candidate.id===row.itemId);return `<div class="workspace-command-row"><span><b>ضایعات ${esc(item?.name||`کالای ${row.itemId}`)} · ${money(row.quantity)} ${esc(item?.unit||'')}</b><small>${reasons[row.wasteReason]||'سایر'} · ${esc(row.error||row.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(row.state)}">${states[row.state]||esc(row.state)}</strong></div>`}).join(''):'<p class="muted">درخواست ضایعاتی روی این دستگاه ثبت نشده است.</p>';
+  }
+  function openInventoryWaste(itemId){
+    const item=(workspaceInventory?.payload?.items||[]).find(row=>row.id===itemId);if(!item)return;
+    activeInventoryWasteItem=item;$('inventory-waste-title').textContent=`ثبت ضایعات · ${item.name}`;$('inventory-waste-context').textContent=`موجودی ذخیره‌شده: ${money(item.stock)} ${item.unit} · بهای مبنا: ${money(item.costPerUnit)} تومان / ${item.unit}`;
+    $('inventory-waste-quantity').max=String(item.stock);$('inventory-waste-quantity').value='';$('inventory-waste-reason').value='spoilage';$('inventory-waste-note').value='';$('inventory-waste-pin').value='';$('inventory-waste-error').textContent='';$('inventory-waste-dialog').showModal();$('inventory-waste-quantity').focus();
+  }
   function renderWorkspaceInventory(){
     const snapshot=workspaceInventory,payload=snapshot?.payload,sync=state?.workspaceInventorySync;
     if(!snapshot||!payload){
       $('inventory-sync').textContent=sync?.message||'داده‌ای دریافت نشده';$('inventory-sync').className='pos-status';
       $('inventory-state').textContent=sync?.message||'برای دریافت فهرست انبار، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
-      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';return;
+      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';renderWorkspaceInventoryWasteRequests();return;
     }
     const items=Array.isArray(payload.items)?payload.items:[],warehouses=Array.isArray(payload.warehouses)?payload.warehouses:[],movements=Array.isArray(payload.movements)?payload.movements:[];
     const warehouseById=new Map(warehouses.map(warehouse=>[warehouse.id,warehouse.name]));
@@ -188,9 +263,11 @@
     $('inventory-state').textContent=`${money(payload.totalItems)} قلم کالا · ${money(visible.length)} نتیجه · ${money(movements.length)} گردش اخیر · آخرین دریافت ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}${sync?.message?` · ${sync.message}`:''}`;
     $('inventory-summary').innerHTML=`<article><span>کالاهای ثبت‌شده</span><b>${money(payload.totalItems)}</b></article><article><span>نیازمند تأمین</span><b>${money(lowItems.length)}</b></article><article><span>نزدیک انقضا / منقضی</span><b>${money(expiringItems.length)}</b></article>`;
     $('inventory-list').innerHTML=visible.length?`<table class="pos-table inventory-table"><thead><tr><th>کالا</th><th>انبار</th><th>موجودی / حداقل</th><th>هشدار</th><th>انقضا</th><th>بهای واحد</th></tr></thead><tbody>${visible.map(item=>{const days=inventoryExpiryDays(item,today),isLow=lowIds.has(item.id),isExpiring=expiringIds.has(item.id),warning=isLow&&isExpiring?'کمبود · انقضا':isLow?'کمبود':isExpiring?'انقضا':item.isActive?'عادی':'غیرفعال';return `<tr><td><b>${esc(item.name)}</b><small>${esc(item.sku||'بدون کد')}</small></td><td>${esc(warehouseById.get(item.warehouseId)||'انبار اصلی')}</td><td>${money(item.stock)} ${esc(item.unit)}<small>حداقل ${money(item.minStock)} ${esc(item.unit)}</small></td><td><span class="inventory-badge ${isLow||isExpiring?'warning':item.isActive?'':'muted'}">${warning}</span></td><td>${item.expiryDate?`${new Date(`${item.expiryDate}T12:00:00Z`).toLocaleDateString('fa-IR',{timeZone:'Asia/Tehran'})}${days!==null&&days<=30?`<small>${days<0?'گذشته از تاریخ':days===0?'امروز':`${money(days)} روز مانده`}</small>`:''}`:'—'}</td><td>${money(item.costPerUnit)} تومان / ${esc(item.unit)}</td></tr>`}).join('')}</tbody></table>`:'<p class="muted">کالایی با این جست‌وجو یا فیلتر در نسخهٔ محلی پیدا نشد.</p>';
+    appendInventoryWasteActions(visible);
     const itemNameById=new Map(items.map(item=>[item.id,item.name]));
     const movementLabels={in:'ورود',out:'خروج',waste:'ضایعات',adjust:'اصلاح',sale:'مصرف فروش',transfer:'انتقال'};
     $('inventory-movements').innerHTML=movements.length?`<table class="pos-table inventory-table"><thead><tr><th>زمان</th><th>کالا</th><th>نوع</th><th>مقدار</th><th>مانده پس از گردش</th><th>مبلغ</th></tr></thead><tbody>${movements.map(movement=>`<tr><td>${new Date(movement.createdAt).toLocaleString('fa-IR')}</td><td>${esc(itemNameById.get(movement.itemId)||`کالای ${movement.itemId}`)}</td><td>${movementLabels[movement.type]||esc(movement.type)}</td><td>${Number(movement.delta)>0?'+':''}${money(movement.delta)}</td><td>${money(movement.balanceAfter)}</td><td>${money(movement.amount)} تومان</td></tr>`).join('')}</tbody></table>`:'<p class="muted">گردشی در نسخهٔ محلی موجود نیست.</p>';
+    renderWorkspaceInventoryWasteRequests();
   }
   async function loadWorkspaceInventory(){
     try{workspaceInventory=await call('offline_workspace_inventory');renderWorkspaceInventory();}
@@ -200,8 +277,8 @@
     const snapshot=workspaceOrders,payload=snapshot?.payload,sync=state?.workspaceOrdersSync;
     if(!snapshot||!payload){
       $('server-orders-sync').textContent=sync?.message||'در انتظار دریافت';$('server-orders-sync').className='pos-status offline';
-      $('server-orders-state').textContent=sync?.message||'برای دیدن سفارش‌های سایت در زمان قطعی، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
-      $('server-orders-list').innerHTML='';serverOrderSales=[];return;
+      $('server-orders-state').textContent=state?.workspaceOrderHistoryError?.message||sync?.message||'برای دیدن سفارش‌های سایت در زمان قطعی، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
+      $('server-orders-list').innerHTML='';serverOrderSales=[];$('server-orders-more').hidden=true;return;
     }
     const orders=Array.isArray(payload.orders)?payload.orders:[];
     const statusLabels={pending:'در انتظار',preparing:'در حال آماده‌سازی',ready:'آماده',served:'تحویل‌شده',paid:'پرداخت‌شده',canceled:'لغوشده',confirmed:'تأییدشده'};
@@ -213,13 +290,15 @@
       const details={...order,status:statusLabels[order.status]||order.status,deliveryStatus:deliveryLabels[order.deliveryStatus]||order.deliveryStatus,paymentStatus:paymentLabels[order.paymentStatus]||order.paymentStatus,tender,items:(order.items||[]).map(item=>({productName:item.name,name:item.name,optionNames:(item.optionSnapshot||[]).map(option=>option.optionName),unitPrice:item.price,quantity:item.quantity,weightGrams:item.weightGrams,netWeightGrams:item.weightGrams,tareGrams:item.tareGrams,amount:item.lineTotal,note:item.note}))};
       return {id:`server-${order.id}`,number:order.number,total:order.total,paid:order.paymentStatus==='paid',state:'synced',error:'',at:order.createdAt,details};
     });
-    const updated=new Date(snapshot.issuedAt).toLocaleString('fa-IR');
-    $('server-orders-sync').textContent=snapshot.expired?'نسخهٔ قدیمی · فقط مشاهده':`آخرین دریافت ${updated}`;$('server-orders-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
-    $('server-orders-state').textContent=`${money(payload.totalOrders)} سفارش در نسخهٔ محلی · آخرین دریافت ${updated}${sync?.message?` · ${sync.message}`:''}`;
+    const updated=snapshot.issuedAt?new Date(snapshot.issuedAt).toLocaleString('fa-IR'):'زمان همگام‌سازی ثبت نشده';
+    const historySync=state?.workspaceOrderHistorySync,historyError=state?.workspaceOrderHistoryError?.message;
+    $('server-orders-sync').textContent=snapshot.expired?'نسخهٔ قدیمی · فقط مشاهده':historySync?.complete?'آرشیو کامل':`دریافت ${money(payload.totalOrders)} سفارش`;$('server-orders-sync').className=`pos-status ${snapshot.expired?'offline':historySync?.complete?'online':''}`;
+    $('server-orders-state').textContent=`${money(payload.totalOrders)} سفارش در حافظهٔ محلی · ${historySync?.complete?'تاریخچهٔ همگام‌شده کامل است':'آرشیو در پس‌زمینه در حال تکمیل است'} · آخرین دریافت ${updated}${historyError?` · ${historyError}`:sync?.message?` · ${sync.message}`:''}`;
     $('server-orders-list').innerHTML=orders.length?`<table class="pos-table server-orders-table"><thead><tr><th>شماره</th><th>زمان</th><th>نوع</th><th>مبلغ</th><th>پرداخت</th><th>وضعیت سفارش</th><th>جزئیات</th></tr></thead><tbody>${orders.map((order,index)=>`<tr><td><b>#${money(order.number)}</b></td><td>${new Date(order.createdAt).toLocaleString('fa-IR')}</td><td>${order.type==='dine_in'?'داخل سالن':'بیرون‌بر'}${order.tableName?`<small>${esc(order.tableName)}</small>`:''}</td><td>${money(order.total)} تومان</td><td><span class="pos-badge ${order.paymentStatus==='paid'?'synced':'conflict'}">${paymentLabels[order.paymentStatus]||esc(order.paymentStatus)}</span></td><td>${statusLabels[order.status]||esc(order.status)}</td><td><button class="button secondary" data-server-order="${index}">جزئیات</button></td></tr>`).join('')}</tbody></table>`:'<p class="muted">سفارشی در آخرین نسخهٔ دریافت‌شده وجود ندارد.</p>';
+    $('server-orders-more').hidden=!snapshot.hasMore&&snapshot.complete;$('server-orders-more').disabled=!snapshot.hasMore&&!snapshot.complete;$('server-orders-more').textContent=snapshot.hasMore?'سفارش‌های قدیمی‌تر':snapshot.complete?'تاریخچه کامل است':'در حال دریافت سفارش‌های قدیمی‌تر…';
   }
-  async function loadWorkspaceOrders(){
-    try{workspaceOrders=await call('offline_workspace_orders');workspaceOrdersLoaded=true;renderWorkspaceOrders();}
+  async function loadWorkspaceOrders(offset=0,limit=100,append=false){
+    try{const page=await call('offline_workspace_orders',{offset,limit});if(append&&workspaceOrders){page.payload.orders=[...workspaceOrders.payload.orders,...page.payload.orders];page.hasMore=page.payload.orders.length<page.payload.totalOrders;}workspaceOrders=page;workspaceOrdersLoaded=true;renderWorkspaceOrders();}
     catch(error){workspaceOrdersLoaded=true;$('server-orders-state').textContent=String(error);$('server-orders-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('server-orders-sync').className='pos-status offline';}
   }
   function showReservationDetails(id){
@@ -256,34 +335,60 @@
     if(!snapshot||!payload){
       $('shifts-sync').textContent=sync?.message||'در انتظار دریافت';$('shifts-sync').className='pos-status offline';
       $('shifts-state').textContent=sync?.message||'برای مشاهدهٔ برنامه هنگام قطعی، دستگاه را در زمان اتصال به اینترنت همگام‌سازی کنید.';
-      $('shifts-summary').innerHTML='';$('staff-schedule-list').innerHTML='';$('staff-leave-list').innerHTML='';$('staff-roster').innerHTML='';return;
+      $('shifts-summary').innerHTML='';$('staff-schedule-list').innerHTML='';$('staff-leave-list').innerHTML='';$('staff-swap-list').innerHTML='';$('staff-local-requests').innerHTML='';$('staff-roster').innerHTML='';$('staff-leave-open').disabled=true;return;
     }
-    const schedules=Array.isArray(payload.schedules)?payload.schedules:[],leaves=Array.isArray(payload.leaveRequests)?payload.leaveRequests:[],staffRows=Array.isArray(payload.staff)?payload.staff:[],localAttendanceEvents=Array.isArray(snapshot.localAttendanceEvents)?snapshot.localAttendanceEvents:[];
+    const schedules=Array.isArray(payload.schedules)?payload.schedules:[],leaves=Array.isArray(payload.leaveRequests)?payload.leaveRequests:[],swaps=Array.isArray(payload.shiftSwapRequests)?payload.shiftSwapRequests:[],staffRows=Array.isArray(payload.staff)?payload.staff:[],localAttendanceEvents=Array.isArray(snapshot.localAttendanceEvents)?snapshot.localAttendanceEvents:[];
     const issuedAt=new Date(snapshot.issuedAt).toLocaleString('fa-IR'),rangeStart=new Date(payload.range?.from||snapshot.issuedAt).toLocaleDateString('fa-IR'),rangeEnd=new Date(payload.range?.to||snapshot.validUntil).toLocaleDateString('fa-IR');
     $('shifts-sync').textContent=snapshot.expired?'نسخهٔ قدیمی · فقط مشاهده':`آخرین دریافت ${issuedAt}`;$('shifts-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
     $('shifts-state').textContent=`بازهٔ ذخیره‌شده: ${rangeStart} تا ${rangeEnd} · ${money(payload.totalSchedules)} شیفت و ${money(payload.totalLeaveRequests)} درخواست مرخصی${sync?.message?` · ${sync.message}`:''}`;
+    $('staff-leave-open').disabled=snapshot.expired||!state?.localManagerPinConfigured||!staffRows.length;
     const now=Date.now(),upcoming=schedules.filter(item=>item.status==='scheduled'&&new Date(item.startsAt).getTime()>=now).length,pendingLeaves=leaves.filter(item=>item.status==='pending').length,staffWithShift=new Set(schedules.map(item=>item.staffId)).size;
     $('shifts-summary').innerHTML=`<article><span>شیفت‌های پیش‌رو</span><b>${money(upcoming)}</b></article><article><span>مرخصی‌های در انتظار بررسی</span><b>${money(pendingLeaves)}</b></article><article><span>کارمند دارای شیفت در بازه</span><b>${money(staffWithShift)}</b></article>`;
     const query=$('shifts-search').value.trim().toLocaleLowerCase('fa-IR'),statusLabels={scheduled:'برنامه‌ریزی‌شده',absent:'غیبت',canceled:'لغوشده'},roleLabels={waiter:'گارسون',cashier:'صندوقدار',chef:'آشپز',warehouse:'انباردار',accountant:'حسابدار',manager:'مدیر'};
     const filtered=schedules.filter(item=>!query||`${item.staffName} ${item.location}`.toLocaleLowerCase('fa-IR').includes(query));
     const localEvent=(scheduleId,action)=>localAttendanceEvents.find(event=>event.payload?.scheduleId===scheduleId&&event.payload?.action===action&&(event.state==='pending'||(event.state==='synced'&&!['approved','rejected','conflict'].includes(event.reviewStatus))));
     const eventLabel=event=>event?.state==='pending'?'ذخیره شد · در صف ارسال':event?.reviewStatus==='approved'?'تأیید مدیر شد':event?.reviewStatus==='rejected'?'درخواست توسط مدیر رد شد':event?.reviewStatus==='conflict'?'نیازمند بازبینی مدیر':'ارسال شد · منتظر تأیید مدیر';
-    $('staff-schedule-list').innerHTML=filtered.length?filtered.map(item=>{const checkInEvent=localEvent(item.id,'check_in'),checkOutEvent=localEvent(item.id,'check_out'),checkInAt=item.attendance?.checkInAt||checkInEvent?.payload?.occurredAt,checkOutAt=item.attendance?.checkOutAt||checkOutEvent?.payload?.occurredAt,checkIn=checkInAt?new Date(checkInAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}):'ثبت نشده',checkOut=checkOutAt?new Date(checkOutAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}):'ثبت نشده',start=new Date(item.startsAt).getTime(),end=new Date(item.endsAt).getTime(),valid=!snapshot.expired&&state?.localManagerPinConfigured,canCheckIn=valid&&item.status==='scheduled'&&!checkInAt&&now>=start-2*60*60_000&&now<=end+2*60*60_000,canCheckOut=valid&&item.status==='scheduled'&&!!checkInAt&&!checkOutAt&&now>=start&&now<=end+12*60*60_000;return `<article class="offline-shift-card"><div class="offline-shift-head"><b>${esc(item.staffName)}</b><span class="pos-badge ${item.status==='scheduled'?'synced':item.status==='absent'?'conflict':''}">${statusLabels[item.status]||esc(item.status)}</span></div><p>${new Date(item.startsAt).toLocaleString('fa-IR')} تا ${new Date(item.endsAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})}</p><div class="offline-shift-meta"><span>محل: ${esc(item.location||'ثبت نشده')}</span><span>ورود: ${checkIn}</span><span>خروج: ${checkOut}</span></div>${checkInEvent&&!item.attendance?.checkInAt?`<small class="offline-event-status ${checkInEvent.state==='synced'?'synced':''}">${eventLabel(checkInEvent)}</small>`:''}${checkOutEvent&&!item.attendance?.checkOutAt?`<small class="offline-event-status ${checkOutEvent.state==='synced'?'synced':''}">${eventLabel(checkOutEvent)}</small>`:''}${item.absenceNote?`<small class="offline-shift-note">توضیح غیبت: ${esc(item.absenceNote)}</small>`:''}${canCheckIn||canCheckOut?`<div class="offline-shift-actions">${canCheckIn?`<button class="button secondary" data-offline-attendance="check_in" data-schedule-id="${item.id}">ثبت ورود آفلاین</button>`:''}${canCheckOut?`<button class="button secondary" data-offline-attendance="check_out" data-schedule-id="${item.id}">ثبت خروج آفلاین</button>`:''}</div>`:''}</article>`}).join(''):'<p class="muted">شیفتی در بازهٔ snapshot پیدا نشد.</p>';
+    $('staff-schedule-list').innerHTML=filtered.length?filtered.map(item=>{const checkInEvent=localEvent(item.id,'check_in'),checkOutEvent=localEvent(item.id,'check_out'),checkInAt=item.attendance?.checkInAt||checkInEvent?.payload?.occurredAt,checkOutAt=item.attendance?.checkOutAt||checkOutEvent?.payload?.occurredAt,checkIn=checkInAt?new Date(checkInAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}):'ثبت نشده',checkOut=checkOutAt?new Date(checkOutAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}):'ثبت نشده',start=new Date(item.startsAt).getTime(),end=new Date(item.endsAt).getTime(),valid=!snapshot.expired&&state?.localManagerPinConfigured,canCheckIn=valid&&item.status==='scheduled'&&!checkInAt&&now>=start-2*60*60_000&&now<=end+2*60*60_000,canCheckOut=valid&&item.status==='scheduled'&&!!checkInAt&&!checkOutAt&&now>=start&&now<=end+12*60*60_000,canRequestSwap=valid&&item.status==='scheduled'&&start>now;return `<article class="offline-shift-card"><div class="offline-shift-head"><b>${esc(item.staffName)}</b><span class="pos-badge ${item.status==='scheduled'?'synced':item.status==='absent'?'conflict':''}">${statusLabels[item.status]||esc(item.status)}</span></div><p>${new Date(item.startsAt).toLocaleString('fa-IR')} تا ${new Date(item.endsAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})}</p><div class="offline-shift-meta"><span>محل: ${esc(item.location||'ثبت نشده')}</span><span>ورود: ${checkIn}</span><span>خروج: ${checkOut}</span></div>${checkInEvent&&!item.attendance?.checkInAt?`<small class="offline-event-status ${checkInEvent.state==='synced'?'synced':''}">${eventLabel(checkInEvent)}</small>`:''}${checkOutEvent&&!item.attendance?.checkOutAt?`<small class="offline-event-status ${checkOutEvent.state==='synced'?'synced':''}">${eventLabel(checkOutEvent)}</small>`:''}${item.absenceNote?`<small class="offline-shift-note">توضیح غیبت: ${esc(item.absenceNote)}</small>`:''}${canCheckIn||canCheckOut||canRequestSwap?`<div class="offline-shift-actions">${canCheckIn?`<button class="button secondary" data-offline-attendance="check_in" data-schedule-id="${item.id}">ثبت ورود آفلاین</button>`:''}${canCheckOut?`<button class="button secondary" data-offline-attendance="check_out" data-schedule-id="${item.id}">ثبت خروج آفلاین</button>`:''}${canRequestSwap?`<button class="button secondary" data-request-shift-change="${item.id}">درخواست تعویض</button>`:''}</div>`:''}</article>`}).join(''):'<p class="muted">شیفتی در بازهٔ snapshot پیدا نشد.</p>';
     const leaveKinds={personal:'شخصی',sick:'استعلاجی',unpaid:'بدون حقوق'},leaveStatuses={pending:'در انتظار',approved:'تأییدشده',rejected:'ردشده'};
     $('staff-leave-list').innerHTML=leaves.length?leaves.map(item=>`<article class="offline-shift-card"><div class="offline-shift-head"><b>${esc(item.staffName)}</b><span class="pos-badge ${item.status==='approved'?'synced':item.status==='pending'?'conflict':''}">${leaveStatuses[item.status]||esc(item.status)}</span></div><p>${new Date(item.startsAt).toLocaleString('fa-IR')} تا ${new Date(item.endsAt).toLocaleString('fa-IR')}</p><div class="offline-shift-meta"><span>نوع: ${leaveKinds[item.kind]||esc(item.kind)}</span><span>ثبت: ${new Date(item.createdAt).toLocaleDateString('fa-IR')}</span></div>${item.reason?`<small class="offline-shift-note">دلیل: ${esc(item.reason)}</small>`:''}${item.decisionNote?`<small class="offline-shift-note">یادداشت تصمیم: ${esc(item.decisionNote)}</small>`:''}</article>`).join(''):'<p class="muted">در بازهٔ ذخیره‌شده درخواست مرخصی وجود ندارد.</p>';
+    const swapStatuses={pending_target:'در انتظار پاسخ همکار',pending_manager:'در انتظار تأیید مدیر',approved:'تأییدشده',rejected:'ردشده'};
+    $('staff-swap-list').innerHTML=swaps.length?swaps.map(item=>`<article class="offline-shift-card"><div class="offline-shift-head"><b>${esc(item.fromStaffName)} ← ${esc(item.toStaffName)}</b><span class="offline-swap-status ${esc(item.status)}">${swapStatuses[item.status]||esc(item.status)}</span></div><p>${new Date(item.startsAt).toLocaleString('fa-IR')} تا ${new Date(item.endsAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})}</p>${item.reason?`<small class="offline-shift-note">توضیح: ${esc(item.reason)}</small>`:''}${item.decisionNote?`<small class="offline-shift-note">یادداشت: ${esc(item.decisionNote)}</small>`:''}</article>`).join(''):'<p class="muted">درخواست تعویض ثبت‌شده‌ای در نسخهٔ ذخیره‌شده نیست.</p>';
+    const pendingRequests=localAttendanceEvents.filter(item=>item.action==='leave_request'||item.action==='shift_change');
+    const localState={pending:'ذخیره‌شده · در صف ارسال',synced:'ارسال‌شده · در انتظار بررسی',conflict:'تعارض · نیازمند بررسی',rejected:'ردشده'};
+    $('staff-local-requests').innerHTML=pendingRequests.length?pendingRequests.map(event=>{const data=event.payload||{},isLeave=event.action==='leave_request',person=staffRows.find(row=>row.id===(isLeave?data.staffId:(schedules.find(shift=>shift.id===data.scheduleId)||{}).staffId)),target=staffRows.find(row=>row.id===data.targetStaffId);const detail=isLeave?`${new Date(data.startsAt).toLocaleString('fa-IR')} تا ${new Date(data.endsAt).toLocaleString('fa-IR')}`:`${new Date((schedules.find(shift=>shift.id===data.scheduleId)||{}).startsAt||event.createdAt).toLocaleString('fa-IR')} · مقصد: ${target?.name||'—'}`;return `<article class="workspace-menu-command"><div><b>${isLeave?'درخواست مرخصی':'درخواست تعویض شیفت'} · ${esc(person?.name||'کارمند')}</b><small>${detail}</small>${event.error?`<small class="offline-shift-note">${esc(event.error)}</small>`:''}</div><span class="offline-swap-status ${esc(event.state)}">${localState[event.state]||esc(event.state)}</span></article>`}).join(''):'<p class="muted">درخواستی روی این دستگاه ذخیره نشده است.</p>';
     $('staff-roster').innerHTML=staffRows.length?staffRows.map(item=>`<article class="workspace-category-row"><div><h3>${esc(item.name)}</h3><p>${roleLabels[item.role]||esc(item.role)}</p></div></article>`).join(''):'<p class="muted">کارمند فعالی در snapshot نیست.</p>';
   }
   async function loadWorkspaceShifts(){
     try{workspaceShifts=await call('offline_workspace_shifts');workspaceShiftsLoaded=true;renderWorkspaceShifts();}
     catch(error){workspaceShiftsLoaded=true;$('shifts-state').textContent=String(error);$('shifts-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('shifts-sync').className='pos-status offline';}
   }
-  let attendanceIntent=null,editingMenu=null;
+  let attendanceIntent=null,editingMenu=null,shiftChangeIntent=null;
+  const localDateTimeValue=date=>new Date(date.getTime()-date.getTimezoneOffset()*60_000).toISOString().slice(0,16);
+  function openOfflineLeaveRequest(){
+    const snapshot=workspaceShifts,payload=snapshot?.payload,staffRows=Array.isArray(payload?.staff)?payload.staff:[];
+    if(!snapshot||snapshot.expired||!state?.localManagerPinConfigured||!staffRows.length){notify('برای ثبت درخواست، snapshot تازهٔ کارکنان و PIN مدیر لازم است.',true);return;}
+    $('staff-leave-member').innerHTML=staffRows.map(row=>`<option value="${row.id}">${esc(row.name)}</option>`).join('');
+    const from=new Date(payload.range.from),to=new Date(payload.range.to),latestStart=new Date(to.getTime()-8*60*60_000),start=new Date(Math.min(Math.max(Date.now()+60*60_000,from.getTime()),latestStart.getTime()));
+    $('staff-leave-start').min=localDateTimeValue(from);$('staff-leave-start').max=localDateTimeValue(to);$('staff-leave-end').min=localDateTimeValue(from);$('staff-leave-end').max=localDateTimeValue(to);
+    $('staff-leave-start').value=localDateTimeValue(start);$('staff-leave-end').value=localDateTimeValue(new Date(start.getTime()+8*60*60_000));$('staff-leave-kind').value='personal';$('staff-leave-reason').value='';$('staff-leave-pin').value='';$('staff-leave-error').textContent='';$('staff-leave-dialog').showModal();
+  }
+  function openOfflineShiftChange(scheduleId){
+    const snapshot=workspaceShifts,payload=snapshot?.payload,shift=(payload?.schedules||[]).find(row=>row.id===scheduleId),staffRows=Array.isArray(payload?.staff)?payload.staff:[];
+    if(!shift||snapshot.expired||!state?.localManagerPinConfigured){notify('برای درخواست تعویض، snapshot تازه و PIN مدیر لازم است.',true);return;}
+    const choices=staffRows.filter(row=>row.id!==shift.staffId);if(!choices.length){notify('کارمند فعال دیگری برای تعویض شیفت وجود ندارد.',true);return;}
+    shiftChangeIntent={scheduleId};$('staff-swap-target').innerHTML=choices.map(row=>`<option value="${row.id}">${esc(row.name)}</option>`).join('');$('staff-swap-context').textContent=`${shift.staffName} · ${new Date(shift.startsAt).toLocaleString('fa-IR')} · مقصد فعلی: ${shift.location||'ثبت نشده'}`;$('staff-swap-reason').value='';$('staff-swap-pin').value='';$('staff-swap-error').textContent='';$('staff-swap-dialog').showModal();
+  }
   function openOfflineAttendance(scheduleId,action){
     const item=(workspaceShifts?.payload?.schedules||[]).find(row=>row.id===scheduleId);if(!item)return;
     attendanceIntent={scheduleId,action};$('offline-attendance-title').textContent=action==='check_in'?'ثبت ورود آفلاین':'ثبت خروج آفلاین';$('offline-attendance-context').textContent=`${item.staffName} · ${new Date(item.startsAt).toLocaleString('fa-IR')} · زمان ثبت: ${new Date().toLocaleString('fa-IR')}`;$('offline-attendance-pin').value='';$('offline-attendance-error').textContent='';$('offline-attendance-dialog').showModal();$('offline-attendance-pin').focus();
   }
-  $('staff-schedule-list').onclick=e=>{const button=e.target.closest('[data-offline-attendance]');if(button)openOfflineAttendance(Number(button.dataset.scheduleId),button.dataset.offlineAttendance);};
+  $('staff-schedule-list').onclick=e=>{const swap=e.target.closest('[data-request-shift-change]'),button=e.target.closest('[data-offline-attendance]');if(swap)openOfflineShiftChange(Number(swap.dataset.requestShiftChange));else if(button)openOfflineAttendance(Number(button.dataset.scheduleId),button.dataset.offlineAttendance);};
+  $('staff-leave-open').onclick=openOfflineLeaveRequest;
+  $('staff-leave-form').onsubmit=async e=>{e.preventDefault();const submit=$('staff-leave-submit');submit.disabled=true;$('staff-leave-error').textContent='';try{const starts=new Date($('staff-leave-start').value),ends=new Date($('staff-leave-end').value);if(!Number.isFinite(starts.getTime())||!Number.isFinite(ends.getTime())||ends<=starts){throw new Error('زمان شروع و پایان مرخصی را بررسی کنید.');}await call('offline_workspace_request_leave',{staffId:Number($('staff-leave-member').value),startsAt:starts.toISOString(),endsAt:ends.toISOString(),kind:$('staff-leave-kind').value,reason:$('staff-leave-reason').value,managerPin:digits($('staff-leave-pin').value)});$('staff-leave-dialog').close();notify('درخواست مرخصی به‌صورت رمزگذاری‌شده روی دستگاه ذخیره شد.');await loadWorkspaceShifts();await refresh();}catch(error){$('staff-leave-error').textContent=String(error);}finally{submit.disabled=false;}};
+  $('staff-swap-form').onsubmit=async e=>{e.preventDefault();if(!shiftChangeIntent)return;const submit=$('staff-swap-submit');submit.disabled=true;$('staff-swap-error').textContent='';try{await call('offline_workspace_request_shift_change',{scheduleId:shiftChangeIntent.scheduleId,targetStaffId:Number($('staff-swap-target').value),reason:$('staff-swap-reason').value,managerPin:digits($('staff-swap-pin').value)});$('staff-swap-dialog').close();shiftChangeIntent=null;notify('درخواست تعویض شیفت روی این دستگاه ذخیره شد؛ پس از اتصال، بررسی می‌شود.');await loadWorkspaceShifts();await refresh();}catch(error){$('staff-swap-error').textContent=String(error);}finally{submit.disabled=false;}};
   $('offline-attendance-form').onsubmit=async e=>{e.preventDefault();if(!attendanceIntent)return;const submit=$('offline-attendance-submit');submit.disabled=true;$('offline-attendance-error').textContent='';try{await call('offline_workspace_record_attendance',{scheduleId:attendanceIntent.scheduleId,action:attendanceIntent.action,occurredAt:new Date().toISOString(),managerPin:digits($('offline-attendance-pin').value)});$('offline-attendance-dialog').close();attendanceIntent=null;notify('درخواست حضور روی همین دستگاه ذخیره شد؛ پس از اتصال برای تأیید مدیر ارسال می‌شود.');await loadWorkspaceShifts();await refresh();}catch(error){$('offline-attendance-error').textContent=String(error);}finally{submit.disabled=false;}};
+  $('inventory-list').onclick=e=>{const button=e.target.closest('[data-inventory-waste]');if(button&&!button.disabled)openInventoryWaste(Number(button.dataset.inventoryWaste));};
+  $('inventory-waste-form').onsubmit=async e=>{e.preventDefault();if(!activeInventoryWasteItem)return;const submit=$('inventory-waste-submit'),quantity=Number(digits($('inventory-waste-quantity').value));submit.disabled=true;$('inventory-waste-error').textContent='';try{await call('offline_workspace_record_inventory_waste',{itemId:activeInventoryWaste.id,quantity,wasteReason:$('inventory-waste-reason').value,note:$('inventory-waste-note').value,managerPin:digits($('inventory-waste-pin').value)});$('inventory-waste-dialog').close();activeInventoryWasteItem=null;notify('درخواست ضایعات در پایگاه رمز‌شدهٔ همین دستگاه ذخیره شد؛ ثبت رسمی پس از همگام‌سازی انجام می‌شود.');await refresh();}catch(error){$('inventory-waste-error').textContent=String(error);}finally{submit.disabled=false;}};
   function openMenuEditor(kind,id){
     const view=workspaceMenuView(),base=workspaceMenu?.payload;
     if(!view||!base||!canEditLocalMenu())return;
@@ -341,11 +446,29 @@
   $('pos-history').onclick=async e=>{try{const details=e.target.closest('[data-details]'),pay=e.target.closest('[data-pay]'),retry=e.target.closest('[data-retry]');if(details)showSaleDetails(details.dataset.details);if(pay)checkout(pay.dataset.pay);if(retry){await call('offline_retry',{id:retry.dataset.retry});const old=historyOlder.find(item=>item.id===retry.dataset.retry);if(old){old.state='pending';old.error='';}await refresh();}}catch(error){notify(error,true);}};
   $('pos-history-more').onclick=async()=>{try{const page=await call('offline_history',{offset:state.sales.length+historyOlder.length});historyOlder.push(...page.sales);historyHasMore=page.hasMore;renderSalesHistory();}catch(error){notify(error,true);}};
   $('server-orders-list').onclick=e=>{const button=e.target.closest('[data-server-order]');if(button){const sale=serverOrderSales[Number(button.dataset.serverOrder)];if(sale)showSaleDetails(sale.id,sale);}};
+  $('server-orders-more').onclick=async()=>{if(!workspaceOrders?.hasMore)return;await loadWorkspaceOrders(workspaceOrders.payload.orders.length,100,true);};
   $('server-reservations-list').onclick=e=>{const button=e.target.closest('[data-reservation-detail]');if(button)showReservationDetails(Number(button.dataset.reservationDetail));};
   $('server-reservations-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-reservations-state').textContent='درخواست دریافت نسخهٔ تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('shifts-search').oninput=renderWorkspaceShifts;
   $('shifts-refresh').onclick=async()=>{try{await call('offline_refresh');$('shifts-state').textContent='درخواست دریافت نسخهٔ تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
-  $('server-orders-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-orders-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
+  $('server-orders-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-orders-state').textContent='درخواست دریافت سفارش‌های تازه و ادامهٔ آرشیو کامل ثبت شد؛ نسخهٔ محلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
+  $('accounting-refresh').onclick=async()=>{try{await call('offline_refresh');$('accounting-state').textContent='درخواست دریافت حساب‌ها و اسناد تازه ثبت شد؛ نسخهٔ محلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
+  $('accounting-add-line').onclick=()=>appendAccountingLine();
+  $('accounting-lines').addEventListener('input',event=>{const input=event.target.closest('[data-debit],[data-credit]');if(input)input.value=digits(input.value).replace(/\D/g,'');renderAccountingTotals();});
+  $('accounting-lines').addEventListener('change',()=>renderAccountingTotals());
+  $('accounting-lines').addEventListener('click',event=>{if(!event.target.closest('[data-remove-accounting-line]'))return;if($('accounting-lines').querySelectorAll('tr').length<=2){notify('سند باید دست‌کم دو ردیف داشته باشد.',true);return;}event.target.closest('tr').remove();renderAccountingTotals();});
+  $('accounting-form').onsubmit=async event=>{
+    event.preventDefault();$('accounting-error').textContent='';$('accounting-submit').disabled=true;
+    try{
+      const jalali=jalaliToGregorian($('accounting-date').value);if(!jalali)throw new Error('تاریخ شمسی معتبر نیست.');
+      const date=new Date(jalali.year,jalali.month-1,jalali.day,12,0,0,0);if(!Number.isFinite(date.getTime()))throw new Error('تاریخ سند معتبر نیست.');
+      const lines=accountingLineAmounts();if(lines.length<2||lines.some(line=>!Number.isSafeInteger(line.accountId)||line.accountId<1||!Number.isSafeInteger(line.debit)||!Number.isSafeInteger(line.credit)||line.debit<0||line.credit<0||(line.debit>0&&line.credit>0)))throw new Error('حساب و مبلغ هر ردیف را بررسی کنید.');
+      const debit=lines.reduce((sum,line)=>sum+line.debit,0),credit=lines.reduce((sum,line)=>sum+line.credit,0);if(debit<=0||debit!==credit)throw new Error('جمع بدهکار و بستانکار باید برابر و غیرصفر باشد.');
+      await call('offline_workspace_create_accounting_document',{date:date.toISOString(),description:$('accounting-description').value.trim(),lines,managerPin:digits($('accounting-pin').value)});
+      $('accounting-pin').value='';$('accounting-description').value='';$('accounting-error').textContent='';notify('سند متوازن روی دستگاه ذخیره شد و در صف همگام‌سازی است.');await refresh();
+    }catch(error){$('accounting-error').textContent=String(error);}
+    finally{renderAccountingTotals();}
+  };
   $('pos-prints').onclick=async e=>{const b=e.target.closest('[data-print]');if(b&&confirm('ممکن است فیش قبلاً چاپ شده باشد. پس از بررسی خروج کاغذ، دوباره ارسال شود؟')){try{await call('offline_retry_print',{id:Number(b.dataset.print)});await refresh();}catch(error){notify(error,true);}}};
   $('pos-search').oninput=renderProducts;$('pos-category').onchange=renderProducts;$('pos-method').onchange=paymentFields;$('pos-cash').oninput=()=>{const n=digits($('pos-cash').value);$('pos-cash').value=/^\d*$/.test(n)?Number(n||0).toLocaleString('en-US'):n;paymentFields();};$('pos-checkout').onclick=()=>checkout();
   const jalaliFormatter=new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn',{year:'numeric',month:'numeric',day:'numeric',timeZone:'UTC'});
@@ -363,7 +486,9 @@
     const suggested=new Date(Date.now()+90*60*1000);suggested.setMinutes(0,0,0);const parts={};for(const part of jalaliLocalFormatter.formatToParts(suggested))if(part.type==='year'||part.type==='month'||part.type==='day')parts[part.type]=part.value;
     $('reservation-date').value=parts.year+'/'+String(parts.month).padStart(2,'0')+'/'+String(parts.day).padStart(2,'0');$('reservation-time').value=String(suggested.getHours()).padStart(2,'0')+':'+String(suggested.getMinutes()).padStart(2,'0');
   }
+  function setAccountingDefaultDate(){const parts={};for(const part of jalaliLocalFormatter.formatToParts(new Date()))if(part.type==='year'||part.type==='month'||part.type==='day')parts[part.type]=part.value;$('accounting-date').value=parts.year+'/'+String(parts.month).padStart(2,'0')+'/'+String(parts.day).padStart(2,'0');}
   setReservationDefaults();
+  setAccountingDefaultDate();
   $('reservation-form').onsubmit=async event=>{
     event.preventDefault();const button=$('reservation-submit');if(button.disabled)return;button.disabled=true;$('reservation-error').textContent='';
     const phone=digits($('reservation-phone').value).replace(/\D/g,''),jalali=jalaliToGregorian($('reservation-date').value),time=$('reservation-time').value.split(':').map(Number);
@@ -382,11 +507,11 @@
   $('inventory-refresh').onclick=async()=>{try{await call('offline_refresh');await loadWorkspaceInventory();notify('درخواست دریافت تازهٔ موجودی و گردش‌ها ثبت شد.');}catch(error){notify(error,true);}};
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
   function selectDesktopTab(tab){
-    const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',inventory:'inventory-app',reservations:'reservations-app',shifts:'shifts-app',hardware:'hardware-app'};
+    const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',inventory:'inventory-app',reservations:'reservations-app',shifts:'shifts-app',accounting:'accounting-app',hardware:'hardware-app'};
     Object.entries(selected).forEach(([key,id])=>{$(id).hidden=key!==tab;$(`tab-${key}`).classList.toggle('selected',key===tab);});
-    if(tab==='pos'){void routes();void loadWorkspaceOrders();}if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();void loadWorkspaceReservations();}if(tab==='shifts')void loadWorkspaceShifts();
+    if(tab==='pos'){void routes();void loadWorkspaceOrders();}if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();void loadWorkspaceReservations();}if(tab==='shifts')void loadWorkspaceShifts();if(tab==='accounting')void loadWorkspaceAccounting();
   }
-  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-inventory').onclick=()=>selectDesktopTab('inventory');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-shifts').onclick=()=>selectDesktopTab('shifts');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
+  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-inventory').onclick=()=>selectDesktopTab('inventory');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-shifts').onclick=()=>selectDesktopTab('shifts');$('tab-accounting').onclick=()=>selectDesktopTab('accounting');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
   $('workspace-menu-refresh').onclick=async()=>{try{await call('offline_refresh');$('workspace-menu-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق در دسترس می‌ماند.';}catch(error){notify(error,true);}};$('workspace-menu-search').oninput=renderWorkspaceMenu;$('workspace-menu-category').onchange=renderWorkspaceMenu;
   void refresh();setInterval(()=>void refresh(),5000);
 })();

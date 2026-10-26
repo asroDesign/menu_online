@@ -1,0 +1,137 @@
+import { createHash } from "node:crypto";
+import { and, eq, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { businesses, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, users } from "@/db/schema";
+import { HttpError } from "@/lib/auth";
+import { ensureAccounting } from "@/lib/accounting";
+import { offlineAuth } from "@/lib/offline-pos";
+import { hasAny } from "@/lib/plans";
+import { applyStockReceipt } from "@/lib/stock-receipts";
+import { isWasteReason } from "@/lib/stock-waste";
+
+type InventoryWasteCommand = {
+  schemaVersion: 1;
+  id: string;
+  businessId: number;
+  module: "inventory";
+  action: "waste";
+  baseDataset: "inventory";
+  baseSnapshotId: string;
+  baseRevision: number;
+  payload: {
+    itemId: number;
+    quantity: number;
+    expectedStock: number;
+    wasteReason: string;
+    note: string;
+    occurredAt: string;
+  };
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/i;
+const STOCK_EPSILON = 1e-9;
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function parseCommand(raw: unknown): InventoryWasteCommand {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HttpError(400, "فرمان ضایعات آفلاین معتبر نیست");
+  const command = raw as Record<string, unknown>;
+  const allowed = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(command).some((key) => !allowed.includes(key))) throw new HttpError(400, "فرمان ضایعات فیلد ناشناخته دارد");
+  if (command.schemaVersion !== 1 || command.module !== "inventory" || command.action !== "waste" || command.baseDataset !== "inventory") throw new HttpError(400, "نسخه یا نوع فرمان ضایعات پشتیبانی نمی‌شود");
+  if (typeof command.id !== "string" || !UUID.test(command.id) || !Number.isSafeInteger(command.businessId) || Number(command.businessId) < 1) throw new HttpError(400, "شناسهٔ فرمان یا کسب‌وکار معتبر نیست");
+  if (typeof command.baseSnapshotId !== "string" || !UUID.test(command.baseSnapshotId) || !Number.isSafeInteger(command.baseRevision) || Number(command.baseRevision) < 1) throw new HttpError(400, "نسخهٔ مبنای موجودی معتبر نیست");
+  if (!command.payload || typeof command.payload !== "object" || Array.isArray(command.payload)) throw new HttpError(400, "اطلاعات ضایعات معتبر نیست");
+  const payload = command.payload as Record<string, unknown>;
+  const payloadKeys = ["itemId", "quantity", "expectedStock", "wasteReason", "note", "occurredAt"];
+  if (Object.keys(payload).some((key) => !payloadKeys.includes(key))) throw new HttpError(400, "اطلاعات ضایعات فیلد ناشناخته دارد");
+  if (!Number.isSafeInteger(payload.itemId) || Number(payload.itemId) < 1) throw new HttpError(400, "کالای ضایعات معتبر نیست");
+  if (typeof payload.quantity !== "number" || !Number.isFinite(payload.quantity) || payload.quantity <= 0 || payload.quantity > 1_000_000_000) throw new HttpError(400, "مقدار ضایعات نامعتبر است");
+  if (typeof payload.expectedStock !== "number" || !Number.isFinite(payload.expectedStock) || payload.expectedStock < payload.quantity || payload.expectedStock > 1_000_000_000) throw new HttpError(400, "موجودی مبنای ضایعات نامعتبر است");
+  if (!isWasteReason(payload.wasteReason)) throw new HttpError(400, "دلیل ضایعات معتبر نیست");
+  if (typeof payload.note !== "string" || payload.note.length > 600 || [...payload.note].length > 300) throw new HttpError(400, "توضیح ضایعات بیش از حد طولانی است");
+  if (typeof payload.occurredAt !== "string" || payload.occurredAt.length > 40 || !RFC3339.test(payload.occurredAt) || !Number.isFinite(Date.parse(payload.occurredAt))) throw new HttpError(400, "زمان ضایعات معتبر نیست");
+  return raw as InventoryWasteCommand;
+}
+
+export async function syncOfflineInventoryWaste(req: Request, raw: unknown) {
+  const command = parseCommand(raw);
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory") || !hasAny(features, "stock_movements")) {
+    throw new HttpError(403, "صندوق آفلاین، انبار و گردش انبار باید در اشتراک فعال باشند");
+  }
+  if (command.businessId !== business.id) throw new HttpError(403, "فرمان ضایعات متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+  await ensureAccounting(business);
+
+  const outcome = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این دستگاه لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.payloadHash !== payloadHash) {
+        return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسه فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      }
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "") => {
+      const response = { commandId: command.id, state, receipt, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({
+        id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy,
+        module: command.module, action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>,
+        state, httpStatus, error, receipt, result: response,
+      });
+      return { httpStatus, response };
+    };
+
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(
+      eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id),
+      eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "inventory"),
+      eq(offlineWorkspaceSnapshots.revision, command.baseRevision),
+    )).for("update");
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ موجودی مبنا منقضی شده یا پیدا نمی‌شود؛ snapshot تازه دریافت کنید");
+    const occurredAt = new Date(command.payload.occurredAt);
+    const serverNow = Date.now();
+    if (occurredAt.getTime() > serverNow + 5 * 60_000 || occurredAt.getTime() < snapshot.issuedAt.getTime() - 5 * 60_000) {
+      return record("rejected", 422, "زمان ثبت دستگاه با بازهٔ نسخهٔ محلی سازگار نیست");
+    }
+    const baseItems = Array.isArray(snapshot.payload.items) ? snapshot.payload.items as Record<string, unknown>[] : [];
+    const baseItem = baseItems.find((item) => item.id === command.payload.itemId);
+    if (!baseItem || baseItem.isActive !== true || baseItem.trackStock !== true) return record("conflict", 409, "کالا در نسخهٔ مبنای انبار فعال و قابل ردیابی نیست");
+    const baseStock = Number(baseItem.stock);
+    if (!Number.isFinite(baseStock) || command.payload.expectedStock > baseStock + STOCK_EPSILON) return record("rejected", 422, "موجودی مبنای ضایعات از snapshot بیشتر است");
+
+    await tx.execute(sql`select pg_advisory_xact_lock(${business.id})`);
+    const [item] = await tx.select().from(inventoryItems).where(and(eq(inventoryItems.id, command.payload.itemId), eq(inventoryItems.businessId, business.id))).for("update");
+    if (!item || !item.isActive || !item.trackStock) return record("conflict", 409, "کالا در سرور حذف، غیرفعال یا از ردیابی موجودی خارج شده است");
+    if (Math.abs(item.costPerUnit - Number(baseItem.costPerUnit)) > 0 || Math.abs(item.stock - command.payload.expectedStock) > STOCK_EPSILON) {
+      return record("conflict", 409, "موجودی یا بهای کالا پس از دریافت نسخه تغییر کرده است؛ موجودی تازه را بررسی کنید");
+    }
+    const [issuer] = await tx.select({ name: users.name }).from(users).where(eq(users.id, terminal.createdBy));
+    const result = await applyStockReceipt(tx, business, {
+      type: "waste",
+      requestKey: command.id,
+      date: occurredAt,
+      lines: [{ itemId: item.id, quantity: command.payload.quantity }],
+      wasteReason: command.payload.wasteReason,
+      note: command.payload.note,
+    }, issuer?.name ?? "صندوق آفلاین");
+    return record("applied", 200, "", String(result.receipt.id));
+  }, { isolationLevel: "repeatable read" });
+
+  if (outcome.httpStatus !== 200) {
+    const error = typeof outcome.response.error === "string" ? outcome.response.error : "فرمان ضایعات آفلاین اعمال نشد";
+    throw new HttpError(outcome.httpStatus, error);
+  }
+  return outcome.response;
+}

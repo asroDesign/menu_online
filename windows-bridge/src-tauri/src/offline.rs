@@ -45,6 +45,7 @@ impl OfflineState {
             };
             let mut refresh = Instant::now() - Duration::from_secs(600);
             let mut workspace_refresh = Instant::now() - Duration::from_secs(600);
+            let mut order_history_refresh = Instant::now();
             let mut backup = Instant::now() - Duration::from_secs(86400);
             loop {
                 let pair = state
@@ -149,7 +150,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "reservations", "staff"] {
+                    'workspace_modules: for module in ["menu", "reservations", "staff", "inventory", "accounting"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -170,7 +171,9 @@ impl OfflineState {
                         }
                         let route = match module {
                             "reservations" => "reservations",
-                            "staff" => "staff/attendance",
+                            "staff" if command["action"].as_str() == Some("attendance") => "staff/attendance",
+                            "staff" => "commands",
+                            "inventory" => "inventory",
                             _ => "commands",
                         };
                         let request = client
@@ -193,7 +196,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    if module == "menu" { let _ = store.set("workspace_refresh", &json!(true)); }
+                                    if module == "menu" || module == "inventory" || module == "staff" || module == "accounting" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -214,7 +217,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 && module == "menu" {
+                                    if status == 409 && (module == "menu" || module == "inventory" || module == "staff" || module == "accounting") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
@@ -510,7 +513,7 @@ impl OfflineState {
                             }
                             Ok((status, data)) => {
                                 if let Ok(mut store) = state.store.lock() {
-                                    if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("orders"); }
+                                    if status == 401 || status == 403 { let _ = store.delete_workspace_order_history(); }
                                     let _ = store.set("workspace_sync_orders", &json!({
                                         "ok": false, "dataset": "orders",
                                         "message": data["error"].as_str().unwrap_or("دریافت تاریخچهٔ محلی سفارش‌ها ناموفق بود")
@@ -525,6 +528,7 @@ impl OfflineState {
                                 }
                             }
                         }
+                        sync_order_history_batch(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         let request = client
                             .get(format!("{server}/api/offline-dashboard/snapshots/reservations"))
                             .bearer_auth(token)
@@ -620,7 +624,68 @@ impl OfflineState {
                                 }
                             }
                         }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/accounting"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("accounting")
+                                    && snapshot["businessId"].as_i64() == pair["businessId"].as_i64()
+                                    && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                                    && snapshot["payload"]["accounts"].is_array()
+                                    && snapshot["payload"]["years"].is_array()
+                                    && snapshot["payload"]["documents"].is_array() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => {
+                                            let _ = store.set("workspace_sync_accounting", &json!({
+                                                "ok": true, "dataset": "accounting", "revision": snapshot["revision"],
+                                                "checkedAt": chrono::Utc::now().to_rfc3339()
+                                            }));
+                                        }
+                                        Err(error) => {
+                                            let _ = store.set("workspace_sync_accounting", &json!({
+                                                "ok": false, "dataset": "accounting", "message": error
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((status, data)) => {
+                                if let Ok(mut store) = state.store.lock() {
+                                    if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("accounting"); }
+                                    let _ = store.set("workspace_sync_accounting", &json!({
+                                        "ok": false, "dataset": "accounting",
+                                        "message": data["error"].as_str().unwrap_or("دریافت اطلاعات حسابداری ناموفق بود")
+                                    }));
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.set("workspace_sync_accounting", &json!({
+                                        "ok": false, "dataset": "accounting", "message": "ارتباط حسابداری در دسترس نیست"
+                                    }));
+                                }
+                            }
+                        }
                     }
+                }
+                let order_history_complete = state.store.lock().ok()
+                    .and_then(|store| store.get("workspace_order_history_sync").ok().flatten())
+                    .and_then(|value| value["complete"].as_bool())
+                    .unwrap_or(false);
+                let order_history_interval = if order_history_complete { 600 } else { 60 };
+                if order_history_refresh.elapsed() >= Duration::from_secs(order_history_interval) {
+                    if let Some(pair) = state.store.lock().ok().and_then(|store| store.get("pairing").ok().flatten()) {
+                        let server = pair["server"].as_str().unwrap_or("").trim_end_matches('/');
+                        let token = pair["token"].as_str().unwrap_or("");
+                        sync_order_history_batch(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
+                    }
+                    order_history_refresh = Instant::now();
                 }
                 if backup.elapsed() >= Duration::from_secs(86400) {
                     if let Ok(s) = state.store.lock() {
@@ -685,6 +750,76 @@ fn decode(
         serde_json::from_slice(&bytes).map_err(|_| "پاسخ سایت JSON معتبر نیست")?,
     ))
 }
+fn sync_order_history_batch(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 {
+        return;
+    }
+    for _ in 0..20 {
+        let history_state = state
+            .store
+            .lock()
+            .ok()
+            .and_then(|store| store.get("workspace_order_history_sync").ok().flatten())
+            .unwrap_or(json!({"cursor":null,"complete":false}));
+        if history_state["complete"].as_bool() == Some(true) {
+            break;
+        }
+        let cursor = history_state["cursor"].as_str().map(str::to_owned);
+        let url = match cursor.as_deref() {
+            Some(value) => format!("{server}/api/offline-dashboard/order-history?cursor={value}"),
+            None => format!("{server}/api/offline-dashboard/order-history"),
+        };
+        match decode(client.get(url).bearer_auth(token).send()) {
+            Ok((200, page))
+                if page["schemaVersion"] == 1
+                    && page["dataset"].as_str() == Some("orders-history")
+                    && page["businessId"].as_i64() == Some(business_id)
+                    && page["requestCursor"].as_str() == cursor.as_deref()
+                    && page["orders"].as_array().is_some_and(|orders| orders.len() <= 50)
+                    && page["hasMore"].as_bool().is_some() =>
+            {
+                if let Ok(mut store) = state.store.lock() {
+                    match store.save_order_history_page(&page, cursor.as_deref()) {
+                        Ok(()) => {
+                            let _ = store.set("workspace_sync_orders_history", &json!({"ok":true,"checkedAt":page["issuedAt"],"message":null}));
+                        }
+                        Err(error) => {
+                            let _ = store.set("workspace_sync_orders_history", &json!({"ok":false,"message":error}));
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok((status, data)) => {
+                if let Ok(mut store) = state.store.lock() {
+                    if status == 401 || status == 403 {
+                        let _ = store.delete_workspace_order_history();
+                    }
+                    let _ = store.set("workspace_sync_orders_history", &json!({
+                        "ok":false,
+                        "message":data["error"].as_str().unwrap_or("دریافت آرشیو کامل سفارش‌ها ناموفق بود")
+                    }));
+                }
+                break;
+            }
+            Err(_) => {
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.set("workspace_sync_orders_history", &json!({
+                        "ok":false,
+                        "message":"ارتباط دریافت آرشیو کامل سفارش‌ها در دسترس نیست"
+                    }));
+                }
+                break;
+            }
+        }
+    }
+}
 #[tauri::command]
 pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
     let s = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
@@ -701,9 +836,13 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceSync": s.get("workspace_sync")?,
         "workspaceCustomerSync": s.get("workspace_sync_customers")?,
         "workspaceInventorySync": s.get("workspace_sync_inventory")?,
+        "workspaceInventoryWasteRequests": s.workspace_inventory_waste_requests()?,
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
+        "workspaceOrderHistorySync": s.get("workspace_order_history_sync")?,
+        "workspaceOrderHistoryError": s.get("workspace_sync_orders_history")?,
         "workspaceReservationsSync": s.get("workspace_sync_reservations")?,
         "workspaceShiftsSync": s.get("workspace_sync_shifts")?,
+        "workspaceAccountingSync": s.get("workspace_sync_accounting")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -737,9 +876,23 @@ pub fn offline_workspace_inventory(state: State<'_, OfflineState>) -> Result<Opt
 }
 
 #[tauri::command]
-pub fn offline_workspace_orders(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+pub fn offline_workspace_orders(offset: i64, limit: i64, state: State<'_, OfflineState>) -> Result<Value> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("orders")
+    let page = store.workspace_order_history_page(offset, limit)?;
+    let snapshot = store.workspace_snapshot("orders")?;
+    let archive_checked_at = page["checkedAt"].as_str().unwrap_or("");
+    let issued_at = snapshot.as_ref().and_then(|item| item["issuedAt"].as_str()).filter(|value| !value.is_empty()).unwrap_or(archive_checked_at);
+    let expired = chrono::DateTime::parse_from_rfc3339(issued_at).map(|date| date + chrono::Duration::days(7) < chrono::Utc::now()).unwrap_or(true);
+    Ok(json!({
+        "businessId": snapshot.as_ref().and_then(|item| item["businessId"].as_i64()).unwrap_or(0),
+        "dataset":"orders",
+        "issuedAt":issued_at,
+        "archiveCheckedAt":archive_checked_at,
+        "expired":expired,
+        "payload":{"orders":page["orders"],"totalOrders":page["totalOrders"]},
+        "hasMore":page["hasMore"],
+        "complete":page["complete"]
+    }))
 }
 
 #[tauri::command]
@@ -756,6 +909,36 @@ pub fn offline_workspace_shifts(state: State<'_, OfflineState>) -> Result<Option
         snapshot["localAttendanceEvents"] = store.workspace_staff_attendance_events()?;
     }
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn offline_workspace_accounting(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("accounting")
+}
+
+#[tauri::command]
+pub fn offline_workspace_request_leave(
+    staff_id: i64,
+    starts_at: String,
+    ends_at: String,
+    kind: String,
+    reason: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_leave_request_with_pin(&manager_pin, staff_id, &starts_at, &ends_at, &kind, &reason)
+}
+
+#[tauri::command]
+pub fn offline_workspace_request_shift_change(
+    schedule_id: i64,
+    target_staff_id: i64,
+    reason: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_shift_change_with_pin(&manager_pin, schedule_id, target_staff_id, &reason)
 }
 
 #[tauri::command]
@@ -821,6 +1004,27 @@ pub fn offline_workspace_record_attendance(
     state: State<'_, OfflineState>,
 ) -> Result<Value> {
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_attendance_with_pin(&manager_pin, schedule_id, &action, &occurred_at)
+}
+#[tauri::command]
+pub fn offline_workspace_record_inventory_waste(
+    item_id: i64,
+    quantity: f64,
+    waste_reason: String,
+    note: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_waste_with_pin(&manager_pin, item_id, quantity, &waste_reason, &note)
+}
+#[tauri::command]
+pub fn offline_workspace_create_accounting_document(
+    date: String,
+    description: String,
+    lines: Value,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_accounting_document_with_pin(&manager_pin, &date, &description, &lines)
 }
 #[tauri::command]
 pub fn offline_reservation_create(payload: Value, state: State<'_, OfflineState>) -> Result<Value> {
