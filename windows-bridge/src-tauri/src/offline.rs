@@ -1299,6 +1299,19 @@ pub fn offline_workspace_update_menu(
         .enqueue_menu_update_with_pin(&manager_pin, &action, target_id, patch)
 }
 #[tauri::command]
+pub fn offline_workspace_create_menu(
+    action: String,
+    payload: Value,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "پایگاه محلی مشغول است")?
+        .enqueue_menu_create_with_pin(&manager_pin, &action, payload)
+}
+#[tauri::command]
 pub fn offline_workspace_record_attendance(
     schedule_id: i64,
     action: String,

@@ -421,6 +421,7 @@ impl Store {
             "orders" => ["create", "change_status", "record_payment"].contains(&action),
             "menu" => [
                 "create_product",
+                "create_category",
                 "update_product",
                 "archive_product",
                 "update_category",
@@ -694,6 +695,79 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":id,"state":"pending","action":action,"targetId":target_id}))
+    }
+
+    pub fn enqueue_menu_create_with_pin(&mut self, pin: &str, action: &str, payload: Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if !["create_product", "create_category"].contains(&action) {
+            return Err("نوع ایجاد منو معتبر نیست".into());
+        }
+        let Some(fields) = payload.as_object() else { return Err("اطلاعات قلم جدید منو معتبر نیست".into()) };
+        let key = if action == "create_product" { "product" } else { "category" };
+        if fields.len() != 1 || !fields.contains_key(key) {
+            return Err("ساختار اطلاعات قلم جدید منو معتبر نیست".into());
+        }
+        let item = &payload[key];
+        let Some(values) = item.as_object() else { return Err("اطلاعات قلم جدید منو معتبر نیست".into()) };
+        let allowed: &[&str] = if action == "create_product" {
+            &["name", "description", "price", "categoryId"]
+        } else {
+            &["name", "description", "isActive", "sortOrder"]
+        };
+        if values.keys().any(|field| !allowed.contains(&field.as_str())) {
+            return Err("قلم جدید منو فیلد ناشناخته دارد".into());
+        }
+        if values.len() != allowed.len() || allowed.iter().any(|field| !values.contains_key(*field)) {
+            return Err("همهٔ اطلاعات لازم برای ساخت قلم منو باید ارسال شود".into());
+        }
+        let name = item["name"].as_str().ok_or("نام قلم منو لازم است")?.trim();
+        let max_name = if action == "create_product" { 100 } else { 60 };
+        if name.is_empty() || name.chars().count() > max_name {
+            return Err("نام قلم منو باید کوتاه‌تر و غیرخالی باشد".into());
+        }
+        let description = item["description"].as_str().ok_or("توضیح قلم معتبر نیست")?;
+        let max_description = if action == "create_product" { 400 } else { 500 };
+        if description.chars().count() > max_description {
+            return Err("توضیح قلم منو از حد مجاز طولانی‌تر است".into());
+        }
+        let clean_item = if action == "create_product" {
+            let price = item["price"].as_i64().ok_or("قیمت محصول باید عدد صحیح باشد")?;
+            if !(1..=100_000_000).contains(&price) {
+                return Err("قیمت محصول باید بیشتر از صفر و حداکثر ۱۰۰ میلیون تومان باشد".into());
+            }
+            let category_id = if item["categoryId"].is_null() {
+                None
+            } else {
+                Some(item["categoryId"].as_i64().filter(|id| *id > 0).ok_or("دسته‌بندی محصول معتبر نیست")?)
+            };
+            let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی منو دریافت نشده است".to_string())?;
+            if snapshot["expired"].as_bool() == Some(true) {
+                return Err("نسخهٔ منو منقضی است؛ برای ساخت محصول ابتدا منو را تازه کنید".into());
+            }
+            if let Some(id) = category_id {
+                if !snapshot["payload"]["categories"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_i64() == Some(id) && row["isActive"].as_bool() == Some(true))) {
+                    return Err("دستهٔ انتخاب‌شده در نسخهٔ منوی این دستگاه فعال نیست".into());
+                }
+            }
+            json!({"product":{"name":name,"description":description,"price":price,"categoryId":category_id}})
+        } else {
+            let is_active = item["isActive"].as_bool().ok_or("وضعیت دسته‌بندی معتبر نیست")?;
+            let sort_order = item["sortOrder"].as_i64().ok_or("ترتیب دسته‌بندی معتبر نیست")?;
+            if !(0..=10_000).contains(&sort_order) { return Err("ترتیب دسته‌بندی خارج از بازهٔ مجاز است".into()); }
+            json!({"category":{"name":name,"description":description,"isActive":is_active,"sortOrder":sort_order}})
+        };
+        let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی منو دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ منو منقضی است؛ برای ایجاد قلم، ابتدا منو را تازه کنید".into());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":number(&snapshot,"businessId")?,"module":"menu",
+            "action":action,"baseDataset":"menu","baseSnapshotId":snapshot["snapshotId"],
+            "baseRevision":snapshot["revision"],"payload":clean_item
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":action}))
     }
 
     pub fn enqueue_inventory_waste_with_pin(
