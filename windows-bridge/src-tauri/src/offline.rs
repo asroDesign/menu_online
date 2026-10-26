@@ -396,6 +396,84 @@ impl OfflineState {
                                 }
                             }
                         }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/inventory"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("inventory")
+                                    && snapshot["businessId"].as_i64()
+                                        == pair["businessId"].as_i64()
+                                    && snapshot["revision"]
+                                        .as_i64()
+                                        .is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"]
+                                        .as_str()
+                                        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                                        .is_some()
+                                    && snapshot["payload"]["items"].is_array()
+                                    && snapshot["payload"]["warehouses"].is_array()
+                                    && snapshot["payload"]["movements"].is_array()
+                                    && snapshot["payload"]["totalItems"].as_i64().is_some() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => {
+                                            let _ = store.set(
+                                                "workspace_sync_inventory",
+                                                &json!({
+                                                    "ok": true,
+                                                    "dataset": "inventory",
+                                                    "revision": snapshot["revision"],
+                                                    "checkedAt": chrono::Utc::now().to_rfc3339()
+                                                }),
+                                            );
+                                        }
+                                        Err(_) => {
+                                            let _ = store.set(
+                                                "workspace_sync_inventory",
+                                                &json!({
+                                                    "ok": false,
+                                                    "dataset": "inventory",
+                                                    "message": "ذخیرهٔ نسخهٔ محلی انبار انجام نشد"
+                                                }),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((status, data)) => {
+                                if let Ok(mut store) = state.store.lock() {
+                                    if status == 401 || status == 403 {
+                                        let _ = store.delete_workspace_snapshot("inventory");
+                                    }
+                                    let _ = store.set(
+                                        "workspace_sync_inventory",
+                                        &json!({
+                                            "ok": false,
+                                            "dataset": "inventory",
+                                            "message": data["error"]
+                                                .as_str()
+                                                .unwrap_or("دریافت نسخهٔ محلی انبار ناموفق بود")
+                                        }),
+                                    );
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.set(
+                                        "workspace_sync_inventory",
+                                        &json!({
+                                            "ok": false,
+                                            "dataset": "inventory",
+                                            "message": "ارتباط فهرست انبار در دسترس نیست"
+                                        }),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
                 if backup.elapsed() >= Duration::from_secs(86400) {
@@ -476,6 +554,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceSnapshots": s.workspace_snapshot_index()?,
         "workspaceSync": s.get("workspace_sync")?,
         "workspaceCustomerSync": s.get("workspace_sync_customers")?,
+        "workspaceInventorySync": s.get("workspace_sync_inventory")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -494,6 +573,12 @@ pub fn offline_workspace_menu(state: State<'_, OfflineState>) -> Result<Option<V
 pub fn offline_workspace_customers(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("customers")
+}
+
+#[tauri::command]
+pub fn offline_workspace_inventory(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("inventory")
 }
 
 #[tauri::command]

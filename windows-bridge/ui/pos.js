@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, workspaceMenu, workspaceCustomers, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer;
+  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer;
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -17,16 +17,20 @@
       $('pos-counts').textContent=`${money(state.counts.pending)} در صف ارسال · ${money(state.counts.conflict)} نیازمند بررسی`;
       const localMenuMeta=state.workspaceSnapshots?.find(item=>item.dataset==='menu');
       const localCustomersMeta=state.workspaceSnapshots?.find(item=>item.dataset==='customers');
+      const localInventoryMeta=state.workspaceSnapshots?.find(item=>item.dataset==='inventory');
       const nextWorkspaceSync=JSON.stringify(state.workspaceSync||null);
       const workspaceSyncChanged=nextWorkspaceSync!==workspaceSyncKey;workspaceSyncKey=nextWorkspaceSync;
       const nextWorkspaceCommands=JSON.stringify(state.workspaceCommands||null);
       const workspaceCommandsChanged=nextWorkspaceCommands!==workspaceCommandsKey;workspaceCommandsKey=nextWorkspaceCommands;
       const nextCustomerMeta=JSON.stringify(localCustomersMeta||null),customerMetaChanged=nextCustomerMeta!==workspaceCustomerMetaKey;workspaceCustomerMetaKey=nextCustomerMeta;
       const nextCustomerSync=JSON.stringify(state.workspaceCustomerSync||null),customerSyncChanged=nextCustomerSync!==workspaceCustomerSyncKey;workspaceCustomerSyncKey=nextCustomerSync;
+      const nextInventoryMeta=JSON.stringify(localInventoryMeta||null),inventoryMetaChanged=nextInventoryMeta!==workspaceInventoryMetaKey;workspaceInventoryMetaKey=nextInventoryMeta;
+      const nextInventorySync=JSON.stringify(state.workspaceInventorySync||null),inventorySyncChanged=nextInventorySync!==workspaceInventorySyncKey;workspaceInventorySyncKey=nextInventorySync;
       renderWorkspaceCommands();
       renderWorkspaceReservations();
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
       if(!$('customers-app').hidden&&(customerMetaChanged||customerSyncChanged||!workspaceCustomers))void loadWorkspaceCustomers();
+      if(!$('inventory-app').hidden&&(inventoryMetaChanged||inventorySyncChanged||!workspaceInventory))void loadWorkspaceInventory();
       if(next&&(!catalog||catalog.snapshotId!==next.snapshotId)){
         catalog=next;$('pos-name').textContent=catalog.name;
         const selected=$('pos-category').value,table=$('pos-table').value;
@@ -106,6 +110,43 @@
   async function loadWorkspaceCustomers(){
     try{workspaceCustomers=await call('offline_workspace_customers');renderWorkspaceCustomers();}
     catch(error){$('customers-state').textContent=String(error);$('customers-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('customers-sync').className='pos-status offline';}
+  }
+  function inventoryExpiryDays(item,today){
+    if(!item.expiryDate||Number(item.stock)<=0)return null;
+    const expiry=Date.parse(`${item.expiryDate}T00:00:00Z`),current=Date.parse(`${today}T00:00:00Z`);
+    return Number.isFinite(expiry)&&Number.isFinite(current)?Math.ceil((expiry-current)/86400000):null;
+  }
+  function renderWorkspaceInventory(){
+    const snapshot=workspaceInventory,payload=snapshot?.payload,sync=state?.workspaceInventorySync;
+    if(!snapshot||!payload){
+      $('inventory-sync').textContent=sync?.message||'داده‌ای دریافت نشده';$('inventory-sync').className='pos-status';
+      $('inventory-state').textContent=sync?.message||'برای دریافت فهرست انبار، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
+      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';return;
+    }
+    const items=Array.isArray(payload.items)?payload.items:[],warehouses=Array.isArray(payload.warehouses)?payload.warehouses:[],movements=Array.isArray(payload.movements)?payload.movements:[];
+    const warehouseById=new Map(warehouses.map(warehouse=>[warehouse.id,warehouse.name]));
+    const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tehran',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    const lowItems=items.filter(item=>item.isActive&&item.trackStock&&Number(item.stock)<=Number(item.minStock));
+    const expiringItems=items.filter(item=>{const days=inventoryExpiryDays(item,today);return item.isActive&&days!==null&&days<=30;});
+    const query=$('inventory-search').value.trim().toLocaleLowerCase('fa-IR'),filter=$('inventory-filter').value;
+    const visible=items.filter(item=>{
+      const matchesText=!query||`${item.name||''} ${item.sku||''} ${warehouseById.get(item.warehouseId)||''}`.toLocaleLowerCase('fa-IR').includes(query);
+      const days=inventoryExpiryDays(item,today),matchesFilter=filter==='low'?item.isActive&&item.trackStock&&Number(item.stock)<=Number(item.minStock):filter==='expiry'?item.isActive&&days!==null&&days<=30:true;
+      return matchesText&&matchesFilter;
+    });
+    const expiringIds=new Set(expiringItems.map(item=>item.id)),lowIds=new Set(lowItems.map(item=>item.id));
+    $('inventory-sync').textContent=snapshot.expired?'نسخه منقضی · فقط مشاهده':`نسخه ${money(snapshot.revision)} · ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}`;
+    $('inventory-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
+    $('inventory-state').textContent=`${money(payload.totalItems)} قلم کالا · ${money(visible.length)} نتیجه · ${money(movements.length)} گردش اخیر · آخرین دریافت ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}${sync?.message?` · ${sync.message}`:''}`;
+    $('inventory-summary').innerHTML=`<article><span>کالاهای ثبت‌شده</span><b>${money(payload.totalItems)}</b></article><article><span>نیازمند تأمین</span><b>${money(lowItems.length)}</b></article><article><span>نزدیک انقضا / منقضی</span><b>${money(expiringItems.length)}</b></article>`;
+    $('inventory-list').innerHTML=visible.length?`<table class="pos-table inventory-table"><thead><tr><th>کالا</th><th>انبار</th><th>موجودی / حداقل</th><th>هشدار</th><th>انقضا</th><th>بهای واحد</th></tr></thead><tbody>${visible.map(item=>{const days=inventoryExpiryDays(item,today),isLow=lowIds.has(item.id),isExpiring=expiringIds.has(item.id),warning=isLow&&isExpiring?'کمبود · انقضا':isLow?'کمبود':isExpiring?'انقضا':item.isActive?'عادی':'غیرفعال';return `<tr><td><b>${esc(item.name)}</b><small>${esc(item.sku||'بدون کد')}</small></td><td>${esc(warehouseById.get(item.warehouseId)||'انبار اصلی')}</td><td>${money(item.stock)} ${esc(item.unit)}<small>حداقل ${money(item.minStock)} ${esc(item.unit)}</small></td><td><span class="inventory-badge ${isLow||isExpiring?'warning':item.isActive?'':'muted'}">${warning}</span></td><td>${item.expiryDate?`${new Date(`${item.expiryDate}T12:00:00Z`).toLocaleDateString('fa-IR',{timeZone:'Asia/Tehran'})}${days!==null&&days<=30?`<small>${days<0?'گذشته از تاریخ':days===0?'امروز':`${money(days)} روز مانده`}</small>`:''}`:'—'}</td><td>${money(item.costPerUnit)} تومان / ${esc(item.unit)}</td></tr>`}).join('')}</tbody></table>`:'<p class="muted">کالایی با این جست‌وجو یا فیلتر در نسخهٔ محلی پیدا نشد.</p>';
+    const itemNameById=new Map(items.map(item=>[item.id,item.name]));
+    const movementLabels={in:'ورود',out:'خروج',waste:'ضایعات',adjust:'اصلاح',sale:'مصرف فروش',transfer:'انتقال'};
+    $('inventory-movements').innerHTML=movements.length?`<table class="pos-table inventory-table"><thead><tr><th>زمان</th><th>کالا</th><th>نوع</th><th>مقدار</th><th>مانده پس از گردش</th><th>مبلغ</th></tr></thead><tbody>${movements.map(movement=>`<tr><td>${new Date(movement.createdAt).toLocaleString('fa-IR')}</td><td>${esc(itemNameById.get(movement.itemId)||`کالای ${movement.itemId}`)}</td><td>${movementLabels[movement.type]||esc(movement.type)}</td><td>${Number(movement.delta)>0?'+':''}${money(movement.delta)}</td><td>${money(movement.balanceAfter)}</td><td>${money(movement.amount)} تومان</td></tr>`).join('')}</tbody></table>`:'<p class="muted">گردشی در نسخهٔ محلی موجود نیست.</p>';
+  }
+  async function loadWorkspaceInventory(){
+    try{workspaceInventory=await call('offline_workspace_inventory');renderWorkspaceInventory();}
+    catch(error){$('inventory-state').textContent=String(error);$('inventory-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('inventory-sync').className='pos-status offline';}
   }
   let editingMenu=null;
   function openMenuEditor(kind,id){
@@ -195,13 +236,15 @@
   ['pos-type','pos-table','pos-customer','pos-phone','pos-note'].forEach(id=>$(id).addEventListener('input',()=>{persist();}));
   $('customers-search').oninput=renderWorkspaceCustomers;
   $('customers-refresh').onclick=async()=>{try{await call('offline_refresh');await loadWorkspaceCustomers();notify('درخواست دریافت تازهٔ فهرست مشتریان ثبت شد.');}catch(error){notify(error,true);}};
+  $('inventory-search').oninput=renderWorkspaceInventory;$('inventory-filter').onchange=renderWorkspaceInventory;
+  $('inventory-refresh').onclick=async()=>{try{await call('offline_refresh');await loadWorkspaceInventory();notify('درخواست دریافت تازهٔ موجودی و گردش‌ها ثبت شد.');}catch(error){notify(error,true);}};
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
   function selectDesktopTab(tab){
-    const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',reservations:'reservations-app',hardware:'hardware-app'};
+    const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',inventory:'inventory-app',reservations:'reservations-app',hardware:'hardware-app'};
     Object.entries(selected).forEach(([key,id])=>{$(id).hidden=key!==tab;$(`tab-${key}`).classList.toggle('selected',key===tab);});
-    if(tab==='pos')void routes();if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();}
+    if(tab==='pos')void routes();if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();}
   }
-  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
+  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-inventory').onclick=()=>selectDesktopTab('inventory');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
   $('workspace-menu-refresh').onclick=async()=>{try{await call('offline_refresh');$('workspace-menu-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق در دسترس می‌ماند.';}catch(error){notify(error,true);}};$('workspace-menu-search').oninput=renderWorkspaceMenu;$('workspace-menu-category').onchange=renderWorkspaceMenu;
   void refresh();setInterval(()=>void refresh(),5000);
 })();

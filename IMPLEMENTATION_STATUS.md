@@ -1001,3 +1001,10 @@ route محدود replay منو، ledger idempotent و relay در worker ویند
 ## Snapshot محلی باشگاه مشتریان — ۲۰۲۶-۱۰-۲۶
 
 تب «مشتریان» در اپ Windows snapshot tenant-scoped باشگاه را جست‌وجو و نمایش می‌دهد. endpoint به entitlementهای `cashier_pos` و `loyalty` نیاز دارد و فقط شناسه، نام، موبایل، امتیاز، اعتبار کیف پول و آمار خرید را تا سقف ۱۰٬۰۰۰ سطر/۴MB می‌دهد؛ payload روی ویندوز DPAPI-encrypted است. این قسمت فقط‌خواندنی است و mutation امتیاز/کیف پول یا CRUD را آفلاین نمی‌کند. typecheck، lint هدفمند، بررسی نحو JS و diff-check موفق شدند؛ تست و دیتابیس اجرا نشد و Rust toolchain در محیط حاضر نیست. مستندات کامل در [گزارش مرحله](docs/updates/2026-10-26-offline-customers.md) و [راهنمای مشتریان](docs/agents/modules/customers.md) است.
+
+
+## Snapshot فقط‌خواندنی انبار در اپ ویندوز — ۲۰۲۶-۱۰-۲۶
+
+تب «انبار» اکنون snapshot هم‌مستاجر اقلام، انبارها و ۳۰۰ گردش آخر را نمایش می‌دهد. snapshot به مجوزهای `cashier_pos` و `inventory` نیاز دارد، در SQLite ویندوز رمزگذاری می‌شود، ۷ روز اعتبار دارد و پس از 401/403 هنگام اتصال پاک می‌شود. رابط شامل جست‌وجو، کمبود موجودی، انقضای ۳۰ روزه، بهای واحد و جدول گردش‌هاست. هیچ ورودی/خروجی/ضایعات/انتقال یا سند حسابداری آفلاین ایجاد نمی‌شود؛ این یک نمای cache شده است، نه انبار زنده.
+
+اعتبارسنجی: `npm run typecheck`، ESLint هدفمند، `node --check windows-bridge/ui/pos.js` و `git diff --check`. تست و دیتابیس اجرا نشدند بنا بر محدودیت کاربر؛ Cargo/Rust compiler در محیط حاضر نیست و compile اپ ویندوز تأیید نشده است. جزئیات در [گزارش snapshot انبار](docs/updates/2026-10-26-offline-inventory-snapshot.md)، [راهنمای انبار](docs/agents/modules/inventory.md) و [نقشه اپ آفلاین کامل](docs/agents/modules/offline-full-dashboard.md) است.

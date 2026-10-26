@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, products } from "@/db/schema";
+import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, products, stockMovements, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -18,6 +18,12 @@ type MenuPayload = {
 type CustomerPayload = {
   customers: { id: number; name: string; phone: string; points: number; walletBalance: number; lastOrderAt: string | null; totalSpent: number; ordersCount: number; createdAt: string }[];
   totalCustomers: number;
+};
+type InventoryPayload = {
+  items: { id: number; warehouseId: number | null; categoryId: number | null; name: string; sku: string | null; unit: string; recipeUnit: string; recipeToStockFactor: number; stock: number; minStock: number; reorderPoint: number; trackStock: boolean; isActive: boolean; expiryDate: string | null; costPerUnit: number; lastPurchaseCost: number }[];
+  warehouses: { id: number; name: string; location: string }[];
+  movements: { id: number; itemId: number; type: string; delta: number; balanceAfter: number; unitCost: number; invoiceNo: string; amount: number; createdAt: string }[];
+  totalItems: number;
 };
 
 function canonical(value: unknown): string {
@@ -40,10 +46,11 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
+  if (dataset === "inventory" && (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory"))) throw new HttpError(403, "صندوق آفلاین و انبار باید در اشتراک فعال باشند");
 
   return db.transaction(async (tx) => {
     const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
@@ -53,7 +60,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -61,7 +68,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       const productRows = await tx.select({ id: products.id, categoryId: products.categoryId, name: products.name, description: products.description, videoUrl: products.videoUrl, price: products.price, sellingMode: products.sellingMode, yieldRatio: products.yieldRatio, oldPrice: products.oldPrice, emoji: products.emoji, imageUrl: products.imageUrl, prepMinutes: products.prepMinutes, isAvailable: products.isAvailable, isFeatured: products.isFeatured, modifierGroups: products.modifierGroups, dietaryTags: products.dietaryTags, allergenTags: products.allergenTags }).from(products).where(eq(products.businessId, business.id)).orderBy(asc(products.id));
       const tableRows = await tx.select({ id: diningTables.id, name: diningTables.name, zone: diningTables.zone, capacity: diningTables.capacity, operationalStatus: diningTables.operationalStatus }).from(diningTables).where(eq(diningTables.businessId, business.id)).orderBy(asc(diningTables.id));
       payload = { business: currentBusiness, categories: categoryRows, products: productRows, tables: tableRows };
-    } else {
+    } else if (dataset === "customers") {
       const customerRows = await tx.select({ id: customers.id, name: customers.name, phone: customers.phone, points: customers.points, walletBalance: customers.walletBalance, lastOrderAt: customers.lastOrderAt, totalSpent: customers.totalSpent, ordersCount: customers.ordersCount, createdAt: customers.createdAt })
         .from(customers).where(eq(customers.businessId, business.id)).orderBy(desc(customers.totalSpent), desc(customers.id)).limit(10_001);
       if (customerRows.length > 10_000) throw new HttpError(413, "فهرست مشتریان برای دریافت یک‌جای آفلاین بیش از سقف ۱۰٬۰۰۰ نفر است؛ همگام‌سازی صفحه‌بندی‌شده لازم است");
@@ -69,9 +76,33 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         customers: customerRows.map((row) => ({ ...row, lastOrderAt: row.lastOrderAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString() })),
         totalCustomers: customerRows.length,
       };
+    } else {
+      const itemRows = await tx.select({
+        id: inventoryItems.id, warehouseId: inventoryItems.warehouseId, categoryId: inventoryItems.categoryId,
+        name: inventoryItems.name, sku: inventoryItems.sku, unit: inventoryItems.unit, recipeUnit: inventoryItems.recipeUnit,
+        recipeToStockFactor: inventoryItems.recipeToStockFactor, stock: inventoryItems.stock, minStock: inventoryItems.minStock,
+        reorderPoint: inventoryItems.reorderPoint, trackStock: inventoryItems.trackStock, isActive: inventoryItems.isActive,
+        expiryDate: inventoryItems.expiryDate, costPerUnit: inventoryItems.costPerUnit, lastPurchaseCost: inventoryItems.lastPurchaseCost,
+      }).from(inventoryItems).where(eq(inventoryItems.businessId, business.id)).orderBy(asc(inventoryItems.name), asc(inventoryItems.id)).limit(10_001);
+      if (itemRows.length > 10_000) throw new HttpError(413, "فهرست کالاهای انبار برای دریافت یک‌جای آفلاین بیش از سقف ۱۰٬۰۰۰ قلم است؛ همگام‌سازی صفحه‌بندی‌شده لازم است");
+      const warehouseRows = await tx.select({ id: warehouses.id, name: warehouses.name, location: warehouses.location })
+        .from(warehouses).where(eq(warehouses.businessId, business.id)).orderBy(asc(warehouses.name), asc(warehouses.id));
+      const movementRows = await tx.select({
+        id: stockMovements.id, itemId: stockMovements.itemId, type: stockMovements.type, delta: stockMovements.delta,
+        balanceAfter: stockMovements.balanceAfter, unitCost: stockMovements.unitCost, invoiceNo: stockMovements.invoiceNo,
+        amount: stockMovements.amount, createdAt: stockMovements.createdAt,
+      }).from(stockMovements).where(eq(stockMovements.businessId, business.id))
+        .orderBy(desc(stockMovements.createdAt), desc(stockMovements.id)).limit(300);
+      payload = {
+        items: itemRows,
+        warehouses: warehouseRows,
+        movements: movementRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+        totalItems: itemRows.length,
+      };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      throw new HttpError(413, dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است");
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");
     const [latest] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset))).orderBy(desc(offlineWorkspaceSnapshots.revision)).limit(1);
@@ -80,12 +111,12 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
 
     if (latest?.payloadHash === payloadHash) {
       const [refreshed] = await tx.update(offlineWorkspaceSnapshots).set({ issuedAt: now, validUntil }).where(and(eq(offlineWorkspaceSnapshots.id, latest.id), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id))).returning();
-      if (!refreshed) throw new HttpError(409, "تمدید نسخهٔ منوی محلی انجام نشد");
+      if (!refreshed) throw new HttpError(409, "تمدید نسخهٔ دادهٔ آفلاین انجام نشد");
       return responseShape(refreshed);
     }
 
     const [saved] = await tx.insert(offlineWorkspaceSnapshots).values({ id: randomUUID(), terminalId: terminal.id, businessId: business.id, dataset, revision: (latest?.revision ?? 0) + 1, schemaVersion: 1, payloadHash, payload, issuedAt: now, validUntil }).returning();
-    if (!saved) throw new HttpError(500, "ذخیرهٔ نسخهٔ منوی محلی انجام نشد");
+    if (!saved) throw new HttpError(500, "ذخیرهٔ نسخهٔ دادهٔ آفلاین انجام نشد");
     return responseShape(saved);
   }, { isolationLevel: "repeatable read" });
 }
