@@ -65,6 +65,7 @@ impl OfflineState {
                     } else {
                         Vec::new()
                     };
+                    let mut sale_synced = false;
                     for job in jobs {
                         let response = client
                             .post(format!("{server}/api/offline-pos/sync"))
@@ -78,11 +79,16 @@ impl OfflineState {
                                     && data["number"].as_i64().is_some() =>
                             {
                                 if let Ok(s) = state.store.lock() {
-                                    let _ = s.ack(
+                                    let synced_at = data["syncedAt"].as_str().unwrap_or("");
+                                    let fallback_synced_at = chrono::Utc::now().to_rfc3339();
+                                    let synced_at = if synced_at.is_empty() { fallback_synced_at.as_str() } else { synced_at };
+                                    if s.ack_with_inventory(
                                         &job.id,
                                         job.revision,
                                         data["number"].as_i64().unwrap(),
-                                    );
+                                        synced_at,
+                                        &data["stockConsumption"],
+                                    ).is_ok() { sale_synced = true; }
                                 }
                                 state.health(true, "همگام‌سازی برقرار است");
                             }
@@ -243,6 +249,13 @@ impl OfflineState {
                             }
                         }
                       }
+                    }
+
+                    let inventory_commands_waiting = state.store.lock().ok()
+                        .and_then(|store| store.has_pending_inventory_commands().ok())
+                        .unwrap_or(true);
+                    if sale_synced && !inventory_commands_waiting {
+                        refresh_inventory_snapshot_after_sale(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                     }
 
                     if workspace_refresh.elapsed() >= Duration::from_secs(600)
@@ -817,6 +830,45 @@ fn decode(
         status,
         serde_json::from_slice(&bytes).map_err(|_| "پاسخ سایت JSON معتبر نیست")?,
     ))
+}
+fn refresh_inventory_snapshot_after_sale(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    let has_inventory_snapshot = state.store.lock().ok()
+        .and_then(|store| store.workspace_snapshot("inventory").ok().flatten())
+        .is_some();
+    if !has_inventory_snapshot { return; }
+    match decode(client.get(format!("{server}/api/offline-dashboard/snapshots/inventory")).bearer_auth(token).send()) {
+        Ok((200, snapshot))
+            if snapshot["schemaVersion"] == 1
+                && snapshot["dataset"].as_str() == Some("inventory")
+                && snapshot["businessId"].as_i64() == Some(business_id)
+                && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                && snapshot["payload"]["items"].is_array() =>
+        {
+            if let Ok(mut store) = state.store.lock() {
+                match store.save_workspace_snapshot(&snapshot) {
+                    Ok(()) => { let _ = store.set("workspace_sync_inventory", &json!({"ok":true,"dataset":"inventory","revision":snapshot["revision"],"checkedAt":snapshot["issuedAt"]})); }
+                    Err(error) => { let _ = store.set("workspace_sync_inventory", &json!({"ok":false,"dataset":"inventory","message":error})); }
+                }
+            }
+        }
+        Ok((status, data)) => {
+            if let Ok(mut store) = state.store.lock() {
+                if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("inventory"); }
+                let _ = store.set("workspace_sync_inventory", &json!({"ok":false,"dataset":"inventory","message":data["error"].as_str().unwrap_or("به‌روزرسانی موجودی پس از همگام‌سازی فروش انجام نشد")}));
+            }
+        }
+        Err(_) => {
+            if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_inventory", &json!({"ok":false,"dataset":"inventory","message":"به‌روزرسانی موجودی پس از همگام‌سازی فروش در دسترس نیست"})); }
+        }
+    }
 }
 fn refresh_order_snapshot(
     state: &OfflineState,

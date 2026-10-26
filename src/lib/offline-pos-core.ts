@@ -1,9 +1,13 @@
 import type { ProductOptionGroup } from "./product-options";
 
-export type OfflineProduct = { id: number; name: string; price: number; categoryId: number | null; sellingMode: string; yieldRatio: number; modifierGroups: ProductOptionGroup[] };
+export type OfflineProduct = {
+  id: number; name: string; price: number; categoryId: number | null; sellingMode: string; yieldRatio: number;
+  modifierGroups: ProductOptionGroup[];
+  stockRecipe?: { itemId: number; quantity: number; wastePercent: number; recipeToStockFactor: number }[];
+};
 export type OfflineCatalog = {
   version: 1; snapshotId: string; businessId: number; name: string; issuedAt: string; validUntil: string;
-  taxPercent: number; servicePercent: number; discountEnabled?: boolean; products: OfflineProduct[];
+  taxPercent: number; servicePercent: number; discountEnabled?: boolean; stockProjectionVersion?: number | null; products: OfflineProduct[];
   tables: { id: number; name: string; capacity?: number; operationalStatus?: string }[]; categories: { id: number; name: string }[];
   terminals: { id: number; name: string; settlementBankAccountId: number | null }[];
 };

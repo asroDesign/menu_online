@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, devices, diningTables, offlineCatalogs, offlineSales, offlineTerminals, orders, products, staff, users } from "@/db/schema";
+import { businesses, categories, devices, diningTables, inventoryItems, offlineCatalogs, offlineSales, offlineTerminals, orders, products, recipes, staff, stockMovements, users } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { featuresOf } from "@/lib/entitlements";
 import { hasAny } from "@/lib/plans";
@@ -43,7 +43,25 @@ export async function offlineCatalog(req: Request) {
     db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.businessId, business.id)),
     db.select({ id: devices.id, name: devices.name, settlementBankAccountId: devices.settlementBankAccountId }).from(devices).where(and(eq(devices.businessId, business.id), eq(devices.kind, "pos"), eq(devices.cashierEnabled, true))),
   ]);
-  const catalog: OfflineCatalog = { version: 1, snapshotId: randomUUID(), businessId: business.id, name: business.name, issuedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(), taxPercent: business.taxPercent, servicePercent: business.servicePercent, discountEnabled: hasAny(features, "discount"), products: items.filter(p => p.price > 0), tables, categories: cats, terminals };
+  const canProjectStock = hasAny(features, "recipes") && hasAny(features, "stock_movements");
+  const recipeRows = canProjectStock && items.length
+    ? await db.select({ productId: recipes.productId, itemId: recipes.itemId, quantity: recipes.quantity, wastePercent: recipes.wastePercent, recipeToStockFactor: inventoryItems.recipeToStockFactor })
+      .from(recipes).innerJoin(inventoryItems, and(eq(inventoryItems.id, recipes.itemId), eq(inventoryItems.businessId, business.id), eq(inventoryItems.trackStock, true)))
+      .where(and(eq(recipes.businessId, business.id), inArray(recipes.productId, items.map(item => item.id))))
+    : [];
+  const recipeByProduct = new Map<number, typeof recipeRows>();
+  for (const row of recipeRows) recipeByProduct.set(row.productId, [...(recipeByProduct.get(row.productId) ?? []), row]);
+  const catalog: OfflineCatalog = {
+    version: 1, snapshotId: randomUUID(), businessId: business.id, name: business.name,
+    issuedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(),
+    taxPercent: business.taxPercent, servicePercent: business.servicePercent,
+    discountEnabled: hasAny(features, "discount"), stockProjectionVersion: canProjectStock ? 1 : null,
+    products: items.filter(p => p.price > 0).map(product => ({
+      ...product,
+      stockRecipe: (recipeByProduct.get(product.id) ?? []).map(row => ({ itemId: row.itemId, quantity: row.quantity, wastePercent: row.wastePercent, recipeToStockFactor: row.recipeToStockFactor })),
+    })),
+    tables, categories: cats, terminals,
+  };
   await db.insert(offlineCatalogs).values({ id: catalog.snapshotId, terminalId: terminal.id, payload: catalog });
   return catalog;
 }
@@ -64,7 +82,11 @@ export async function syncOfflineSale(req: Request, raw: unknown) {
       const [saved] = await tx.select().from(offlineSales).where(and(eq(offlineSales.id, sale.id), eq(offlineSales.terminalId, terminal.id), eq(offlineSales.businessId, business.id)));
       if (!saved || !saved.orderId) throw new HttpError(409, "شناسه فروش قبلاً ثبت شده است");
       const [order] = await tx.select({ id: orders.id, number: orders.number }).from(orders).where(and(eq(orders.id, saved.orderId), eq(orders.businessId, business.id)));
-      if (saved.payloadHash === hash) return { saleId: sale.id, orderId: order.id, number: order.number, duplicate: true };
+      if (saved.payloadHash === hash) {
+        const stockUsage = await tx.select({ itemId: stockMovements.itemId, quantity: sql<number>`abs(${stockMovements.delta})` })
+          .from(stockMovements).where(and(eq(stockMovements.businessId, business.id), eq(stockMovements.orderId, order.id), eq(stockMovements.type, "sale")));
+        return { saleId: sale.id, orderId: order.id, number: order.number, duplicate: true, syncedAt: new Date().toISOString(), stockConsumption: stockUsage };
+      }
       if (saved.payload.tender !== null || sale.tender === null || canonical({ ...saved.payload, tender: null }) !== canonical({ ...sale, tender: null })) throw new HttpError(409, "فروش ثبت‌شده قابل تغییر نیست؛ فقط دریافت وجه سفارش پرداخت‌نشده مجاز است");
       existingOrderId = saved.orderId;
     }
@@ -92,6 +114,8 @@ export async function syncOfflineSale(req: Request, raw: unknown) {
     await settleOrder(business, features, order.id, null, true, { executor: tx, settlement, actorId: terminal.createdBy, actorType: "offline_terminal", offlineOccurredAt: new Date(sale.occurredAt), skipPrint: true });
     }
     await tx.update(offlineSales).set({ orderId: order.id, payload: sale, payloadHash: hash }).where(eq(offlineSales.id, sale.id));
-    return { saleId: sale.id, orderId: order.id, number: order.number, duplicate: false };
+    const stockUsage = await tx.select({ itemId: stockMovements.itemId, quantity: sql<number>`abs(${stockMovements.delta})` })
+      .from(stockMovements).where(and(eq(stockMovements.businessId, business.id), eq(stockMovements.orderId, order.id), eq(stockMovements.type, "sale")));
+    return { saleId: sale.id, orderId: order.id, number: order.number, duplicate: false, syncedAt: new Date().toISOString(), stockConsumption: stockUsage };
   });
 }

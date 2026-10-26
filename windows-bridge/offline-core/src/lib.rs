@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::Path;
 pub type Result<T> = std::result::Result<T, String>;
-const LOCAL_SCHEMA_VERSION: i64 = 5;
+const LOCAL_SCHEMA_VERSION: i64 = 6;
 const WORKSPACE_DATASETS: &[&str] = &[
     "overview",
     "orders",
@@ -37,6 +37,22 @@ fn number(v: &Value, key: &str) -> Result<i64> {
     v[key]
         .as_i64()
         .ok_or_else(|| format!("عدد {key} نامعتبر است"))
+}
+fn stale_all_inventory(states: &mut std::collections::HashMap<i64, (f64, i64, bool)>) {
+    for (_, _, stale) in states.values_mut() { *stale = true; }
+}
+fn apply_inventory_usage(states: &mut std::collections::HashMap<i64, (f64, i64, bool)>, usage: &Value, uncertain: bool) {
+    let Some(item_id) = usage["itemId"].as_i64().filter(|id| *id > 0) else { stale_all_inventory(states); return; };
+    let quantity = usage["quantity"].as_f64().unwrap_or(f64::NAN);
+    if !states.contains_key(&item_id) { stale_all_inventory(states); return; }
+    if !quantity.is_finite() || quantity <= 0.0 || quantity > 1_000_000_000.0 {
+        if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
+        return;
+    }
+    if let Some((stock, _, stale)) = states.get_mut(&item_id) {
+        *stock -= quantity;
+        if *stock < -1e-9 || uncertain { *stale = true; }
+    }
 }
 fn clean(v: &str) -> String {
     v.replace(['|', '\r', '\n'], " ")
@@ -229,6 +245,12 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS offline_reservation_history_page_idx ON offline_reservation_history(business_id,created_at DESC,reservation_id DESC);
             PRAGMA user_version=5;
+            COMMIT;").map_err(err)?;
+        }
+        if version < 6 {
+            conn.execute_batch("BEGIN IMMEDIATE;
+            ALTER TABLE sales ADD COLUMN synced_at TEXT;
+            PRAGMA user_version=6;
             COMMIT;").map_err(err)?;
         }
         Ok(Self { conn })
@@ -1791,15 +1813,57 @@ impl Store {
                 states.insert(item_id, (item["stock"].as_f64().unwrap_or(0.0), item["costPerUnit"].as_i64().unwrap_or(0), false));
             }
         }
-        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement','transfer') AND base_snapshot_id=?2 ORDER BY sequence ASC").map_err(err)?;
-        let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Vec<u8>>(1)?,row.get::<_, String>(2)?))).map_err(err)?;
-        for row in commands {
-            let (state, payload, created_at) = row.map_err(err)?;
-            let command = value(payload)?;
+        let mut events = Vec::<(DateTime<Utc>, u8, i64, String, Value, bool)>::new();
+        {
+            let mut query = self.conn.prepare("SELECT state,payload,created_at,sequence FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement','transfer') AND base_snapshot_id=?2").map_err(err)?;
+            let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Vec<u8>>(1)?,row.get::<_, String>(2)?,row.get::<_, i64>(3)?))).map_err(err)?;
+            for row in commands {
+                let (state, payload, created_at, sequence) = row.map_err(err)?;
+                let occurred_at = DateTime::parse_from_rfc3339(&created_at).map_err(err)?.with_timezone(&Utc);
+                events.push((occurred_at, 1, sequence, state, value(payload)?, false));
+            }
+        }
+        {
+            let mut query = self.conn.prepare("SELECT state,display_payload,created_at FROM sales WHERE state!='synced' OR (synced_at IS NOT NULL AND synced_at>?1)").map_err(err)?;
+            let sales = query.query_map([snapshot["issuedAt"].as_str().ok_or("زمان نسخهٔ انبار پیدا نشد")?], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Option<Vec<u8>>>(1)?,row.get::<_, String>(2)?))).map_err(err)?;
+            for row in sales {
+                let (state, details, created_at) = row.map_err(err)?;
+                let Some(details) = details else {
+                    for (_, _, stale) in states.values_mut() { *stale = true; }
+                    continue;
+                };
+                let details = value(details)?;
+                let occurred_at = details["occurredAt"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                    .or_else(|| DateTime::parse_from_rfc3339(&created_at).ok()).map(|value| value.with_timezone(&Utc));
+                let Some(occurred_at) = occurred_at else {
+                    for (_, _, stale) in states.values_mut() { *stale = true; }
+                    continue;
+                };
+                events.push((occurred_at, 0, 0, state, details, true));
+            }
+        }
+        events.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)).then_with(|| left.2.cmp(&right.2)));
+        for (occurred_at, _, _, state, event, is_sale) in events {
+            if is_sale {
+                if state == "synced" {
+                    let Some(consumption) = event["serverStockConsumption"].as_array() else { stale_all_inventory(&mut states); continue; };
+                    for usage in consumption { apply_inventory_usage(&mut states, usage, false); }
+                } else {
+                    if event["stockProjectionVersion"].as_i64() != Some(1) { stale_all_inventory(&mut states); continue; }
+                    let Some(lines) = event["items"].as_array() else { stale_all_inventory(&mut states); continue; };
+                    let mut incomplete = false;
+                    for line in lines {
+                        let Some(consumption) = line["stockConsumption"].as_array() else { incomplete = true; break; };
+                        for usage in consumption { apply_inventory_usage(&mut states, usage, state != "pending"); }
+                    }
+                    if incomplete { stale_all_inventory(&mut states); }
+                }
+                continue;
+            }
+            let command = event;
             let payload = &command["payload"];
             if state == "conflict" || state == "rejected" {
-                let command_created_at = DateTime::parse_from_rfc3339(&created_at).map_err(err)?;
-                if command_created_at <= snapshot_issued_at { continue; }
+                if occurred_at <= snapshot_issued_at { continue; }
                 match command["action"].as_str() {
                     Some("waste") => if let Some(item_id) = payload["itemId"].as_i64() {
                         if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
@@ -1915,6 +1979,11 @@ impl Store {
                 "sequence":sequence,"baseSnapshotId":base_snapshot_id,"action":command["action"],"payload":command["payload"]
             }))
         }).collect::<Result<Vec<_>>>().map(|items| json!(items))
+    }
+
+    pub fn has_pending_inventory_commands(&self) -> Result<bool> {
+        let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else { return Ok(false); };
+        self.conn.query_row("SELECT EXISTS(SELECT 1 FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND state='pending')", [business_id], |row| row.get(0)).map_err(err)
     }
 
     pub fn enqueue_staff_attendance_with_pin(
@@ -2571,6 +2640,7 @@ impl Store {
         let terminals = catalog["terminals"].as_array().map(|terminals| terminals.iter().map(|terminal| json!({"id":terminal["id"],"name":terminal["name"]})).collect::<Vec<_>>()).unwrap_or_default();
         let display_payload = json!({
             "businessName": catalog["name"],
+            "stockProjectionVersion": catalog["stockProjectionVersion"],
             "occurredAt": sale["occurredAt"],
             "type": sale["type"],
             "tableId": sale["tableId"],
@@ -2739,8 +2809,19 @@ impl Store {
         .collect()
     }
     pub fn ack(&self, id: &str, revision: i64, number: i64) -> Result<()> {
-        self.conn.execute("UPDATE sales SET state='synced',error='',server_number=?3 WHERE id=?1 AND revision=?2",params![id,revision,number]).map_err(err)?;
-        Ok(())
+        self.ack_with_inventory(id, revision, number, &Utc::now().to_rfc3339(), &Value::Null)
+    }
+    pub fn ack_with_inventory(&self, id: &str, revision: i64, number: i64, synced_at: &str, stock_consumption: &Value) -> Result<()> {
+        DateTime::parse_from_rfc3339(synced_at).map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
+        let details: Option<Vec<u8>> = tx.query_row("SELECT display_payload FROM sales WHERE id=?1 AND revision=?2", params![id,revision], |row| row.get::<_, Option<Vec<u8>>>(0)).optional().map_err(err)?.flatten();
+        let display_payload = if let Some(payload) = details {
+            let mut value = value(payload)?;
+            value["serverStockConsumption"] = stock_consumption.clone();
+            Some(blob(&value)?)
+        } else { None };
+        tx.execute("UPDATE sales SET state='synced',error='',server_number=?3,synced_at=COALESCE(synced_at,?4),display_payload=COALESCE(?5,display_payload) WHERE id=?1 AND revision=?2",params![id,revision,number,synced_at,display_payload]).map_err(err)?;
+        tx.commit().map_err(err)
     }
     pub fn fail(&self, id: &str, revision: i64, message: &str, conflict: bool) -> Result<()> {
         self.conn.execute("UPDATE sales SET state=?3,error=?4,attempts=attempts+1,retry_at=unixepoch()+min(300,5*(1<<min(attempts,6))) WHERE id=?1 AND revision=?2",params![id,revision,if conflict{"conflict"}else{"pending"},message]).map_err(err)?;
@@ -3005,8 +3086,33 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
         if amount <= 0 || amount > 2_147_483_647 {
             return Err("مبلغ قلم خارج از محدوده است".into());
         }
+        let stock_units = if p["sellingMode"] == "weight" {
+            let gross = number(item, "weightGrams")?;
+            let tare = number(item, "tareGrams")?;
+            let yield_ratio = p["yieldRatio"].as_f64().unwrap_or(1.0);
+            if !yield_ratio.is_finite() || yield_ratio <= 0.0 { return Err("بازده محصول وزنی برای محاسبهٔ موجودی معتبر نیست".into()); }
+            qty as f64 * ((gross - tare) as f64 / 1000.0) / yield_ratio
+        } else { qty as f64 };
+        let mut stock_consumption = Vec::new();
+        if catalog["stockProjectionVersion"].as_i64() == Some(1) {
+            for recipe in p["stockRecipe"].as_array().ok_or("رسپی موجودی آفلاین محصول معتبر نیست")? {
+                let item_id = number(recipe, "itemId")?;
+                let recipe_quantity = recipe["quantity"].as_f64().unwrap_or(f64::NAN);
+                let waste_percent = recipe["wastePercent"].as_f64().unwrap_or(f64::NAN);
+                let conversion = recipe["recipeToStockFactor"].as_f64().unwrap_or(f64::NAN);
+                if item_id < 1 || !recipe_quantity.is_finite() || !(0.0..=100_000.0).contains(&recipe_quantity)
+                    || !waste_percent.is_finite() || !(0.0..=99.9).contains(&waste_percent)
+                    || !conversion.is_finite() || !(0.0..=1_000_000_000.0).contains(&conversion)
+                { return Err("رسپی موجودی آفلاین محصول خارج از محدودهٔ مجاز است".into()); }
+                if recipe_quantity == 0.0 || conversion == 0.0 { continue; }
+                let quantity = recipe_quantity * (1.0 + waste_percent / 100.0) * stock_units * conversion;
+                if !quantity.is_finite() || quantity <= 0.0 || quantity > 1_000_000_000.0 { return Err("مصرف موجودی محصول آفلاین معتبر نیست".into()); }
+                stock_consumption.push(json!({"itemId":item_id,"quantity":quantity}));
+            }
+        }
         subtotal += amount;
         lines.push(json!({
+            "productId":p["id"],
             "name":format!("{} {}",p["name"].as_str().unwrap_or(""),labels.join("، ")),
             "productName":p["name"],
             "optionNames":labels,
@@ -3017,7 +3123,8 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
             "weightGrams":item["weightGrams"],
             "tareGrams":item["tareGrams"],
             "amount":amount,
-            "categoryId":p["categoryId"]
+            "categoryId":p["categoryId"],
+            "stockConsumption":stock_consumption
         }));
     }
     let manual_discount = match sale.get("manualDiscountAmount") {
