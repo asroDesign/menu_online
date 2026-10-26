@@ -1486,6 +1486,24 @@ pub fn offline_workspace_set_table_status(
 }
 
 #[tauri::command]
+pub fn offline_workspace_create_table(name: String, zone: String, capacity: i64, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?
+        .enqueue_table_create_with_pin(&manager_pin, &name, &zone, capacity)
+}
+
+#[tauri::command]
+pub fn offline_workspace_update_table(table_id: i64, name: String, zone: String, capacity: i64, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?
+        .enqueue_table_update_with_pin(&manager_pin, table_id, &name, &zone, capacity)
+}
+
+#[tauri::command]
+pub fn offline_workspace_delete_table(table_id: i64, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?
+        .enqueue_table_delete_with_pin(&manager_pin, table_id)
+}
+
+#[tauri::command]
 pub fn offline_workspace_customers(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     let mut snapshot = store.workspace_snapshot("customers")?;

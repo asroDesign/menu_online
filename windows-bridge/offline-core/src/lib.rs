@@ -828,7 +828,7 @@ impl Store {
             "settings" => ["update"].contains(&action),
             "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
             "cheques" => ["register", "set_status"].contains(&action),
-            "tables" => ["set_status"].contains(&action),
+            "tables" => ["create", "update", "delete", "set_status"].contains(&action),
             _ => false,
         };
         if !allowed {
@@ -954,6 +954,13 @@ impl Store {
         }
         if !payload["tableId"].is_null() && (!payload["tableId"].is_i64() || payload["tableId"].as_i64().unwrap_or(0) < 1) {
             return Err("میز انتخاب‌شده معتبر نیست".into());
+        }
+        if let Some(table_id) = payload["tableId"].as_i64() {
+            if self.has_pending_table_change(table_id)? { return Err("برای این میز تغییری در صف همگام‌سازی است؛ تا دریافت نسخهٔ تازه، رزرو دیگری ثبت نکنید".into()); }
+            if let Some(snapshot) = self.workspace_snapshot("menu")? {
+                let table = snapshot["payload"]["tables"].as_array().and_then(|rows| rows.iter().find(|row| row["id"].as_i64() == Some(table_id))).ok_or("میز در نسخهٔ محلی پیدا نشد؛ منو را تازه کنید")?;
+                if table["operationalStatus"].as_str() != Some("available") { return Err("این میز در نسخهٔ محلی آمادهٔ رزرو نیست".into()); }
+            }
         }
         let business_id = self.paired_business_id()?;
         let id = uuid::Uuid::new_v4().to_string();
@@ -1240,8 +1247,7 @@ impl Store {
             | ("out_of_service", "available")
         );
         if !can_transition { return Err("این تغییر وضعیت از مرحلهٔ فعلی میز مجاز نیست".into()); }
-        let pending = self.workspace_table_status_commands()?;
-        if pending.as_array().is_some_and(|rows| rows.iter().any(|row| row["state"] == "pending" && row["payload"]["tableId"].as_i64() == Some(table_id))) {
+        if self.has_pending_table_change(table_id)? {
             return Err("برای این میز تغییر وضعیت دیگری در صف همگام‌سازی است".into());
         }
         let command_id = uuid::Uuid::new_v4().to_string();
@@ -1254,14 +1260,100 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"set_status","tableId":table_id}))
     }
 
+    pub fn enqueue_table_create_with_pin(&mut self, pin: &str, name: &str, zone: &str, capacity: i64) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        let name = name.trim();
+        let zone = zone.trim();
+        if name.is_empty() || name.chars().count() > 40 || zone.chars().count() > 40 || !(1..=100).contains(&capacity) {
+            return Err("نام، سالن یا ظرفیت میز معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی میزها دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ میزها منقضی است؛ پیش از ساخت میز، آن را تازه کنید".into()); }
+        let exists_in_snapshot = snapshot["payload"]["tables"].as_array().is_some_and(|tables| tables.iter().any(|table| table["name"].as_str().is_some_and(|value| value.trim().to_lowercase() == name.to_lowercase())));
+        let pending = self.workspace_table_status_commands()?;
+        let exists_pending = pending.as_array().is_some_and(|rows| rows.iter().any(|row| row["state"] == "pending" && row["action"] == "create" && row["payload"]["name"].as_str().is_some_and(|value| value.trim().to_lowercase() == name.to_lowercase())));
+        if exists_in_snapshot || exists_pending { return Err("میزی با این نام در فهرست محلی یا صف همگام‌سازی وجود دارد".into()); }
+        let command_uuid = uuid::Uuid::new_v4();
+        let command_id = command_uuid.to_string();
+        // Thirteen hex digits stay below JavaScript's 2^53 safe-integer limit.
+        let local_id = -i64::from_str_radix(&command_uuid.simple().to_string()[..13], 16).unwrap_or(1).max(1);
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")? ,"module":"tables",
+            "action":"create","baseDataset":"menu","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"localId":local_id,"name":name,"zone":if zone.is_empty(){"سالن اصلی"}else{zone},"capacity":capacity}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"create","localId":local_id}))
+    }
+
+    pub fn enqueue_table_update_with_pin(&mut self, pin: &str, table_id: i64, name: &str, zone: &str, capacity: i64) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if table_id < 1 { return Err("شناسهٔ میز معتبر نیست".into()); }
+        let name = name.trim();
+        let zone = zone.trim();
+        if name.is_empty() || name.chars().count() > 40 || zone.chars().count() > 40 || !(1..=100).contains(&capacity) {
+            return Err("نام، سالن یا ظرفیت میز معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی میزها دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ میزها منقضی است؛ پیش از ویرایش میز، آن را تازه کنید".into()); }
+        let table = snapshot["payload"]["tables"].as_array().and_then(|tables| tables.iter().find(|row| row["id"].as_i64() == Some(table_id))).ok_or("میز در نسخهٔ محلی پیدا نشد")?;
+        let expected = json!({"name":table["name"],"zone":table["zone"],"capacity":table["capacity"],"operationalStatus":table["operationalStatus"]});
+        let patch = json!({"name":name,"zone":if zone.is_empty(){"سالن اصلی"}else{zone},"capacity":capacity});
+        if expected["name"] == patch["name"] && expected["zone"] == patch["zone"] && expected["capacity"] == patch["capacity"] {
+            return Err("تغییری برای ذخیره وارد نشده است".into());
+        }
+        if self.has_pending_table_change(table_id)? {
+            return Err("برای این میز تغییری در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"tables",
+            "action":"update","baseDataset":"menu","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"tableId":table_id,"expected":expected,"patch":patch}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"update","tableId":table_id}))
+    }
+
+    pub fn enqueue_table_delete_with_pin(&mut self, pin: &str, table_id: i64) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if table_id < 1 { return Err("شناسهٔ میز معتبر نیست".into()); }
+        let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی میزها دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ میزها منقضی است؛ پیش از حذف میز، آن را تازه کنید".into()); }
+        let table = snapshot["payload"]["tables"].as_array().and_then(|tables| tables.iter().find(|row| row["id"].as_i64() == Some(table_id))).ok_or("میز در نسخهٔ محلی پیدا نشد")?;
+        let expected = json!({"name":table["name"],"zone":table["zone"],"capacity":table["capacity"],"operationalStatus":table["operationalStatus"]});
+        if self.has_pending_table_change(table_id)? {
+            return Err("برای این میز تغییری در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"tables",
+            "action":"delete","baseDataset":"menu","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"tableId":table_id,"expected":expected}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"delete","tableId":table_id}))
+    }
+
+    fn has_pending_table_change(&self, table_id: i64) -> Result<bool> {
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare("SELECT payload FROM workspace_commands WHERE business_id=?1 AND module='tables' AND state='pending'").map_err(err)?;
+        let rows = query.query_map([business_id], |row| row.get::<_, Vec<u8>>(0)).map_err(err)?;
+        for row in rows {
+            let command = value(row.map_err(err)?)?;
+            if command["payload"]["tableId"].as_i64() == Some(table_id) { return Ok(true); }
+        }
+        Ok(false)
+    }
+
     pub fn workspace_table_status_commands(&self) -> Result<Value> {
         let business_id = self.paired_business_id()?;
-        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='tables' AND action='set_status' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
-        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?, row.get::<_, Option<String>>(5)?))).map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at,base_snapshot_id,sequence FROM workspace_commands WHERE business_id=?1 AND module='tables' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Vec<u8>>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, i64>(7)?))).map_err(err)?;
         rows.map(|row| {
-            let (id, state, error, payload, created_at, base_snapshot_id) = row.map_err(err)?;
+            let (id, action, state, error, payload, created_at, base_snapshot_id, sequence) = row.map_err(err)?;
             let command = value(payload)?;
-            Ok(json!({"commandId":id,"state":state,"error":error,"payload":command["payload"],"createdAt":created_at,"baseSnapshotId":base_snapshot_id}))
+            Ok(json!({"commandId":id,"action":action,"state":state,"error":error,"payload":command["payload"],"createdAt":created_at,"baseSnapshotId":base_snapshot_id,"sequence":sequence}))
         }).collect::<Result<Vec<_>>>().map(Value::Array)
     }
 
@@ -2695,6 +2787,11 @@ impl Store {
         {
             return Err("میز معتبر نیست".into());
         }
+        if let Some(table_id) = sale["tableId"].as_i64() {
+            let table = catalog["tables"].as_array().and_then(|tables| tables.iter().find(|table| table["id"].as_i64() == Some(table_id))).ok_or("میز در snapshot صندوق پیدا نشد")?;
+            if table["operationalStatus"].as_str() != Some("available") { return Err("این میز در وضعیت آمادهٔ سرویس نیست".into()); }
+            if self.has_pending_table_change(table_id)? { return Err("برای این میز تغییری در صف همگام‌سازی است؛ پس از دریافت نسخهٔ تازه سفارش ثبت کنید".into()); }
+        }
         for (key, max) in [("customerName", 80), ("customerPhone", 20), ("note", 300)] {
             if sale[key].as_str().is_none_or(|s| s.chars().count() > max) {
                 return Err("اطلاعات مشتری یا توضیح طولانی/نامعتبر است".into());
@@ -3305,6 +3402,39 @@ mod tests {
         let s = Store::open(&path).unwrap();
         assert_eq!(s.pending().unwrap()[0].payload["total"], 2300);
         assert!(s.get("draft").unwrap().unwrap().is_null());
+    }
+    #[test]
+    fn server_order_history_and_full_details_are_available_from_encrypted_local_archive_offline() {
+        let path = std::env::temp_dir().join(format!("menupeak-order-history-{}.sqlite", uuid::Uuid::new_v4()));
+        let mut store = Store::open(&path).unwrap();
+        store.pair(&json!({"businessId":17,"terminalId":"terminal-17"})).unwrap();
+        let issued_at = Utc::now().to_rfc3339();
+        let first = json!({
+            "schemaVersion":1,"dataset":"orders-history","businessId":17,"requestCursor":null,
+            "hasMore":true,"nextCursor":"2026-10-27T10:00:00.000001Z:901","issuedAt":issued_at,
+            "orders":[{"id":901,"number":45,"createdAt":issued_at,"status":"preparing","paymentStatus":"paid","customerName":"مشتری","items":[{"name":"پیتزا","quantity":2,"unitPrice":250000,"amount":500000,"options":[{"name":"پنیر اضافه","price":30000}]}],"subtotal":530000,"tax":0,"service":0,"total":530000,"note":"بدون پیاز"}]
+        });
+        store.save_order_history_page(&first, None).unwrap();
+        let first_page = store.workspace_order_history_page(0, 1).unwrap();
+        assert_eq!(first_page["complete"], false);
+        assert_eq!(first_page["orders"][0]["items"][0]["options"][0]["name"], "پنیر اضافه");
+        let second = json!({
+            "schemaVersion":1,"dataset":"orders-history","businessId":17,
+            "requestCursor":"2026-10-27T10:00:00.000001Z:901","hasMore":false,"nextCursor":null,"issuedAt":issued_at,
+            "orders":[{"id":900,"number":44,"createdAt":issued_at,"status":"served","paymentStatus":"paid","customerName":"مهمان","items":[{"name":"قهوه","quantity":1,"amount":90000}],"total":90000}]
+        });
+        store.save_order_history_page(&second, Some("2026-10-27T10:00:00.000001Z:901")).unwrap();
+        let complete = store.workspace_order_history_page(0, 1).unwrap();
+        assert_eq!(complete["complete"], true);
+        assert_eq!(complete["totalOrders"], 2);
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        let offline = store.workspace_order_history_page(0, 10).unwrap();
+        assert_eq!(offline["orders"][0]["number"], 45);
+        assert_eq!(offline["orders"][0]["note"], "بدون پیاز");
+        assert_eq!(offline["orders"][1]["items"][0]["name"], "قهوه");
+        drop(store);
+        let _ = std::fs::remove_file(path);
     }
     #[test]
     fn invalid_tender_rolls_back_sale_and_print_together() {

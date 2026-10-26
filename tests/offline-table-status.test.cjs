@@ -40,3 +40,17 @@ test('offline table command rejects stale-shaped, unsupported, and unsafe reques
   assert.throws(() => parseOfflineTableStatusCommand({ ...base, payload: { ...base.payload, status: 'out_of_service' } }), /علت/);
   assert.throws(() => parseOfflineTableStatusCommand({ ...base, payload: { ...base.payload, injected: true } }));
 });
+
+test('offline table create, update, and delete commands validate bounded fields and baseline', () => {
+  const shared = { ...base, id: 'd24559d6-688e-43d0-ae0c-46d2f6aeb0f1' };
+  const create = { ...shared, action: 'create', payload: { localId: -123, name: 'میز ۱', zone: 'سالن', capacity: 4 } };
+  const baseline = { name: 'میز ۱', zone: 'سالن', capacity: 4, operationalStatus: 'available' };
+  const update = { ...shared, action: 'update', payload: { tableId: 23, expected: baseline, patch: { name: 'میز VIP', capacity: 6 } } };
+  const remove = { ...shared, action: 'delete', payload: { tableId: 23, expected: baseline } };
+  assert.deepEqual(parseOfflineTableStatusCommand(create), create);
+  assert.deepEqual(parseOfflineTableStatusCommand(update), update);
+  assert.deepEqual(parseOfflineTableStatusCommand(remove), remove);
+  assert.throws(() => parseOfflineTableStatusCommand({ ...create, payload: { ...create.payload, capacity: 0 } }), /ظرفیت/);
+  assert.throws(() => parseOfflineTableStatusCommand({ ...update, payload: { ...update.payload, expected: { ...baseline, injected: true } } }));
+  assert.throws(() => parseOfflineTableStatusCommand({ ...update, payload: { ...update.payload, patch: {} } }));
+});
