@@ -568,6 +568,54 @@ impl OfflineState {
                                 }
                             }
                         }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/shifts"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("shifts")
+                                    && snapshot["businessId"].as_i64() == pair["businessId"].as_i64()
+                                    && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                                    && snapshot["payload"]["schedules"].is_array()
+                                    && snapshot["payload"]["leaveRequests"].is_array()
+                                    && snapshot["payload"]["staff"].is_array() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => {
+                                            let _ = store.set("workspace_sync_shifts", &json!({
+                                                "ok": true, "dataset": "shifts", "revision": snapshot["revision"],
+                                                "checkedAt": chrono::Utc::now().to_rfc3339()
+                                            }));
+                                        }
+                                        Err(_) => {
+                                            let _ = store.set("workspace_sync_shifts", &json!({
+                                                "ok": false, "dataset": "shifts", "message": "ذخیرهٔ برنامهٔ محلی کارکنان انجام نشد"
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((status, data)) => {
+                                if let Ok(mut store) = state.store.lock() {
+                                    if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("shifts"); }
+                                    let _ = store.set("workspace_sync_shifts", &json!({
+                                        "ok": false, "dataset": "shifts",
+                                        "message": data["error"].as_str().unwrap_or("دریافت برنامهٔ کارکنان ناموفق بود")
+                                    }));
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.set("workspace_sync_shifts", &json!({
+                                        "ok": false, "dataset": "shifts", "message": "ارتباط برنامهٔ کارکنان در دسترس نیست"
+                                    }));
+                                }
+                            }
+                        }
                     }
                 }
                 if backup.elapsed() >= Duration::from_secs(86400) {
@@ -651,6 +699,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceInventorySync": s.get("workspace_sync_inventory")?,
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
         "workspaceReservationsSync": s.get("workspace_sync_reservations")?,
+        "workspaceShiftsSync": s.get("workspace_sync_shifts")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -693,6 +742,12 @@ pub fn offline_workspace_orders(state: State<'_, OfflineState>) -> Result<Option
 pub fn offline_workspace_reservations(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("reservations")
+}
+
+#[tauri::command]
+pub fn offline_workspace_shifts(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("shifts")
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
+  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -56,6 +56,7 @@
       const localInventoryMeta=state.workspaceSnapshots?.find(item=>item.dataset==='inventory');
       const localOrdersMeta=state.workspaceSnapshots?.find(item=>item.dataset==='orders');
       const localReservationsMeta=state.workspaceSnapshots?.find(item=>item.dataset==='reservations');
+      const localShiftsMeta=state.workspaceSnapshots?.find(item=>item.dataset==='shifts');
       const nextWorkspaceSync=JSON.stringify(state.workspaceSync||null);
       const workspaceSyncChanged=nextWorkspaceSync!==workspaceSyncKey;workspaceSyncKey=nextWorkspaceSync;
       const nextWorkspaceCommands=JSON.stringify(state.workspaceCommands||null);
@@ -68,6 +69,8 @@
       const nextOrdersSync=JSON.stringify(state.workspaceOrdersSync||null),ordersSyncChanged=nextOrdersSync!==workspaceOrdersSyncKey;workspaceOrdersSyncKey=nextOrdersSync;
       const nextReservationsMeta=JSON.stringify(localReservationsMeta||null),reservationsMetaChanged=nextReservationsMeta!==workspaceReservationsMetaKey;workspaceReservationsMetaKey=nextReservationsMeta;
       const nextReservationsSync=JSON.stringify(state.workspaceReservationsSync||null),reservationsSyncChanged=nextReservationsSync!==workspaceReservationsSyncKey;workspaceReservationsSyncKey=nextReservationsSync;
+      const nextShiftsMeta=JSON.stringify(localShiftsMeta||null),shiftsMetaChanged=nextShiftsMeta!==workspaceShiftsMetaKey;workspaceShiftsMetaKey=nextShiftsMeta;
+      const nextShiftsSync=JSON.stringify(state.workspaceShiftsSync||null),shiftsSyncChanged=nextShiftsSync!==workspaceShiftsSyncKey;workspaceShiftsSyncKey=nextShiftsSync;
       renderWorkspaceCommands();
       renderWorkspaceReservations();
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
@@ -75,6 +78,7 @@
       if(!$('inventory-app').hidden&&(inventoryMetaChanged||inventorySyncChanged||!workspaceInventory))void loadWorkspaceInventory();
       if(!$('pos-app').hidden&&(ordersMetaChanged||ordersSyncChanged||!workspaceOrdersLoaded))void loadWorkspaceOrders();
       if(!$('reservations-app').hidden&&(reservationsMetaChanged||reservationsSyncChanged||!workspaceReservationsLoaded))void loadWorkspaceReservations();
+      if(!$('shifts-app').hidden&&(shiftsMetaChanged||shiftsSyncChanged||!workspaceShiftsLoaded))void loadWorkspaceShifts();
       if(next&&(!catalog||catalog.snapshotId!==next.snapshotId)){
         catalog=next;$('pos-name').textContent=catalog.name;
         const selected=$('pos-category').value,table=$('pos-table').value;
@@ -247,6 +251,30 @@
     try{workspaceReservations=await call('offline_workspace_reservations');workspaceReservationsLoaded=true;renderWorkspaceReservationHistory();}
     catch(error){workspaceReservationsLoaded=true;$('server-reservations-state').textContent=String(error);$('server-reservations-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('server-reservations-sync').className='pos-status offline';}
   }
+  function renderWorkspaceShifts(){
+    const snapshot=workspaceShifts,payload=snapshot?.payload,sync=state?.workspaceShiftsSync;
+    if(!snapshot||!payload){
+      $('shifts-sync').textContent=sync?.message||'در انتظار دریافت';$('shifts-sync').className='pos-status offline';
+      $('shifts-state').textContent=sync?.message||'برای مشاهدهٔ برنامه هنگام قطعی، دستگاه را در زمان اتصال به اینترنت همگام‌سازی کنید.';
+      $('shifts-summary').innerHTML='';$('staff-schedule-list').innerHTML='';$('staff-leave-list').innerHTML='';$('staff-roster').innerHTML='';return;
+    }
+    const schedules=Array.isArray(payload.schedules)?payload.schedules:[],leaves=Array.isArray(payload.leaveRequests)?payload.leaveRequests:[],staffRows=Array.isArray(payload.staff)?payload.staff:[];
+    const issuedAt=new Date(snapshot.issuedAt).toLocaleString('fa-IR'),rangeStart=new Date(payload.range?.from||snapshot.issuedAt).toLocaleDateString('fa-IR'),rangeEnd=new Date(payload.range?.to||snapshot.validUntil).toLocaleDateString('fa-IR');
+    $('shifts-sync').textContent=snapshot.expired?'نسخهٔ قدیمی · فقط مشاهده':`آخرین دریافت ${issuedAt}`;$('shifts-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
+    $('shifts-state').textContent=`بازهٔ ذخیره‌شده: ${rangeStart} تا ${rangeEnd} · ${money(payload.totalSchedules)} شیفت و ${money(payload.totalLeaveRequests)} درخواست مرخصی${sync?.message?` · ${sync.message}`:''}`;
+    const now=Date.now(),upcoming=schedules.filter(item=>item.status==='scheduled'&&new Date(item.startsAt).getTime()>=now).length,pendingLeaves=leaves.filter(item=>item.status==='pending').length,staffWithShift=new Set(schedules.map(item=>item.staffId)).size;
+    $('shifts-summary').innerHTML=`<article><span>شیفت‌های پیش‌رو</span><b>${money(upcoming)}</b></article><article><span>مرخصی‌های در انتظار بررسی</span><b>${money(pendingLeaves)}</b></article><article><span>کارمند دارای شیفت در بازه</span><b>${money(staffWithShift)}</b></article>`;
+    const query=$('shifts-search').value.trim().toLocaleLowerCase('fa-IR'),statusLabels={scheduled:'برنامه‌ریزی‌شده',absent:'غیبت',canceled:'لغوشده'},roleLabels={waiter:'گارسون',cashier:'صندوقدار',chef:'آشپز',warehouse:'انباردار',accountant:'حسابدار',manager:'مدیر'};
+    const filtered=schedules.filter(item=>!query||`${item.staffName} ${item.location}`.toLocaleLowerCase('fa-IR').includes(query));
+    $('staff-schedule-list').innerHTML=filtered.length?filtered.map(item=>{const checkIn=item.attendance?.checkInAt?new Date(item.attendance.checkInAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}):'ثبت نشده',checkOut=item.attendance?.checkOutAt?new Date(item.attendance.checkOutAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}):'ثبت نشده';return `<article class="offline-shift-card"><div class="offline-shift-head"><b>${esc(item.staffName)}</b><span class="pos-badge ${item.status==='scheduled'?'synced':item.status==='absent'?'conflict':''}">${statusLabels[item.status]||esc(item.status)}</span></div><p>${new Date(item.startsAt).toLocaleString('fa-IR')} تا ${new Date(item.endsAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})}</p><div class="offline-shift-meta"><span>محل: ${esc(item.location||'ثبت نشده')}</span><span>ورود: ${checkIn}</span><span>خروج: ${checkOut}</span></div>${item.absenceNote?`<small class="offline-shift-note">توضیح غیبت: ${esc(item.absenceNote)}</small>`:''}</article>`}).join(''):'<p class="muted">شیفتی در بازهٔ snapshot پیدا نشد.</p>';
+    const leaveKinds={personal:'شخصی',sick:'استعلاجی',unpaid:'بدون حقوق'},leaveStatuses={pending:'در انتظار',approved:'تأییدشده',rejected:'ردشده'};
+    $('staff-leave-list').innerHTML=leaves.length?leaves.map(item=>`<article class="offline-shift-card"><div class="offline-shift-head"><b>${esc(item.staffName)}</b><span class="pos-badge ${item.status==='approved'?'synced':item.status==='pending'?'conflict':''}">${leaveStatuses[item.status]||esc(item.status)}</span></div><p>${new Date(item.startsAt).toLocaleString('fa-IR')} تا ${new Date(item.endsAt).toLocaleString('fa-IR')}</p><div class="offline-shift-meta"><span>نوع: ${leaveKinds[item.kind]||esc(item.kind)}</span><span>ثبت: ${new Date(item.createdAt).toLocaleDateString('fa-IR')}</span></div>${item.reason?`<small class="offline-shift-note">دلیل: ${esc(item.reason)}</small>`:''}${item.decisionNote?`<small class="offline-shift-note">یادداشت تصمیم: ${esc(item.decisionNote)}</small>`:''}</article>`).join(''):'<p class="muted">در بازهٔ ذخیره‌شده درخواست مرخصی وجود ندارد.</p>';
+    $('staff-roster').innerHTML=staffRows.length?staffRows.map(item=>`<article class="workspace-category-row"><div><h3>${esc(item.name)}</h3><p>${roleLabels[item.role]||esc(item.role)}</p></div></article>`).join(''):'<p class="muted">کارمند فعالی در snapshot نیست.</p>';
+  }
+  async function loadWorkspaceShifts(){
+    try{workspaceShifts=await call('offline_workspace_shifts');workspaceShiftsLoaded=true;renderWorkspaceShifts();}
+    catch(error){workspaceShiftsLoaded=true;$('shifts-state').textContent=String(error);$('shifts-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('shifts-sync').className='pos-status offline';}
+  }
   let editingMenu=null;
   function openMenuEditor(kind,id){
     const view=workspaceMenuView(),base=workspaceMenu?.payload;
@@ -307,6 +335,8 @@
   $('server-orders-list').onclick=e=>{const button=e.target.closest('[data-server-order]');if(button){const sale=serverOrderSales[Number(button.dataset.serverOrder)];if(sale)showSaleDetails(sale.id,sale);}};
   $('server-reservations-list').onclick=e=>{const button=e.target.closest('[data-reservation-detail]');if(button)showReservationDetails(Number(button.dataset.reservationDetail));};
   $('server-reservations-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-reservations-state').textContent='درخواست دریافت نسخهٔ تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
+  $('shifts-search').oninput=renderWorkspaceShifts;
+  $('shifts-refresh').onclick=async()=>{try{await call('offline_refresh');$('shifts-state').textContent='درخواست دریافت نسخهٔ تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('server-orders-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-orders-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('pos-prints').onclick=async e=>{const b=e.target.closest('[data-print]');if(b&&confirm('ممکن است فیش قبلاً چاپ شده باشد. پس از بررسی خروج کاغذ، دوباره ارسال شود؟')){try{await call('offline_retry_print',{id:Number(b.dataset.print)});await refresh();}catch(error){notify(error,true);}}};
   $('pos-search').oninput=renderProducts;$('pos-category').onchange=renderProducts;$('pos-method').onchange=paymentFields;$('pos-cash').oninput=()=>{const n=digits($('pos-cash').value);$('pos-cash').value=/^\d*$/.test(n)?Number(n||0).toLocaleString('en-US'):n;paymentFields();};$('pos-checkout').onclick=()=>checkout();
@@ -344,11 +374,11 @@
   $('inventory-refresh').onclick=async()=>{try{await call('offline_refresh');await loadWorkspaceInventory();notify('درخواست دریافت تازهٔ موجودی و گردش‌ها ثبت شد.');}catch(error){notify(error,true);}};
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
   function selectDesktopTab(tab){
-    const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',inventory:'inventory-app',reservations:'reservations-app',hardware:'hardware-app'};
+    const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',inventory:'inventory-app',reservations:'reservations-app',shifts:'shifts-app',hardware:'hardware-app'};
     Object.entries(selected).forEach(([key,id])=>{$(id).hidden=key!==tab;$(`tab-${key}`).classList.toggle('selected',key===tab);});
-    if(tab==='pos'){void routes();void loadWorkspaceOrders();}if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();void loadWorkspaceReservations();}
+    if(tab==='pos'){void routes();void loadWorkspaceOrders();}if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();void loadWorkspaceReservations();}if(tab==='shifts')void loadWorkspaceShifts();
   }
-  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-inventory').onclick=()=>selectDesktopTab('inventory');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
+  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-inventory').onclick=()=>selectDesktopTab('inventory');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-shifts').onclick=()=>selectDesktopTab('shifts');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
   $('workspace-menu-refresh').onclick=async()=>{try{await call('offline_refresh');$('workspace-menu-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق در دسترس می‌ماند.';}catch(error){notify(error,true);}};$('workspace-menu-search').oninput=renderWorkspaceMenu;$('workspace-menu-category').onchange=renderWorkspaceMenu;
   void refresh();setInterval(()=>void refresh(),5000);
 })();
