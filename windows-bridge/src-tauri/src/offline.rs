@@ -674,16 +674,17 @@ impl OfflineState {
                         }
                     }
                 }
-                let order_history_complete = state.store.lock().ok()
-                    .and_then(|store| store.get("workspace_order_history_sync").ok().flatten())
-                    .and_then(|value| value["complete"].as_bool())
-                    .unwrap_or(false);
-                let order_history_interval = if order_history_complete { 600 } else { 60 };
+                // Keep the recent-order window fresh even after the initial archive is complete.
+                // Otherwise orders newer than the one-time history cursor would only be refreshed
+                // every ten-minute workspace cycle.
+                let order_history_interval = 60;
                 if order_history_refresh.elapsed() >= Duration::from_secs(order_history_interval) {
                     if let Some(pair) = state.store.lock().ok().and_then(|store| store.get("pairing").ok().flatten()) {
                         let server = pair["server"].as_str().unwrap_or("").trim_end_matches('/');
                         let token = pair["token"].as_str().unwrap_or("");
-                        sync_order_history_batch(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
+                        let business_id = pair["businessId"].as_i64().unwrap_or(0);
+                        refresh_order_snapshot(&state, &client, server, token, business_id);
+                        sync_order_history_batch(&state, &client, server, token, business_id);
                     }
                     order_history_refresh = Instant::now();
                 }
@@ -749,6 +750,80 @@ fn decode(
         status,
         serde_json::from_slice(&bytes).map_err(|_| "پاسخ سایت JSON معتبر نیست")?,
     ))
+}
+fn refresh_order_snapshot(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 {
+        return;
+    }
+    let response = client
+        .get(format!("{server}/api/offline-dashboard/snapshots/orders"))
+        .bearer_auth(token)
+        .send();
+    match decode(response) {
+        Ok((200, snapshot))
+            if snapshot["schemaVersion"] == 1
+                && snapshot["dataset"].as_str() == Some("orders")
+                && snapshot["businessId"].as_i64() == Some(business_id)
+                && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                && snapshot["snapshotId"]
+                    .as_str()
+                    .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                    .is_some()
+                && snapshot["payload"]["orders"].is_array()
+                && snapshot["payload"]["totalOrders"].as_i64().is_some() =>
+        {
+            if let Ok(mut store) = state.store.lock() {
+                match store.save_workspace_snapshot(&snapshot) {
+                    Ok(()) => {
+                        let _ = store.set(
+                            "workspace_sync_orders",
+                            &json!({
+                                "ok": true,
+                                "dataset": "orders",
+                                "revision": snapshot["revision"],
+                                "checkedAt": chrono::Utc::now().to_rfc3339()
+                            }),
+                        );
+                    }
+                    Err(error) => {
+                        let _ = store.set(
+                            "workspace_sync_orders",
+                            &json!({"ok": false, "dataset": "orders", "message": error}),
+                        );
+                    }
+                }
+            }
+        }
+        Ok((status, data)) => {
+            if let Ok(mut store) = state.store.lock() {
+                if status == 401 || status == 403 {
+                    let _ = store.delete_workspace_order_history();
+                }
+                let _ = store.set(
+                    "workspace_sync_orders",
+                    &json!({
+                        "ok": false,
+                        "dataset": "orders",
+                        "message": data["error"].as_str().unwrap_or("دریافت تاریخچهٔ محلی سفارش‌ها ناموفق بود")
+                    }),
+                );
+            }
+        }
+        Err(_) => {
+            if let Ok(store) = state.store.lock() {
+                let _ = store.set(
+                    "workspace_sync_orders",
+                    &json!({"ok": false, "dataset": "orders", "message": "ارتباط تاریخچهٔ سفارش‌ها در دسترس نیست"}),
+                );
+            }
+        }
+    }
 }
 fn sync_order_history_batch(
     state: &OfflineState,
