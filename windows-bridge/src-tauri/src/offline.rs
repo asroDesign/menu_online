@@ -1397,6 +1397,16 @@ pub fn offline_workspace_record_attendance(
 ) -> Result<Value> {
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_attendance_with_pin(&manager_pin, schedule_id, &action, &occurred_at)
 }
+
+#[tauri::command]
+pub fn offline_workspace_mark_staff_absent(
+    schedule_id: i64,
+    note: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_absence_with_pin(&manager_pin, schedule_id, &note)
+}
 #[tauri::command]
 pub fn offline_workspace_record_inventory_waste(
     item_id: i64,

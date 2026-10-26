@@ -505,7 +505,7 @@ impl Store {
             "inventory" => ["create_item", "receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
             "receivables" => ["record_payment"].contains(&action),
-            "staff" => ["attendance", "create_shift", "leave_request", "shift_change"].contains(&action),
+            "staff" => ["attendance", "create_shift", "leave_request", "shift_change", "mark_absent"].contains(&action),
             "payroll" => ["adjustment", "settlement"].contains(&action),
             "settings" => ["update"].contains(&action),
             "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
@@ -1706,6 +1706,68 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","action":action,"scheduleId":schedule_id}))
     }
 
+    pub fn enqueue_staff_absence_with_pin(
+        &mut self,
+        pin: &str,
+        schedule_id: i64,
+        note: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if schedule_id < 1 || note.chars().count() > 300 {
+            return Err("شیفت یا توضیح غیبت معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("shifts")?.ok_or_else(|| "نسخهٔ محلی برنامهٔ شیفت دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ برنامهٔ شیفت منقضی است؛ برای ثبت غیبت ابتدا آن را تازه کنید".into());
+        }
+        let schedules = snapshot["payload"]["schedules"].as_array().ok_or("فهرست شیفت‌های محلی معتبر نیست")?;
+        let shift = schedules.iter().find(|row| row["id"].as_i64() == Some(schedule_id)).ok_or("شیفت در نسخهٔ محلی پیدا نشد")?;
+        if shift["status"].as_str() != Some("scheduled") {
+            return Err("فقط شیفت برنامه‌ریزی‌شده را می‌توان غیبت ثبت کرد".into());
+        }
+        let starts = DateTime::parse_from_rfc3339(shift["startsAt"].as_str().ok_or("زمان شروع شیفت پیدا نشد")?).map_err(err)?;
+        if starts.with_timezone(&Utc) > Utc::now() {
+            return Err("غیبت فقط پس از شروع شیفت ثبت می‌شود".into());
+        }
+        let expected_version = shift["version"].as_i64().filter(|version| *version > 0).ok_or("نسخهٔ شیفت محلی معتبر نیست")?;
+        let expected_updated_at = shift["updatedAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان تغییر شیفت محلی معتبر نیست")?;
+        let attendance = &shift["attendance"];
+        if attendance.is_object() && (!attendance["checkInAt"].is_null() || !attendance["checkOutAt"].is_null()) {
+            return Err("برای این شیفت حضور ثبت شده است و نمی‌توان آن را غیبت زد".into());
+        }
+
+        let business_id = number(&snapshot, "businessId")?;
+        let pending_rows = {
+            let mut query = self.conn.prepare("SELECT id,state,payload,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='staff' AND action='mark_absent' AND state IN ('pending','synced') ORDER BY sequence DESC LIMIT 5000").map_err(err)?;
+            let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Vec<u8>>(2)?, row.get::<_, Option<String>>(3)?))).map_err(err)?;
+            rows.map(|row| row.map_err(err).and_then(|(id,state,payload,base)| Ok((id,state,value(payload)?,base)))).collect::<Result<Vec<_>>>()?
+        };
+        if pending_rows.iter().any(|(_, _, command, _)| command["payload"]["scheduleId"].as_i64() == Some(schedule_id)) {
+            return Err("برای این شیفت غیبت قبلاً در صف ثبت شده یا منتظر snapshot تازه است".into());
+        }
+
+        let local_events = self.workspace_staff_attendance_events()?;
+        let events = local_events.as_array().ok_or("فهرست درخواست‌های حضور محلی معتبر نیست")?;
+        if events.iter().any(|event| {
+            event["payload"]["scheduleId"].as_i64() == Some(schedule_id)
+                && ["check_in", "check_out"].contains(&event["payload"]["action"].as_str().unwrap_or(""))
+                && (event["state"].as_str() == Some("pending")
+                    || (event["state"].as_str() == Some("synced")
+                        && !["approved", "rejected", "conflict"].contains(&event["reviewStatus"].as_str().unwrap_or(""))))
+        }) {
+            return Err("درخواست حضور این شیفت هنوز تعیین‌تکلیف نشده است".into());
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"staff","action":"mark_absent",
+            "baseDataset":"shifts","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"scheduleId":schedule_id,"expectedVersion":expected_version,"expectedUpdatedAt":expected_updated_at,"note":note.trim()}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":"mark_absent","scheduleId":schedule_id}))
+    }
+
     pub fn enqueue_staff_shift_create_with_pin(
         &mut self,
         manager_pin: &str,
@@ -1853,13 +1915,13 @@ impl Store {
     pub fn workspace_staff_attendance_events(&self) -> Result<Value> {
         let business_id = self.paired_business_id()?;
         let reviews = self.workspace_snapshot("shifts")?.and_then(|snapshot| snapshot["payload"]["offlineAttendanceRequests"].as_array().cloned()).unwrap_or_default();
-        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='staff' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
-        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Vec<u8>>(4)?, row.get::<_, String>(5)?))).map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='staff' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Vec<u8>>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?))).map_err(err)?;
         rows.map(|row| {
-            let (id, action, state, error, payload, created_at) = row.map_err(err)?;
+            let (id, action, state, error, payload, created_at, base_snapshot_id) = row.map_err(err)?;
             let command = value(payload)?;
             let review = (action == "attendance").then(|| reviews.iter().find(|request| request["id"].as_str() == Some(id.as_str()))).flatten();
-            Ok(json!({"commandId":id,"action":action,"state":state,"error":error,"reviewStatus":review.map(|value|value["status"].clone()).unwrap_or(Value::Null),"reviewNote":review.map(|value|value["reviewNote"].clone()).unwrap_or(Value::Null),"payload":command["payload"],"createdAt":created_at}))
+            Ok(json!({"commandId":id,"action":action,"state":state,"error":error,"baseSnapshotId":base_snapshot_id,"reviewStatus":review.map(|value|value["status"].clone()).unwrap_or(Value::Null),"reviewNote":review.map(|value|value["reviewNote"].clone()).unwrap_or(Value::Null),"payload":command["payload"],"createdAt":created_at}))
         }).collect::<Result<Vec<_>>>().map(Value::Array)
     }
 

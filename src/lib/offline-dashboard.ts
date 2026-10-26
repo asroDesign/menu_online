@@ -1071,7 +1071,7 @@ type StaffCommand = {
   id: string;
   businessId: number;
   module: "staff";
-  action: "create_shift" | "leave_request" | "shift_change";
+  action: "create_shift" | "leave_request" | "shift_change" | "mark_absent";
   baseDataset: "shifts";
   baseSnapshotId: string;
   baseRevision: number;
@@ -1079,7 +1079,7 @@ type StaffCommand = {
 };
 
 function parseStaffCommand(raw: unknown): StaffCommand {
-  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["create_shift", "leave_request", "shift_change"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
+  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["create_shift", "leave_request", "shift_change", "mark_absent"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
   const allowedCommandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
   if (Object.keys(raw).some((key) => !allowedCommandKeys.includes(key))) throw new HttpError(400, "فرمان کارکنان فیلد ناشناخته دارد");
   if (typeof raw.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id)) throw new HttpError(400, "شناسهٔ درخواست معتبر نیست");
@@ -1089,6 +1089,8 @@ function parseStaffCommand(raw: unknown): StaffCommand {
     if (Object.keys(payload).some((key) => !["staffId", "startsAt", "endsAt", "location"].includes(key)) || !Number.isSafeInteger(payload.staffId) || Number(payload.staffId) < 1 || !isIsoTimestamp(payload.startsAt) || !isIsoTimestamp(payload.endsAt) || Date.parse(payload.endsAt) <= Date.parse(payload.startsAt) || Date.parse(payload.endsAt) - Date.parse(payload.startsAt) > 24 * 60 * 60_000 || typeof payload.location !== "string" || payload.location.length > 100) throw new HttpError(400, "اطلاعات شیفت جدید معتبر نیست");
   } else if (raw.action === "leave_request") {
     if (Object.keys(payload).some((key) => !["staffId", "startsAt", "endsAt", "kind", "reason"].includes(key)) || !Number.isSafeInteger(payload.staffId) || Number(payload.staffId) < 1 || !isIsoTimestamp(payload.startsAt) || !isIsoTimestamp(payload.endsAt) || Date.parse(payload.endsAt) <= Date.parse(payload.startsAt) || Date.parse(payload.endsAt) - Date.parse(payload.startsAt) > 31 * 86_400_000 || !["personal", "sick", "unpaid"].includes(String(payload.kind)) || typeof payload.reason !== "string" || payload.reason.length > 500) throw new HttpError(400, "اطلاعات درخواست مرخصی معتبر نیست");
+  } else if (raw.action === "mark_absent") {
+    if (Object.keys(payload).some((key) => !["scheduleId", "expectedVersion", "expectedUpdatedAt", "note"].includes(key)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.expectedVersion) || Number(payload.expectedVersion) < 1 || !isIsoTimestamp(payload.expectedUpdatedAt) || typeof payload.note !== "string" || payload.note.length > 300) throw new HttpError(400, "اطلاعات ثبت غیبت آفلاین معتبر نیست");
   } else if (Object.keys(payload).some((key) => !["scheduleId", "targetStaffId", "reason"].includes(key)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.targetStaffId) || Number(payload.targetStaffId) < 1 || typeof payload.reason !== "string" || payload.reason.length > 300) {
     throw new HttpError(400, "اطلاعات درخواست تعویض شیفت معتبر نیست");
   }
@@ -1155,6 +1157,40 @@ async function syncOfflineStaffRequest(req: Request, command: StaffCommand) {
       if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || startsAt < from || endsAt > to) return record("conflict", 409, "بازهٔ مرخصی بیرون از محدودهٔ نسخهٔ ذخیره‌شده است؛ برنامه را به‌روز کنید");
       const [created] = await tx.insert(staffLeaveRequests).values({ businessId: business.id, staffId, startsAt, endsAt, kind: String(command.payload.kind), reason: String(command.payload.reason).trim() }).returning({ id: staffLeaveRequests.id });
       return record("applied", 200, "", randomUUID(), { requestId: created.id });
+    }
+    if (command.action === "mark_absent") {
+      const scheduleId = Number(command.payload.scheduleId);
+      const snapshotSchedules = (snapshot.payload.schedules as Record<string, unknown>[] | undefined) ?? [];
+      const baseShift = snapshotSchedules.find((row) => row.id === scheduleId);
+      if (!baseShift || baseShift.status !== "scheduled" || baseShift.version !== command.payload.expectedVersion || baseShift.updatedAt !== command.payload.expectedUpdatedAt) {
+        return record("conflict", 409, "شیفت از زمان دریافت نسخه تغییر کرده است؛ برنامه را تازه کنید و غیبت را بازبینی کنید");
+      }
+      const [shift] = await tx.select().from(staffSchedules)
+        .where(and(eq(staffSchedules.id, scheduleId), eq(staffSchedules.businessId, business.id))).for("update");
+      if (!shift || shift.status !== "scheduled" || shift.version !== Number(command.payload.expectedVersion) || shift.updatedAt.toISOString() !== command.payload.expectedUpdatedAt || shift.startsAt.toISOString() !== baseShift.startsAt) {
+        return record("conflict", 409, "شیفت روی سرور تغییر کرده است؛ برنامه را تازه کنید و نتیجه را بررسی کنید");
+      }
+      const now = new Date();
+      if (shift.startsAt > now) return record("rejected", 422, "غیبت فقط پس از شروع شیفت قابل ثبت است");
+      const [attendance] = await tx.select({ checkInAt: staffAttendanceRecords.checkInAt, checkOutAt: staffAttendanceRecords.checkOutAt })
+        .from(staffAttendanceRecords).where(and(eq(staffAttendanceRecords.businessId, business.id), eq(staffAttendanceRecords.scheduleId, scheduleId))).limit(1);
+      if (attendance?.checkInAt || attendance?.checkOutAt) return record("conflict", 409, "برای این شیفت حضور در سامانه ثبت شده است؛ غیبت ثبت نشد");
+      const [attendanceRequest] = await tx.select({ id: offlineStaffAttendanceRequests.id })
+        .from(offlineStaffAttendanceRequests).where(and(
+          eq(offlineStaffAttendanceRequests.businessId, business.id), eq(offlineStaffAttendanceRequests.scheduleId, scheduleId),
+          inArray(offlineStaffAttendanceRequests.status, ["pending", "approved"]),
+        )).limit(1);
+      if (attendanceRequest) return record("conflict", 409, "درخواست حضور این شیفت هنوز تعیین‌تکلیف نشده است؛ غیبت ثبت نشد");
+      const note = String(command.payload.note).trim().slice(0, 300);
+      const [updated] = await tx.update(staffSchedules).set({
+        status: "absent", absenceNote: note, absenceRecordedBy: terminal.createdBy, absenceRecordedAt: now,
+        version: sql`${staffSchedules.version} + 1`, updatedBy: terminal.createdBy, updatedAt: now,
+      }).where(and(
+        eq(staffSchedules.id, scheduleId), eq(staffSchedules.businessId, business.id),
+        eq(staffSchedules.status, "scheduled"), eq(staffSchedules.version, shift.version),
+      )).returning({ id: staffSchedules.id });
+      if (!updated) return record("conflict", 409, "شیفت هم‌زمان تغییر کرده است؛ برنامه را تازه کنید");
+      return record("applied", 200, "", String(updated.id));
     }
     const scheduleId = Number(command.payload.scheduleId), targetStaffId = Number(command.payload.targetStaffId);
     const snapshotSchedules = (snapshot.payload.schedules as Record<string, unknown>[] | undefined) ?? [];
