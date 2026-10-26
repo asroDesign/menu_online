@@ -185,7 +185,11 @@ impl Store {
             }
             if revision == current_revision {
                 if current_id == snapshot_id && value(current_payload)? == snapshot["payload"] {
-                    return Ok(());
+                    tx.execute(
+                        "UPDATE workspace_snapshots SET issued_at=?1,valid_until=?2 WHERE business_id=?3 AND dataset=?4",
+                        params![issued.to_rfc3339(),valid_until.to_rfc3339(),business_id,dataset],
+                    ).map_err(err)?;
+                    return tx.commit().map_err(err);
                 }
                 return Err("دو snapshot متفاوت با نسخهٔ یکسان دریافت شد".into());
             }

@@ -195,4 +195,4 @@
 
 ## قابلیت در حال توسعه
 
-| اپ ویندوزی آفلاین پنل کامل | `docs/agents/modules/offline-full-dashboard.md` | foundation SQLite v2 برای snapshotهای tenant-scoped و outbox رمزگذاری‌شدهٔ فرمان‌ها با revision/idempotency اضافه شد؛ هنوز endpoint snapshot/replay، worker sync و اتصال UI ماژول‌ها ندارد، بنابراین کل پنل آفلاین نیست |
+| اپ ویندوزی آفلاین پنل کامل | `docs/agents/modules/offline-full-dashboard.md` | snapshot tenant-scoped منو از endpoint نسخه‌دار دریافت و با DPAPI در SQLite ویندوز ذخیره می‌شود؛ سایر datasetها، replay فرمان‌ها و اتصال UI ماژول‌ها هنوز پیاده نشده‌اند، بنابراین کل پنل آفلاین نیست |

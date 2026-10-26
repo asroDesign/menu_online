@@ -44,6 +44,7 @@ impl OfflineState {
                 Err(_) => return,
             };
             let mut refresh = Instant::now() - Duration::from_secs(600);
+            let mut workspace_refresh = Instant::now() - Duration::from_secs(600);
             let mut backup = Instant::now() - Duration::from_secs(86400);
             loop {
                 let pair = state
@@ -148,6 +149,94 @@ impl OfflineState {
                             }
                         }
                     }
+                    if workspace_refresh.elapsed() >= Duration::from_secs(600)
+                        || state
+                            .store
+                            .lock()
+                            .ok()
+                            .and_then(|s| s.get("workspace_refresh").ok().flatten())
+                            .is_some_and(|v| v == true)
+                    {
+                        if let Ok(s) = state.store.lock() {
+                            let _ = s.set("workspace_refresh", &json!(false));
+                        }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/menu"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("menu")
+                                    && snapshot["businessId"].as_i64()
+                                        == pair["businessId"].as_i64()
+                                    && snapshot["revision"]
+                                        .as_i64()
+                                        .is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"]
+                                        .as_str()
+                                        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                                        .is_some() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => {
+                                            let _ = store.set(
+                                                "workspace_sync",
+                                                &json!({
+                                                    "ok": true,
+                                                    "dataset": "menu",
+                                                    "revision": snapshot["revision"],
+                                                    "checkedAt": chrono::Utc::now().to_rfc3339()
+                                                }),
+                                            );
+                                            workspace_refresh = Instant::now();
+                                        }
+                                        Err(_) => {
+                                            let _ = store.set(
+                                                "workspace_sync",
+                                                &json!({
+                                                    "ok": false,
+                                                    "dataset": "menu",
+                                                    "message": "ذخیرهٔ نسخهٔ منوی محلی انجام نشد"
+                                                }),
+                                            );
+                                            workspace_refresh =
+                                                Instant::now() - Duration::from_secs(540);
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((_, data)) => {
+                                if let Ok(s) = state.store.lock() {
+                                    let _ = s.set(
+                                        "workspace_sync",
+                                        &json!({
+                                            "ok": false,
+                                            "dataset": "menu",
+                                            "message": data["error"]
+                                                .as_str()
+                                                .unwrap_or("دریافت نسخهٔ منوی محلی ناموفق بود")
+                                        }),
+                                    );
+                                }
+                                workspace_refresh = Instant::now() - Duration::from_secs(540);
+                            }
+                            Err(_) => {
+                                if let Ok(s) = state.store.lock() {
+                                    let _ = s.set(
+                                        "workspace_sync",
+                                        &json!({
+                                            "ok": false,
+                                            "dataset": "menu",
+                                            "message": "ارتباط منوی محلی در دسترس نیست"
+                                        }),
+                                    );
+                                }
+                                workspace_refresh = Instant::now() - Duration::from_secs(540);
+                            }
+                        }
+                    }
                 }
                 if backup.elapsed() >= Duration::from_secs(86400) {
                     if let Ok(s) = state.store.lock() {
@@ -215,9 +304,18 @@ fn decode(
 #[tauri::command]
 pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
     let s = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    Ok(
-        json!({"paired":s.get("pairing")?.is_some(),"catalog":s.get("catalog")?,"sales":s.history()?,"counts":s.counts()?,"prints":s.print_jobs()?,"routes":s.get("routes")?.unwrap_or(json!([])),"draft":s.get("draft")?,"health":state.health.lock().map_err(|_|"وضعیت در دسترس نیست")?.clone()}),
-    )
+    Ok(json!({
+        "paired": s.get("pairing")?.is_some(),
+        "catalog": s.get("catalog")?,
+        "sales": s.history()?,
+        "counts": s.counts()?,
+        "prints": s.print_jobs()?,
+        "routes": s.get("routes")?.unwrap_or(json!([])),
+        "draft": s.get("draft")?,
+        "workspaceSnapshots": s.workspace_snapshot_index()?,
+        "workspaceSync": s.get("workspace_sync")?,
+        "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
+    }))
 }
 #[tauri::command]
 pub fn offline_pair(content: String, state: State<'_, OfflineState>) -> Result<()> {

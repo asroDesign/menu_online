@@ -1936,6 +1936,21 @@ export const offlineCatalogs = pgTable("offline_catalogs", {
   id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id),
   payload: jsonb("payload").$type<import("@/lib/offline-pos-core").OfflineCatalog>().notNull(), createdAt: created(),
 });
+export const offlineWorkspaceSnapshots = pgTable("offline_workspace_snapshots", {
+  id: text("id").primaryKey(),
+  terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id, { onDelete: "cascade" }),
+  businessId: bizId(),
+  dataset: text("dataset").notNull(),
+  revision: integer("revision").notNull(),
+  schemaVersion: integer("schema_version").notNull().default(1),
+  payloadHash: text("payload_hash").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+  validUntil: timestamp("valid_until", { withTimezone: true }).notNull(),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("offline_workspace_terminal_dataset_revision_uq").on(t.terminalId, t.dataset, t.revision),
+]);
 export const offlineSales = pgTable("offline_sales", {
   id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id), businessId: bizId(),
   payloadHash: text("payload_hash").notNull(), payload: jsonb("payload").$type<import("@/lib/offline-pos-core").OfflineSale>().notNull(),
