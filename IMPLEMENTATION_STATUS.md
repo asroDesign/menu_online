@@ -974,3 +974,8 @@ SQLite پل ویندوز از user_version=1 به ۲ مهاجرت‌پذیر ش�
 ## Snapshot محلی منو برای اپ پنل آفلاین — ۲۰۲۶-۱۰-۲۶
 
 endpoint محدود `GET /api/offline-dashboard/snapshots/menu` با Bearer ترمینال مدیر، entitlement صندوق و فیلتر tenant اضافه شد. payload فقط پروفایل عمومی کسب‌وکار، دسته‌ها، محصولات و میزها را دارد؛ تغییر payload revision جدید می‌سازد و refresh بدون تغییر، همان revision/شناسه را با مهلت هفت‌روزه تمدید می‌کند. migration `0055` cache نسخه‌های سرور را نگه می‌دارد. worker ویندوز هر ۱۰ دقیقه منو را اعتبارسنجی و در `workspace_snapshots` رمز‌شده ذخیره می‌کند؛ وضعیت آن جدا از سلامت صندوق POS گزارش می‌شود. اتصال snapshot به صفحه‌های پنل و همگام‌سازی فرمان‌های ماژول‌ها هنوز وجود ندارد؛ وضعیت کامل در [راهنمای اپ آفلاین](docs/agents/modules/offline-full-dashboard.md) و [گزارش این مرحله](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) آمده است. TypeScript و diff-check موفق شدند؛ Rust به‌دلیل نبود cargo/rustfmt در این محیط compile/format نشد و migration روی دیتابیس اجرا نشد.
+
+
+## نمایش snapshot منو در برنامهٔ ویندوز — ۲۰۲۶-۱۰-۲۶
+
+تب read-only «منوی محلی» از فرمان Tauri `offline_workspace_menu` snapshot محصولات/دسته‌های همان کسب‌وکار را از SQLite محلی می‌خواند و جست‌وجو، فیلتر دسته، revision و انقضا را نشان می‌دهد. این رابط هیچ داده‌ای را تغییر نمی‌دهد؛ auth نقش محلی و replay سروری هنوز قبل از فرم‌های ویرایش لازم‌اند. جزئیات در [راهنمای پنل آفلاین](docs/agents/modules/offline-full-dashboard.md) و [گزارش مرحله](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) ثبت شد.

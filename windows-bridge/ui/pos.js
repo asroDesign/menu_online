@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer;
+  let state, catalog, workspaceMenu, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer;
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -15,6 +15,8 @@
       $('pos-health').textContent=state.health.online?'متصل به سایت':'ذخیره محلی';$('pos-health').className=`pos-status ${state.health.online?'online':''}`;
       $('pos-sync-message').textContent=state.health.message;
       $('pos-counts').textContent=`${money(state.counts.pending)} در صف ارسال · ${money(state.counts.conflict)} نیازمند بررسی`;
+      const localMenuMeta=state.workspaceSnapshots?.find(item=>item.dataset==='menu');
+      if(!$('workspace-menu-app').hidden&&localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))void loadWorkspaceMenu();
       if(next&&(!catalog||catalog.snapshotId!==next.snapshotId)){
         catalog=next;$('pos-name').textContent=catalog.name;
         const selected=$('pos-category').value,table=$('pos-table').value;
@@ -30,6 +32,24 @@
     }catch(e){notify(e,true);}
   }
   function renderProducts(){if(!catalog)return;const q=$('pos-search').value.trim(),cat=$('pos-category').value;const prods=catalog.products.filter(p=>(!q||p.name.includes(q))&&(!cat||String(p.categoryId)===cat));$('pos-products').innerHTML=prods.length?prods.map(p=>`<button class="pos-product" data-product="${p.id}"><b>${esc(p.name)}</b><span>${money(p.price)} <small>تومان${p.sellingMode==='weight'?' / کیلو':''}</small></span></button>`).join(''):'<p class="muted">محصولی پیدا نشد.</p>';}
+  function renderWorkspaceMenu(){
+    const payload=workspaceMenu?.payload;
+    if(!payload){$('workspace-menu-products').innerHTML='';return;}
+    const q=$('workspace-menu-search').value.trim().toLocaleLowerCase('fa-IR'),category=$('workspace-menu-category').value;
+    const products=payload.products.filter(p=>(!q||`${p.name} ${p.description}`.toLocaleLowerCase('fa-IR').includes(q))&&(!category||String(p.categoryId??'')===category));
+    $('workspace-menu-products').innerHTML=products.length?products.map(p=>{const categoryName=payload.categories.find(c=>c.id===p.categoryId)?.name||'بدون دسته';return `<article class="workspace-product"><div><span class="workspace-product-category">${esc(categoryName)}</span><h2>${esc(p.name)}</h2><p>${esc(p.description||'توضیحی ثبت نشده است')}</p></div><div class="workspace-product-meta"><b>${money(p.price)} تومان${p.sellingMode==='weight'?' / کیلو':''}</b><span class="${p.isAvailable?'workspace-available':'workspace-unavailable'}">${p.isAvailable?'موجود برای سفارش':'فعلاً ناموجود'}</span></div></article>`}).join(''):'<p class="muted">محصولی در این دسته یا جست‌وجو پیدا نشد.</p>';
+  }
+  async function loadWorkspaceMenu(){
+    $('workspace-menu-state').textContent='در حال خواندن snapshot رمز‌شدهٔ دستگاه…';
+    try{
+      workspaceMenu=await call('offline_workspace_menu');
+      if(!workspaceMenu){$('workspace-menu-name').textContent='منوی آفلاین';$('workspace-menu-revision').textContent='داده‌ای دریافت نشده';$('workspace-menu-revision').className='pos-status';$('workspace-menu-state').textContent='پس از اتصال صندوق و دریافت اولیهٔ منو، اطلاعات اینجا در دسترس خواهد بود.';$('workspace-menu-products').innerHTML='';return;}
+      const payload=workspaceMenu.payload||{};$('workspace-menu-name').textContent=payload.business?.name||'منوی آفلاین';
+      $('workspace-menu-revision').textContent=`نسخه ${money(workspaceMenu.revision)} · ${workspaceMenu.expired?'منقضی':'معتبر'}`;$('workspace-menu-revision').className=`pos-status ${workspaceMenu.expired?'':'online'}`;
+      $('workspace-menu-state').textContent=workspaceMenu.expired?`این snapshot در ${new Date(workspaceMenu.validUntil).toLocaleString('fa-IR')} منقضی شده است. داده برای مشاهده باقی مانده، اما نباید مبنای تغییر جدید باشد.`:`${money(payload.products?.length||0)} محصول · ${money(payload.categories?.length||0)} دسته · دریافت ${new Date(workspaceMenu.issuedAt).toLocaleString('fa-IR')}`;
+      const selected=$('workspace-menu-category').value;$('workspace-menu-category').innerHTML='<option value="">همهٔ دسته‌ها</option>'+(payload.categories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');$('workspace-menu-category').value=selected;renderWorkspaceMenu();
+    }catch(error){$('workspace-menu-state').textContent=`خواندن منوی محلی ممکن نشد: ${error}`;$('workspace-menu-products').innerHTML='';}
+  }
   async function renderCart(){
     $('pos-cart-lines').innerHTML=cart.length?cart.map((item,i)=>{const p=catalog?.products.find(p=>p.id===item.productId);return `<div class="pos-cart-line"><b>${esc(p?.name||'محصول')} <small>× ${money(item.quantity)}</small></b><button data-remove="${i}" aria-label="حذف ${esc(p?.name)}">حذف</button><small>${item.weightGrams?`${money(item.weightGrams-item.tareGrams)} گرم`:''}${item.optionIds.length?' · با گزینه':''}</small></div>`}).join(''):'<p class="muted">برای شروع، محصول را انتخاب کنید.</p>';
     if(cart.length){try{const q=await call('offline_quote',{sale:draft()});total=q.total;$('pos-checkout').disabled=false;}catch(e){total=0;$('pos-checkout').disabled=true;notify(e,true);}}else{total=0;$('pos-checkout').disabled=true;}
@@ -54,6 +74,12 @@
   $('pos-clear').onclick=async()=>{if(cart.length&&confirm('سبد جاری خالی شود؟')){cart=[];draftId=crypto.randomUUID();await renderCart();}};
   ['pos-type','pos-table','pos-customer','pos-phone','pos-note'].forEach(id=>$(id).addEventListener('input',()=>{persist();}));
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-  $('tab-pos').onclick=()=>{$('pos-app').hidden=false;$('hardware-app').hidden=true;$('tab-pos').classList.add('selected');$('tab-hardware').classList.remove('selected');void routes();};$('tab-hardware').onclick=()=>{$('pos-app').hidden=true;$('hardware-app').hidden=false;$('tab-hardware').classList.add('selected');$('tab-pos').classList.remove('selected');};
+  function selectDesktopTab(tab){
+    const selected={pos:'pos-app',menu:'workspace-menu-app',hardware:'hardware-app'};
+    Object.entries(selected).forEach(([key,id])=>{$(id).hidden=key!==tab;$(`tab-${key}`).classList.toggle('selected',key===tab);});
+    if(tab==='pos')void routes();if(tab==='menu')void loadWorkspaceMenu();
+  }
+  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
+  $('workspace-menu-refresh').onclick=()=>void loadWorkspaceMenu();$('workspace-menu-search').oninput=renderWorkspaceMenu;$('workspace-menu-category').onchange=renderWorkspaceMenu;
   void refresh();setInterval(()=>void refresh(),5000);
 })();

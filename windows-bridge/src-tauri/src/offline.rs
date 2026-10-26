@@ -318,6 +318,12 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
     }))
 }
 #[tauri::command]
+pub fn offline_workspace_menu(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("menu")
+}
+
+#[tauri::command]
 pub fn offline_pair(content: String, state: State<'_, OfflineState>) -> Result<()> {
     if content.len() > 8192 {
         return Err("فایل اتصال بزرگ است".into());

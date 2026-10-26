@@ -195,4 +195,4 @@
 
 ## قابلیت در حال توسعه
 
-| اپ ویندوزی آفلاین پنل کامل | `docs/agents/modules/offline-full-dashboard.md` | snapshot tenant-scoped منو از endpoint نسخه‌دار دریافت و با DPAPI در SQLite ویندوز ذخیره می‌شود؛ سایر datasetها، replay فرمان‌ها و اتصال UI ماژول‌ها هنوز پیاده نشده‌اند، بنابراین کل پنل آفلاین نیست |
+| اپ ویندوزی آفلاین پنل کامل | `docs/agents/modules/offline-full-dashboard.md` | snapshot tenant-scoped منو دریافت و با DPAPI ذخیره می‌شود؛ تب read-only برای جست‌وجو/مشاهدهٔ کالا و دسته دارد، اما سایر datasetها، فرم تغییر، replay فرمان‌ها و UI ماژول‌ها پیاده نشده‌اند، بنابراین کل پنل آفلاین نیست |

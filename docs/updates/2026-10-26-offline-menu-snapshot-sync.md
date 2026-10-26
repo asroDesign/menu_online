@@ -27,3 +27,11 @@
 ## محدودیت و اعتبارسنجی
 
 این snapshot هنوز در صفحهٔ محلی پنل مصرف نمی‌شود؛ endpoint برای `orders`, `customers`, `inventory`, `accounting`, HR و سایر datasetها وجود ندارد، command replay پیاده نشده و فقط POS آنلاین‌نشدهٔ نسخهٔ قبلی آفلاین است. migration روی PostgreSQL اجرا نمی‌شود تا rollout جداگانه انجام شود. مطابق محدودیت جاری تست خودکار و دیتابیس اجرا نشدند. `npx tsc --noEmit --incremental false` و ESLint فایل‌های TypeScript تغییرکرده موفق شدند و `git diff --check` بدون خطا بود. در این محیط `cargo` و `rustfmt` نصب/در PATH نبودند، بنابراین Rust compile و format اجرا نشد؛ worker تا بررسی Rust روی محیط دارای toolchain برای انتشار آماده محسوب نمی‌شود.
+
+
+## نمایش محلی snapshot منو — ۲۰۲۶-۱۰-۲۶
+
+- فرمان ثابت Tauri با نام `offline_workspace_menu` فقط dataset منو را از Store می‌خواند؛ token، تنظیمات محرمانه یا دادهٔ مالی expose نمی‌شود.
+- تب «منوی محلی» به برنامه اضافه شد: جست‌وجوی نام/توضیح، فیلتر دسته، قیمت، موجودبودن، شماره revision و زمان/وضعیت انقضا را از snapshot رمز‌شده نشان می‌دهد. دادهٔ منقضی برای مشاهده باقی می‌ماند اما برچسب منقضی دارد. نما read-only است و هیچ command نوشتن ایجاد نمی‌کند.
+- محدودیت: به‌روزرسانی محصول/دسته، server replay و بقیهٔ صفحات پنل هنوز پیاده نشده‌اند. احراز هویت نقش محلی پیش از فعال‌کردن هر تغییر داده لازم است.
+- بررسی این گام: `node --check windows-bridge/ui/pos.js` موفق شد. TypeScript، route و schema در گام قبلی با `npx tsc --noEmit --incremental false` و ESLint هدفمند بررسی شده‌اند و در این گام TypeScript تغییر نکرد. `cargo` و `rustfmt` در محیط فعلی موجود نیستند؛ Rust compile و اجرای Windows ممکن نشد. تست خودکار و دیتابیس اجرا نشدند.

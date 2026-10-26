@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
+    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-menu">منوی محلی</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
     <main id="pos-app" class="pos-app">
       <header class="pos-top"><div><span class="pos-eyebrow">فروش ادامه دارد</span><h1 id="pos-name">صندوق محلی MenuPeak</h1></div><div><span id="pos-health" class="pos-status">در حال آماده‌سازی</span><button id="pos-refresh" class="button secondary">به‌روزرسانی منو</button></div></header>
       <section id="pos-pair-card" class="card"><h2>اتصال به رستوران</h2><p>در سایت، تنظیمات ← صندوق آفلاین ویندوز، فایل اتصال را بسازید و اینجا وارد کنید.</p><label class="button primary">انتخاب فایل اتصال<input id="pos-pair" type="file" accept=".json" hidden></label><p class="muted">پس از دریافت منو، سفارش‌گیری به اینترنت وابسته نیست. کلید و اطلاعات فروش با حساب Windows شما محافظت می‌شوند.</p></section>
@@ -16,6 +16,11 @@
       <section class="card"><div class="section-heading"><div><h2>صف و سوابق محلی</h2><p id="pos-counts">—</p></div><button id="pos-backup" class="button secondary">پشتیبان‌گیری</button></div><p id="pos-sync-message" class="muted"></p><div class="pos-history-scroll"><table class="pos-table"><thead><tr><th>فیش</th><th>مبلغ</th><th>وجه</th><th>همگام‌سازی</th><th>عملیات</th></tr></thead><tbody id="pos-history"></tbody></table></div></section>
       <details class="card"><summary>چاپ محلی، دسته‌های آشپزخانه و پیجر</summary><p class="muted">ابتدا تجهیزات را در تب تجهیزات تعریف کنید. هر چاپگر یک مسیر دارد؛ فیش‌های محلی هنگام همگام‌سازی دوباره چاپ نمی‌شوند.</p><div id="pos-routes"></div><button id="pos-route-save" class="button secondary">ذخیره مسیرهای چاپ</button><div class="pos-form-row pager-form"><select id="pos-pager" aria-label="فرستنده پیجر"></select><input id="pos-pager-number" type="number" min="1" max="9999" placeholder="شماره پیجر" aria-label="شماره پیجر"><button id="pos-ring" class="button primary">صداکردن پیجر</button></div><div id="pos-prints"></div></details>
       <p class="pos-footer">منوی ذخیره‌شده تا ۷ روز معتبر است · موجودی و حسابداری مرکزی پس از همگام‌سازی به‌روز می‌شوند · برنامه در کنار ساعت Windows فعال می‌ماند</p>
+    </main>
+    <main id="workspace-menu-app" class="pos-app" hidden>
+      <header class="pos-top"><div><span class="pos-eyebrow">نسخهٔ ذخیره‌شده روی این دستگاه</span><h1 id="workspace-menu-name">منوی آفلاین</h1></div><div><span id="workspace-menu-revision" class="pos-status">در انتظار داده</span><button id="workspace-menu-refresh" class="button secondary">بازخوانی محلی</button></div></header>
+      <section class="card"><div class="workspace-menu-toolbar"><input id="workspace-menu-search" type="search" placeholder="جست‌وجوی نام یا توضیح محصول…" aria-label="جست‌وجوی منوی محلی"><select id="workspace-menu-category" aria-label="دسته‌بندی منوی محلی"><option value="">همهٔ دسته‌ها</option></select></div><p id="workspace-menu-state" class="workspace-menu-state" role="status">در حال خواندن نسخهٔ محلی…</p><div id="workspace-menu-products" class="workspace-menu-products"></div></section>
+      <p class="pos-footer">این صفحه فقط دادهٔ snapshot محلی را می‌خواند؛ برای ویرایش یا همگام‌سازی تغییرات منو هنوز آماده نیست.</p>
     </main>
     <main id="hardware-app" class="shell" hidden>
       <header class="topbar">
