@@ -1,5 +1,5 @@
 import { errorResponse, readJson } from "@/lib/auth";
-import { syncOfflineInventoryMovement, syncOfflineInventoryReceive, syncOfflineInventoryTransfer, syncOfflineInventoryWaste } from "@/lib/offline-inventory";
+import { syncOfflineInventoryCreateItem, syncOfflineInventoryMovement, syncOfflineInventoryReceive, syncOfflineInventoryTransfer, syncOfflineInventoryWaste } from "@/lib/offline-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +7,9 @@ export async function POST(req: Request) {
   try {
     const command = await readJson(req, 256_000);
     const action = command && typeof command === "object" && "action" in command ? command.action : null;
-    const response = action === "receive"
+    const response = action === "create_item"
+      ? await syncOfflineInventoryCreateItem(req, command)
+      : action === "receive"
       ? await syncOfflineInventoryReceive(req, command)
       : action === "movement"
         ? await syncOfflineInventoryMovement(req, command)

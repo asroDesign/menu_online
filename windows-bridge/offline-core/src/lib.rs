@@ -428,7 +428,7 @@ impl Store {
             .contains(&action),
             "customers" => ["create", "update"].contains(&action),
             "reservations" => ["create", "set_status"].contains(&action),
-            "inventory" => ["receive", "movement", "waste", "transfer"].contains(&action),
+            "inventory" => ["create_item", "receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
             "receivables" => ["record_payment"].contains(&action),
             "staff" => ["attendance", "create_shift", "leave_request", "shift_change"].contains(&action),
@@ -878,6 +878,70 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","intent":decision,"transferId":transfer_id}))
     }
 
+    pub fn enqueue_inventory_create_item_with_pin(&mut self, pin: &str, raw: &Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        let object = raw.as_object().ok_or("اطلاعات کالای جدید معتبر نیست")?;
+        let allowed = ["occurredAt", "name", "sku", "unit", "recipeUnit", "recipeToStockFactor", "warehouseId", "categoryId", "openingStock", "minStock", "reorderPoint", "openingUnitCost", "lastPurchaseCost", "expiryDate", "trackStock", "isActive", "openingNote"];
+        if object.keys().any(|key| !allowed.contains(&key.as_str())) { return Err("مشخصات کالای جدید شامل فیلد ناشناخته است".into()); }
+        let snapshot = self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ انبار منقضی است؛ ابتدا اطلاعات تازه بگیرید".into()); }
+        let name = raw["name"].as_str().unwrap_or("").trim();
+        let sku = raw["sku"].as_str().unwrap_or("").trim().to_ascii_uppercase();
+        let unit = raw["unit"].as_str().unwrap_or("");
+        let recipe_unit = raw["recipeUnit"].as_str().unwrap_or("");
+        let valid_unit = |value: &str| ["گرم", "کیلوگرم", "میلی‌لیتر", "لیتر", "عدد", "بسته", "کارتن", "متر"].contains(&value);
+        if name.chars().count() < 2 || name.chars().count() > 80 || !valid_unit(unit) || !valid_unit(recipe_unit) { return Err("نام یا واحد کالای جدید معتبر نیست".into()); }
+        if !sku.is_empty() && (sku.len() < 2 || sku.len() > 64 || !sku.as_bytes()[0].is_ascii_alphanumeric() || !sku.bytes().enumerate().all(|(index, byte)| byte.is_ascii_uppercase() || byte.is_ascii_digit() || (index > 0 && b"._/-".contains(&byte))) ) {
+            return Err("کد کالا فقط می‌تواند شامل حروف لاتین، عدد و . _ / - باشد".into());
+        }
+        let occurred_at = raw["occurredAt"].as_str().ok_or("زمان تعریف کالا معتبر نیست")?;
+        let occurred = DateTime::parse_from_rfc3339(occurred_at).map_err(err)?;
+        let issued = DateTime::parse_from_rfc3339(snapshot["issuedAt"].as_str().ok_or("زمان snapshot انبار پیدا نشد")?).map_err(err)?;
+        if occurred > Utc::now() + chrono::Duration::days(1) || occurred < issued - chrono::Duration::days(7) { return Err("زمان تعریف کالا بیرون از بازهٔ مجاز نسخهٔ محلی است".into()); }
+        let opening_stock = raw["openingStock"].as_f64().ok_or("موجودی اول دوره معتبر نیست")?;
+        let min_stock = raw["minStock"].as_f64().ok_or("حداقل موجودی معتبر نیست")?;
+        let reorder_point = raw["reorderPoint"].as_f64().ok_or("نقطهٔ سفارش معتبر نیست")?;
+        let opening_unit_cost = raw["openingUnitCost"].as_i64().ok_or("بهای واحد اول دوره معتبر نیست")?;
+        let last_purchase_cost = raw["lastPurchaseCost"].as_i64().ok_or("آخرین بهای خرید معتبر نیست")?;
+        if !opening_stock.is_finite() || !(0.0..=1_000_000_000.0).contains(&opening_stock) || !min_stock.is_finite() || !(0.0..=1_000_000_000.0).contains(&min_stock) || !reorder_point.is_finite() || !(0.0..=1_000_000_000.0).contains(&reorder_point) || !(0..=1_000_000_000).contains(&opening_unit_cost) || !(0..=1_000_000_000).contains(&last_purchase_cost) {
+            return Err("موجودی یا بهای کالا از محدودهٔ مجاز خارج است".into());
+        }
+        let opening_amount = opening_stock * opening_unit_cost as f64;
+        if !opening_amount.is_finite() || opening_amount > 1_000_000_000_000.0 { return Err("ارزش موجودی اول دوره بیش از حد مجاز است".into()); }
+        let automatic_factor = match (unit, recipe_unit) {
+            (a, b) if a == b => Some(1.0),
+            ("گرم", "کیلوگرم") | ("میلی‌لیتر", "لیتر") => Some(1000.0),
+            ("کیلوگرم", "گرم") | ("لیتر", "میلی‌لیتر") => Some(0.001),
+            _ => None,
+        };
+        let factor = raw["recipeToStockFactor"].as_f64().ok_or("ضریب تبدیل واحد رسپی معتبر نیست")?;
+        if !factor.is_finite() || factor <= 0.0 || factor > 1_000_000_000.0 || automatic_factor.is_some_and(|expected| (factor - expected).abs() > 1e-9) { return Err("ضریب تبدیل واحد رسپی معتبر نیست".into()); }
+        let warehouse_id = if raw["warehouseId"].is_null() { None } else { Some(raw["warehouseId"].as_i64().filter(|value| *value > 0).ok_or("انبار انتخاب‌شده معتبر نیست")?) };
+        let category_id = if raw["categoryId"].is_null() { None } else { Some(raw["categoryId"].as_i64().filter(|value| *value > 0).ok_or("دسته‌بندی انتخاب‌شده معتبر نیست")?) };
+        if let Some(id) = warehouse_id { if !snapshot["payload"]["warehouses"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_i64() == Some(id))) { return Err("انبار در نسخهٔ محلی پیدا نشد؛ اطلاعات انبار را تازه کنید".into()); } }
+        if let Some(id) = category_id { if !snapshot["payload"]["categories"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_i64() == Some(id))) { return Err("دسته‌بندی در نسخهٔ محلی پیدا نشد؛ اطلاعات انبار را تازه کنید".into()); } }
+        let expiry_date = if raw["expiryDate"].is_null() || raw["expiryDate"].as_str() == Some("") { None } else {
+            let value = raw["expiryDate"].as_str().ok_or("تاریخ انقضا معتبر نیست")?;
+            Some(chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(err)?.format("%Y-%m-%d").to_string())
+        };
+        let track_stock = raw["trackStock"].as_bool().ok_or("وضعیت ردیابی موجودی معتبر نیست")?;
+        let is_active = raw["isActive"].as_bool().ok_or("وضعیت فعال‌بودن کالا معتبر نیست")?;
+        let opening_note = raw["openingNote"].as_str().unwrap_or("").trim();
+        if opening_note.chars().count() > 300 { return Err("توضیح موجودی اول دوره بیش از حد طولانی است".into()); }
+        let business_id = number(&snapshot, "businessId")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"inventory","action":"create_item",
+            "baseDataset":"inventory","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"occurredAt":occurred.to_rfc3339(),"name":name,"sku":sku,"unit":unit,"recipeUnit":recipe_unit,
+                "recipeToStockFactor":factor,"warehouseId":warehouse_id,"categoryId":category_id,"openingStock":opening_stock,
+                "minStock":min_stock,"reorderPoint":reorder_point,"openingUnitCost":opening_unit_cost,"lastPurchaseCost":last_purchase_cost,
+                "expiryDate":expiry_date,"trackStock":track_stock,"isActive":is_active,"openingNote":opening_note}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"create_item","name":name,"requiresServerSync":true}))
+    }
+
     pub fn enqueue_inventory_receive_with_pin(
         &mut self, pin: &str, occurred_at: &str, invoice_no: &str, supplier_id: Option<i64>,
         discount: i64, extra_cost: i64, shipping_cost: i64, tax_amount: i64, paid_amount: i64,
@@ -1239,7 +1303,7 @@ impl Store {
         let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else {
             return Ok(json!([]));
         };
-        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement','transfer') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('create_item','receive','waste','movement','transfer') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
         let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?, row.get::<_, Option<String>>(6)?))).map_err(err)?;
         rows.map(|row| {
             let (id,state,error,payload,created_at,sequence,base_snapshot_id) = row.map_err(err)?;

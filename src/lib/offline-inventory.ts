@@ -1,14 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, stockMovements, stockTransferLines, stockTransfers, suppliers, users } from "@/db/schema";
+import { businesses, inventoryCategories, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
-import { ensureAccounting } from "@/lib/accounting";
+import { C, ensureAccounting, postDocumentInTransaction } from "@/lib/accounting";
 import { offlineAuth } from "@/lib/offline-pos";
 import { hasAny } from "@/lib/plans";
 import { allocateStockValue, stockReceiptTotal } from "@/lib/stock-receipt-totals";
 import { applyStockReceipt } from "@/lib/stock-receipts";
 import { isWasteReason } from "@/lib/stock-waste";
+import { recipeToStockFactor, validInventoryUnit } from "@/lib/inventory-units";
 
 type InventoryWasteCommand = {
   schemaVersion: 1;
@@ -474,5 +475,147 @@ export async function syncOfflineInventoryReceive(req: Request, raw: unknown) {
     return record("applied", 200, "", String(result.receipt.id), { receiptId: result.receipt.id, total: result.receipt.total, documentId: result.receipt.documentId });
   }, { isolationLevel: "repeatable read" });
   if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "فاکتور ورود آفلاین اعمال نشد");
+  return outcome.response;
+}
+
+type InventoryCreateItemCommand = {
+  schemaVersion: 1;
+  id: string;
+  businessId: number;
+  module: "inventory";
+  action: "create_item";
+  baseDataset: "inventory";
+  baseSnapshotId: string;
+  baseRevision: number;
+  payload: {
+    occurredAt: string;
+    name: string;
+    sku: string;
+    unit: string;
+    recipeUnit: string;
+    recipeToStockFactor: number;
+    warehouseId: number | null;
+    categoryId: number | null;
+    openingStock: number;
+    minStock: number;
+    reorderPoint: number;
+    openingUnitCost: number;
+    lastPurchaseCost: number;
+    expiryDate: string | null;
+    trackStock: boolean;
+    isActive: boolean;
+    openingNote: string;
+  };
+};
+
+function parseInventoryCreateItem(raw: unknown): InventoryCreateItemCommand {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HttpError(400, "فرمان تعریف کالای آفلاین معتبر نیست");
+  const command = raw as Record<string, unknown>;
+  const allowed = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(command).some((key) => !allowed.includes(key)) || command.schemaVersion !== 1 || command.module !== "inventory" || command.action !== "create_item" || command.baseDataset !== "inventory") throw new HttpError(400, "نسخه یا نوع فرمان تعریف کالا پشتیبانی نمی‌شود");
+  if (typeof command.id !== "string" || !UUID.test(command.id) || !Number.isSafeInteger(command.businessId) || Number(command.businessId) < 1 || typeof command.baseSnapshotId !== "string" || !UUID.test(command.baseSnapshotId) || !Number.isSafeInteger(command.baseRevision) || Number(command.baseRevision) < 1) throw new HttpError(400, "شناسهٔ فرمان یا snapshot انبار معتبر نیست");
+  if (!command.payload || typeof command.payload !== "object" || Array.isArray(command.payload)) throw new HttpError(400, "اطلاعات کالای آفلاین معتبر نیست");
+  const payload = command.payload as Record<string, unknown>;
+  const keys = ["occurredAt", "name", "sku", "unit", "recipeUnit", "recipeToStockFactor", "warehouseId", "categoryId", "openingStock", "minStock", "reorderPoint", "openingUnitCost", "lastPurchaseCost", "expiryDate", "trackStock", "isActive", "openingNote"];
+  const optionalId = (value: unknown) => value === null || Number.isSafeInteger(value) && Number(value) > 0;
+  const quantity = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1_000_000_000;
+  if (Object.keys(payload).some((key) => !keys.includes(key)) || typeof payload.occurredAt !== "string" || payload.occurredAt.length > 40 || !RFC3339.test(payload.occurredAt) || !Number.isFinite(Date.parse(payload.occurredAt)) || typeof payload.name !== "string" || payload.name.trim().length < 2 || [...payload.name].length > 80 || typeof payload.sku !== "string" || payload.sku.length > 64 || typeof payload.unit !== "string" || !validInventoryUnit(payload.unit) || typeof payload.recipeUnit !== "string" || !validInventoryUnit(payload.recipeUnit) || typeof payload.recipeToStockFactor !== "number" || !Number.isFinite(payload.recipeToStockFactor) || payload.recipeToStockFactor <= 0 || payload.recipeToStockFactor > 1_000_000_000 || !optionalId(payload.warehouseId) || !optionalId(payload.categoryId) || !quantity(payload.openingStock) || !quantity(payload.minStock) || !quantity(payload.reorderPoint) || !moneyValue(payload.openingUnitCost) || payload.openingUnitCost > 1_000_000_000 || !moneyValue(payload.lastPurchaseCost) || payload.lastPurchaseCost > 1_000_000_000 || (payload.expiryDate !== null && (typeof payload.expiryDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(payload.expiryDate) || !Number.isFinite(Date.parse(`${payload.expiryDate}T00:00:00.000Z`)) || new Date(`${payload.expiryDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== payload.expiryDate)) || typeof payload.trackStock !== "boolean" || typeof payload.isActive !== "boolean" || typeof payload.openingNote !== "string" || [...payload.openingNote].length > 300) throw new HttpError(400, "نام، واحد، موجودی یا مشخصات کالای جدید معتبر نیست");
+  const openingAmount = Math.round(Number(payload.openingStock) * Number(payload.openingUnitCost));
+  if (!Number.isSafeInteger(openingAmount) || openingAmount > 1_000_000_000_000) throw new HttpError(400, "ارزش موجودی اول دوره بیش از حد مجاز است");
+  const automaticFactor = recipeToStockFactor(payload.unit, payload.recipeUnit);
+  if (automaticFactor !== null && Math.abs(automaticFactor - payload.recipeToStockFactor) > 1e-9) throw new HttpError(400, "ضریب تبدیل واحد با محاسبهٔ سرور سازگار نیست");
+  const sku = payload.sku.trim().toUpperCase();
+  if (sku && !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(sku)) throw new HttpError(400, "کد کالا فقط می‌تواند شامل حروف لاتین، عدد و . _ / - باشد");
+  return raw as InventoryCreateItemCommand;
+}
+
+export async function syncOfflineInventoryCreateItem(req: Request, raw: unknown) {
+  const command = parseInventoryCreateItem(raw);
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory") || (command.payload.openingStock > 0 && !hasAny(features, "stock_movements"))) throw new HttpError(403, "صندوق آفلاین و انبار باید در اشتراک فعال باشند؛ ثبت موجودی افتتاحیه به مجوز گردش انبار نیاز دارد");
+  if (command.businessId !== business.id) throw new HttpError(403, "کالای جدید متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+  await ensureAccounting(business);
+
+  const outcome = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این دستگاه لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.payloadHash !== payloadHash) return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "", details: Record<string, unknown> = {}) => {
+      const response = { commandId: command.id, state, receipt, ...details, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({ id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy, module: command.module, action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>, state, httpStatus, error, receipt, result: response });
+      return { httpStatus, response };
+    };
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "inventory"), eq(offlineWorkspaceSnapshots.revision, command.baseRevision))).for("update");
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ انبار مبنا منقضی شده یا پیدا نمی‌شود؛ ابتدا snapshot تازه بگیرید");
+    const occurredAt = new Date(command.payload.occurredAt);
+    if (occurredAt.getTime() > Date.now() + 24 * 60 * 60_000 || occurredAt.getTime() < snapshot.issuedAt.getTime() - 7 * 86_400_000) return record("rejected", 422, "تاریخ تعریف کالا بیرون از بازهٔ مجاز نسخهٔ محلی است");
+    const { warehouseId, categoryId } = command.payload;
+    const baseWarehouses = Array.isArray(snapshot.payload.warehouses) ? snapshot.payload.warehouses as Record<string, unknown>[] : [];
+    const baseCategories = Array.isArray(snapshot.payload.categories) ? snapshot.payload.categories as Record<string, unknown>[] : [];
+    if (warehouseId !== null && !baseWarehouses.some((row) => row.id === warehouseId)) return record("conflict", 409, "انبار در snapshot محلی پیدا نشد؛ اطلاعات انبار را تازه کنید");
+    if (categoryId !== null && !baseCategories.some((row) => row.id === categoryId)) return record("conflict", 409, "دسته‌بندی انبار در snapshot محلی پیدا نشد؛ اطلاعات انبار را تازه کنید");
+    await tx.execute(sql`select pg_advisory_xact_lock(${business.id})`);
+    if (warehouseId !== null) {
+      const [warehouse] = await tx.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.id, warehouseId), eq(warehouses.businessId, business.id)));
+      if (!warehouse) return record("conflict", 409, "انبار انتخاب‌شده در سرور متعلق به این کسب‌وکار نیست");
+    }
+    if (categoryId !== null) {
+      const [category] = await tx.select({ id: inventoryCategories.id }).from(inventoryCategories).where(and(eq(inventoryCategories.id, categoryId), eq(inventoryCategories.businessId, business.id)));
+      if (!category) return record("conflict", 409, "دسته‌بندی انتخاب‌شده در سرور متعلق به این کسب‌وکار نیست");
+    }
+    const name = command.payload.name.trim();
+    const [duplicateName] = await tx.select({ id: inventoryItems.id }).from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), sql`lower(${inventoryItems.name}) = ${name.toLocaleLowerCase("fa-IR")}`, warehouseId === null ? sql`${inventoryItems.warehouseId} IS NULL` : eq(inventoryItems.warehouseId, warehouseId))).limit(1);
+    if (duplicateName) return record("conflict", 409, "این قلم در انبار انتخاب‌شده از قبل ثبت شده است");
+    let sku = command.payload.sku.trim().toUpperCase();
+    if (!sku) {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const candidate = `INV-${business.id}-${randomBytes(4).toString("hex").toUpperCase()}`;
+        const [duplicate] = await tx.select({ id: inventoryItems.id }).from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), sql`lower(${inventoryItems.sku}) = ${candidate.toLowerCase()}`)).limit(1);
+        if (!duplicate) { sku = candidate; break; }
+      }
+      if (!sku) return record("rejected", 422, "ساخت کد کالا انجام نشد؛ دوباره تلاش کنید");
+    } else {
+      const [duplicateSku] = await tx.select({ id: inventoryItems.id }).from(inventoryItems).where(and(eq(inventoryItems.businessId, business.id), sql`lower(${inventoryItems.sku}) = ${sku.toLowerCase()}`)).limit(1);
+      if (duplicateSku) return record("conflict", 409, "این کد کالا قبلاً ثبت شده است");
+    }
+    const openingStock = command.payload.openingStock;
+    const openingUnitCost = command.payload.openingUnitCost;
+    const openingAmount = Math.round(openingStock * openingUnitCost);
+    const [item] = await tx.insert(inventoryItems).values({
+      businessId: business.id, warehouseId, categoryId, name, sku, unit: command.payload.unit, recipeUnit: command.payload.recipeUnit,
+      recipeToStockFactor: command.payload.recipeToStockFactor, stock: openingStock, minStock: command.payload.minStock,
+      reorderPoint: command.payload.reorderPoint, trackStock: command.payload.trackStock, isActive: command.payload.isActive,
+      expiryDate: command.payload.expiryDate, costPerUnit: openingStock > 0 ? openingUnitCost : command.payload.lastPurchaseCost,
+      lastPurchaseCost: command.payload.lastPurchaseCost || openingUnitCost,
+    }).returning();
+    let movementId: number | null = null;
+    let documentId: number | null = null;
+    if (openingStock > 0) {
+      const [movement] = await tx.insert(stockMovements).values({
+        businessId: business.id, itemId: item.id, type: "adjust", delta: openingStock, balanceAfter: openingStock,
+        unitCost: openingUnitCost, amount: openingAmount, note: command.payload.openingNote.trim() || "ثبت موجودی اول دوره", createdAt: occurredAt,
+      }).returning({ id: stockMovements.id });
+      movementId = movement.id;
+      if (openingAmount > 0) {
+        const document = await postDocumentInTransaction(tx, business, {
+          date: occurredAt, source: "inventory", sourceRef: `opening-item:${item.id}`, createdBy: String(terminal.createdBy),
+          description: `موجودی اول دوره — ${item.name} (${sku})`,
+          lines: [{ code: C.INV, debit: openingAmount, description: item.name }, { code: C.CAPITAL, credit: openingAmount, description: "موجودی افتتاحیه" }],
+        });
+        documentId = document.id;
+      }
+    }
+    return record("applied", 200, "", String(item.id), { itemId: item.id, movementId, documentId });
+  }, { isolationLevel: "repeatable read" });
+
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "تعریف کالای آفلاین اعمال نشد");
   return outcome.response;
 }

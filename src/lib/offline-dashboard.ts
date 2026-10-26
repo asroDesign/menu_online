@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -29,6 +29,7 @@ type CustomerPayload = {
 type InventoryPayload = {
   items: { id: number; warehouseId: number | null; categoryId: number | null; name: string; sku: string | null; unit: string; recipeUnit: string; recipeToStockFactor: number; stock: number; minStock: number; reorderPoint: number; trackStock: boolean; isActive: boolean; expiryDate: string | null; costPerUnit: number; lastPurchaseCost: number }[];
   warehouses: { id: number; name: string; location: string }[];
+  categories: { id: number; name: string }[];
   suppliers: { id: number; name: string; isActive: boolean; hasPayableAccount: boolean }[];
   movements: { id: number; itemId: number; type: string; delta: number; balanceAfter: number; unitCost: number; invoiceNo: string; amount: number; createdAt: string }[];
   transfers: { id: number; status: string; note: string; createdAt: string; decidedAt: string | null; lines: { id: number; transferId: number; sourceItemId: number; destinationItemId: number; quantity: number; unitCost: number; source: { id: number; name: string; unit: string; warehouseId: number | null } | null; destination: { id: number; name: string; unit: string; warehouseId: number | null } | null }[] }[];
@@ -277,6 +278,9 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       if (itemRows.length > 10_000) throw new HttpError(413, "فهرست کالاهای انبار برای دریافت یک‌جای آفلاین بیش از سقف ۱۰٬۰۰۰ قلم است؛ همگام‌سازی صفحه‌بندی‌شده لازم است");
       const warehouseRows = await tx.select({ id: warehouses.id, name: warehouses.name, location: warehouses.location })
         .from(warehouses).where(eq(warehouses.businessId, business.id)).orderBy(asc(warehouses.name), asc(warehouses.id));
+      const categoryRows = await tx.select({ id: inventoryCategories.id, name: inventoryCategories.name })
+        .from(inventoryCategories).where(eq(inventoryCategories.businessId, business.id)).orderBy(asc(inventoryCategories.name), asc(inventoryCategories.id)).limit(1001);
+      if (categoryRows.length > 1000) throw new HttpError(413, "فهرست دسته‌بندی‌های انبار برای snapshot بیش از سقف ۱٬۰۰۰ دسته است");
       const supplierRows = await tx.select({ id: suppliers.id, name: suppliers.name, isActive: suppliers.isActive, hasPayableAccount: sql<boolean>`${suppliers.accountId} is not null` })
         .from(suppliers).where(eq(suppliers.businessId, business.id)).orderBy(asc(suppliers.name), asc(suppliers.id)).limit(1001);
       if (supplierRows.length > 1000) throw new HttpError(413, "فهرست فروشندگان برای snapshot انبار بیش از سقف ۱٬۰۰۰ نفر است");
@@ -295,6 +299,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       payload = {
         items: itemRows,
         warehouses: warehouseRows,
+        categories: categoryRows,
         suppliers: supplierRows,
         movements: movementRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
         transfers: transferRows.map((transfer) => ({

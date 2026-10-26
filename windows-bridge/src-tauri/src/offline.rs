@@ -1365,6 +1365,10 @@ pub fn offline_workspace_receive_inventory(
     )
 }
 #[tauri::command]
+pub fn offline_workspace_create_inventory_item(payload: Value, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_create_item_with_pin(&manager_pin, &payload)
+}
+#[tauri::command]
 pub fn offline_workspace_create_accounting_document(
     date: String,
     description: String,

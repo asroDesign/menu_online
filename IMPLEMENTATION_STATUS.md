@@ -1,3 +1,7 @@
+## تعریف کالای تازه در انبار آفلاین — ۲۰۲۶-۱۰-۲۶
+
+تب انبار Windows حالا تعریف کالا را با دسته/انبار cacheشده، واحد خرید/مصرف، ضریب تبدیل، انقضای شمسی، تنظیم کمبود و موجودی اول دوره در صف رمز‌شده ثبت می‌کند. تا تأیید سرور، کالا برای فاکتور و recipe قابل انتخاب نیست. سرور تعلق دسته/انبار، یکتایی نام و SKU و snapshot را بازبینی می‌کند و کالا، گردش افتتاحیه، سند حسابداری افتتاحیه و command ledger را در یک transaction می‌نویسد؛ SKU خالی خودکار ساخته می‌شود. تاریخچهٔ سفارش cacheشده نیز هنگام قطعی اینترنت در تب صندوق با جزئیات قابل مشاهده است؛ برای تمام سفارش‌ها باید backfill آنلاین کامل شود. migration `0069_offline_inventory_item_creation.sql` افزوده شد اما اجرا نشده است. اعتبارسنجی TypeScript، ESLint هدفمند، JavaScript syntax و diff check؛ دیتابیس/integration اجرا نشدند و `cargo`/`rustc` موجود نیست. [جزئیات](docs/updates/2026-10-26-offline-inventory-item-creation.md)، [نقشهٔ پنل آفلاین](docs/agents/modules/offline-full-dashboard.md)، [راهنمای انبار](docs/agents/modules/inventory.md).
+
 ## گزارش فروش در حالت آفلاین — ۲۰۲۶-۱۰-۲۶
 
 تب گزارش Windows اکنون snapshot ۹۰روزهٔ فروش را فقط برای terminal دارای `cashier_pos` و `sales_reports` نمایش می‌دهد: درآمد، سفارش، میانگین، COGS ثبت‌شده، سود ناخالص، روند روزانه، ۵۰ محصول اول و وضعیت سفارش‌ها. دادهٔ cacheشده خواندنی است؛ فروش‌های محلی تا sync و refresh در جمع رسمی نیستند. migration `0066_offline_sales_reports.sql` افزوده شده اما اجرا نشده است. [شرح کامل](docs/updates/2026-10-26-offline-sales-reports.md).
