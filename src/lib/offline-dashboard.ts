@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, transactions, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, bankAccounts, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, devices, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, transactions, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -99,6 +99,11 @@ type CashShiftRow = {
   closedByName: string; note: string; cashSales: number; nonCashSales: number; byMethod: { method: string; amount: number }[];
 };
 type CashShiftsPayload = { active: CashShiftRow | null; history: CashShiftRow[]; historyHasMore: boolean };
+type BankPayload = {
+  days: 30; total: number;
+  accounts: { id: number | null; name: string; bank: string; accountNumber: string; opening: number; income: number; expense: number; balance: number }[];
+  recent: { id: number; kind: string; category: string; amount: number; description: string; date: string; accountId: number | null; accountName: string }[];
+};
 type OfflineProfitLossPayload = {
   revenue: number; discounts: number; tax: number; cogs: number; grossProfit: number; expenses: number;
   otherIncome: number; net: number; cogsCoverage: number;
@@ -265,7 +270,7 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports" && dataset !== "cheques" && dataset !== "payroll") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports" && dataset !== "cheques" && dataset !== "payroll" && dataset !== "bank") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
@@ -279,6 +284,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "reports" && (!hasAny(features, "cashier_pos") || (!hasAny(features, "sales_reports") && !hasAny(features, "profit_loss")))) throw new HttpError(403, "گزارش آفلاین به مجوز صندوق و دست‌کم یکی از گزارش فروش یا سود و زیان نیاز دارد");
   if (dataset === "cheques" && (!hasAny(features, "cashier_pos") || !hasAny(features, "cheque_register") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت دفتر چک آفلاین به مجوز صندوق، دفتر چک و حسابداری نیاز دارد");
   if (dataset === "payroll" && (!hasAny(features, "cashier_pos") || !hasAny(features, "payroll"))) throw new HttpError(403, "دریافت اطلاعات حقوق به مجوز صندوق آفلاین و حقوق و دستمزد نیاز دارد");
+  if (dataset === "bank" && (!hasAny(features, "cashier_pos") || !hasAny(features, "bank_report"))) throw new HttpError(403, "دریافت گزارش بانک آفلاین به مجوز صندوق و گزارش بانک نیاز دارد");
   if (dataset === "accounting") await Accounting.ensureAccounting(business);
   if (dataset === "cheques") await Accounting.ensureChequeAccountingAccounts(business);
 
@@ -290,7 +296,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | SalesReportsPayload | ChequesPayload | PayrollPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | BankPayload | SalesReportsPayload | ChequesPayload | PayrollPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -439,6 +445,39 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         documents: documentRows.map((doc) => ({ ...doc, date: doc.date.toISOString(), lines: linesByDocument.get(doc.id) ?? [] })),
         totalDocuments: documentRows.length,
       };
+    } else if (dataset === "bank") {
+      const from = new Date(Date.now() - 30 * 86_400_000);
+      const [accountRows, aggregateRows, recentRows] = await Promise.all([
+        tx.select({ id: bankAccounts.id, name: bankAccounts.name, bank: bankAccounts.bank, accountNumber: bankAccounts.accountNumber, openingBalance: bankAccounts.openingBalance })
+          .from(bankAccounts).where(eq(bankAccounts.businessId, business.id)).orderBy(asc(bankAccounts.id)).limit(1_001),
+        tx.select({ id: transactions.bankAccountId, kind: transactions.kind, total: sql<number>`coalesce(sum(${transactions.amount}), 0)::float8`, rangeTotal: sql<number>`coalesce(sum(case when ${transactions.date} >= ${from} then ${transactions.amount} else 0 end), 0)::float8` })
+          .from(transactions).where(eq(transactions.businessId, business.id)).groupBy(transactions.bankAccountId, transactions.kind),
+        tx.select({ id: transactions.id, kind: transactions.kind, category: sql<string>`left(${transactions.category}, 120)`, amount: transactions.amount, description: sql<string>`left(${transactions.description}, 240)`, date: transactions.date, bankAccountId: transactions.bankAccountId, posDeviceId: transactions.posDeviceId })
+          .from(transactions).where(eq(transactions.businessId, business.id)).orderBy(desc(transactions.date), desc(transactions.id)).limit(26),
+      ]);
+      if (accountRows.length > 1_000) throw new HttpError(413, "تعداد حساب‌های بانکی برای snapshot آفلاین از سقف امن بیشتر است");
+      const recentDeviceIds = [...new Set(recentRows.flatMap((row) => row.posDeviceId ? [row.posDeviceId] : []))];
+      const posRows = recentDeviceIds.length ? await tx.select({ id: devices.id, name: devices.name, terminalNumber: devices.terminalNumber }).from(devices)
+        .where(and(eq(devices.businessId, business.id), eq(devices.kind, "pos"), inArray(devices.id, recentDeviceIds))) : [];
+      const accountById = new Map(accountRows.map((row) => [row.id, row]));
+      const deviceById = new Map(posRows.map((row) => [row.id, row]));
+      const aggregateByKey = new Map(aggregateRows.map((row) => [`${row.id ?? "cash"}:${row.kind}`, { total: Number(row.total), range: Number(row.rangeTotal) }]));
+      const summarizeAccount = (id: number | null, name: string, bank: string, accountNumber: string, opening: number) => {
+        const flow = (kind: "income" | "expense", range: boolean) => aggregateByKey.get(`${id ?? "cash"}:${kind}`)?.[range ? "range" : "total"] ?? 0;
+        const numberSuffix = accountNumber.replace(/\s+/g, "").slice(-4);
+        return { id, name: name.slice(0, 120), bank: bank.slice(0, 80), accountNumber: numberSuffix ? `•••• ${numberSuffix}` : "", opening, income: flow("income", true), expense: flow("expense", true), balance: opening + flow("income", false) - flow("expense", false) };
+      };
+      const accountSummaries = [summarizeAccount(null, "صندوق (نقدی)", "—", "", 0), ...accountRows.map((row) => summarizeAccount(row.id, row.name, row.bank, row.accountNumber, row.openingBalance))];
+      const recent = recentRows.slice(0, 25).map((row) => {
+        const pos = row.posDeviceId ? deviceById.get(row.posDeviceId) : null;
+        const account = row.bankAccountId ? accountById.get(row.bankAccountId) : null;
+        const linkedBank = account ? accountSummaries.find((summary) => summary.id === account.id)?.name : "";
+        const accountName = pos
+          ? `کارتخوان — ${pos.name}${pos.terminalNumber ? ` (شماره ${pos.terminalNumber})` : ""}${linkedBank ? ` · ${linkedBank}` : ""}`
+          : account?.name ?? "صندوق (نقدی)";
+        return { id: row.id, kind: row.kind, category: row.category, amount: row.amount, description: row.description, date: row.date.toISOString(), accountId: row.bankAccountId, accountName: accountName.slice(0, 180) };
+      });
+      payload = { days: 30, total: accountSummaries.reduce((sum, row) => sum + row.balance, 0), accounts: accountSummaries, recent };
     } else if (dataset === "cash_shifts") {
       const [active] = await tx.select().from(cashShifts).where(and(eq(cashShifts.businessId, business.id), isNull(cashShifts.closedAt))).orderBy(desc(cashShifts.openedAt)).limit(1);
       const closedRows = await tx.select().from(cashShifts).where(and(eq(cashShifts.businessId, business.id), isNotNull(cashShifts.closedAt))).orderBy(desc(cashShifts.closedAt), desc(cashShifts.id)).limit(101);

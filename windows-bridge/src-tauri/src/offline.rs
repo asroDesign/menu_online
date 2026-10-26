@@ -709,6 +709,7 @@ impl OfflineState {
                         refresh_receivables_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_cash_shifts_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_reports_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
+                        refresh_bank_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_payroll_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                     }
                 }
@@ -983,6 +984,43 @@ fn refresh_reports_snapshot(
     }
 }
 
+fn refresh_bank_snapshot(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    match decode(client.get(format!("{server}/api/offline-dashboard/snapshots/bank")).bearer_auth(token).send()) {
+        Ok((200, snapshot))
+            if snapshot["schemaVersion"] == 1
+                && snapshot["dataset"].as_str() == Some("bank")
+                && snapshot["businessId"].as_i64() == Some(business_id)
+                && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                && snapshot["payload"]["accounts"].as_array().is_some_and(|rows| rows.len() <= 1_001)
+                && snapshot["payload"]["recent"].as_array().is_some_and(|rows| rows.len() <= 25) =>
+        {
+            if let Ok(mut store) = state.store.lock() {
+                match store.save_workspace_snapshot(&snapshot) {
+                    Ok(()) => { let _ = store.set("workspace_sync_bank", &json!({"ok":true,"dataset":"bank","revision":snapshot["revision"],"checkedAt":chrono::Utc::now().to_rfc3339()})); }
+                    Err(error) => { let _ = store.set("workspace_sync_bank", &json!({"ok":false,"dataset":"bank","message":error})); }
+                }
+            }
+        }
+        Ok((status, data)) => {
+            if let Ok(mut store) = state.store.lock() {
+                if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("bank"); }
+                let _ = store.set("workspace_sync_bank", &json!({"ok":false,"dataset":"bank","message":data["error"].as_str().unwrap_or("دریافت گزارش بانک ناموفق بود")}));
+            }
+        }
+        Err(_) => {
+            if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_bank", &json!({"ok":false,"dataset":"bank","message":"ارتباط گزارش بانک در دسترس نیست"})); }
+        }
+    }
+}
+
 fn refresh_payroll_snapshot(
     state: &OfflineState,
     client: &reqwest::blocking::Client,
@@ -1117,6 +1155,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceReceivablesSync": s.get("workspace_sync_receivables")?,
         "workspaceCashShiftsSync": s.get("workspace_sync_cash_shifts")?,
         "workspaceReportsSync": s.get("workspace_sync_reports")?,
+        "workspaceBankSync": s.get("workspace_sync_bank")?,
         "workspacePayrollSync": s.get("workspace_sync_payroll")?,
         "workspaceChequesSync": s.get("workspace_sync_cheques")?,
         "workspaceCommands": s.workspace_command_summary()?,
@@ -1282,6 +1321,11 @@ pub fn offline_workspace_cash_shifts(state: State<'_, OfflineState>) -> Result<O
 pub fn offline_workspace_reports(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("reports")
+}
+#[tauri::command]
+pub fn offline_workspace_bank(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("bank")
 }
 
 #[tauri::command]
