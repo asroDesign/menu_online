@@ -8,6 +8,7 @@ import { offlineAuth } from "@/lib/offline-pos";
 import * as Accounting from "@/lib/accounting";
 import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
 import { syncOfflineChequeCommand } from "@/lib/offline-cheques";
+import { syncOfflineTableStatusCommand } from "@/lib/offline-tables";
 import { outstandingAmount, receivableState } from "@/lib/receivables-core";
 import { cashShiftTotals, cashShiftTotalsByShift } from "@/lib/cash-shifts";
 import { startOfDayTehran } from "@/lib/jalali";
@@ -1082,6 +1083,7 @@ function parseMenuCommand(raw: unknown): MenuCommand {
 }
 
 export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
+  if (isRecord(raw) && raw.module === "tables") return syncOfflineTableStatusCommand(req, raw);
   if (isRecord(raw) && raw.module === "cash_shifts") return syncOfflineCashShiftCommand(req, parseCashShiftCommand(raw));
   if (isRecord(raw) && raw.module === "cheques") return syncOfflineChequeCommand(req, raw);
   if (isRecord(raw) && raw.module === "orders") return syncOfflineOrderStatusCommand(req, raw);

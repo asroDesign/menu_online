@@ -828,6 +828,7 @@ impl Store {
             "settings" => ["update"].contains(&action),
             "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
             "cheques" => ["register", "set_status"].contains(&action),
+            "tables" => ["set_status"].contains(&action),
             _ => false,
         };
         if !allowed {
@@ -848,6 +849,7 @@ impl Store {
             ("settings", _) => "settings",
             ("loyalty", _) => "loyalty",
             ("cheques", _) => "cheques",
+            ("tables", _) => "menu",
             _ => return Err("برای این ماژول snapshot پایه تعریف نشده است".into()),
         };
         if command["baseDataset"].as_str() != Some(base_dataset) {
@@ -1216,6 +1218,51 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":command_id,"state":"pending","action":"set_recipe","productId":product_id}))
+    }
+
+    pub fn enqueue_table_status_with_pin(&mut self, pin: &str, table_id: i64, status: &str, reason: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if table_id < 1 || !["available", "cleaning", "out_of_service"].contains(&status) {
+            return Err("شناسه یا وضعیت میز معتبر نیست".into());
+        }
+        let reason = reason.trim();
+        if reason.chars().count() > 240 { return Err("علت تغییر وضعیت حداکثر ۲۴۰ نویسه است".into()); }
+        if status == "out_of_service" && reason.is_empty() { return Err("برای خارج‌کردن میز از سرویس، علت را بنویسید".into()); }
+        let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی میزها دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ میزها منقضی است؛ پیش از تغییر وضعیت، آن را تازه کنید".into()); }
+        let table = snapshot["payload"]["tables"].as_array()
+            .and_then(|tables| tables.iter().find(|table| table["id"].as_i64() == Some(table_id)))
+            .ok_or("میز در نسخهٔ محلی پیدا نشد")?;
+        let current = table["operationalStatus"].as_str().ok_or("وضعیت میز در نسخهٔ محلی معتبر نیست")?;
+        let can_transition = matches!((current, status),
+            ("available", "cleaning" | "out_of_service")
+            | ("cleaning", "available" | "out_of_service")
+            | ("out_of_service", "available")
+        );
+        if !can_transition { return Err("این تغییر وضعیت از مرحلهٔ فعلی میز مجاز نیست".into()); }
+        let pending = self.workspace_table_status_commands()?;
+        if pending.as_array().is_some_and(|rows| rows.iter().any(|row| row["state"] == "pending" && row["payload"]["tableId"].as_i64() == Some(table_id))) {
+            return Err("برای این میز تغییر وضعیت دیگری در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"tables",
+            "action":"set_status","baseDataset":"menu","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"tableId":table_id,"expectedStatus":current,"status":status,"reason":reason}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"set_status","tableId":table_id}))
+    }
+
+    pub fn workspace_table_status_commands(&self) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='tables' AND action='set_status' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?, row.get::<_, Option<String>>(5)?))).map_err(err)?;
+        rows.map(|row| {
+            let (id, state, error, payload, created_at, base_snapshot_id) = row.map_err(err)?;
+            let command = value(payload)?;
+            Ok(json!({"commandId":id,"state":state,"error":error,"payload":command["payload"],"createdAt":created_at,"baseSnapshotId":base_snapshot_id}))
+        }).collect::<Result<Vec<_>>>().map(Value::Array)
     }
 
     pub fn enqueue_customer_create_with_pin(&mut self, pin: &str, name: &str, phone: &str) -> Result<Value> {
@@ -2420,7 +2467,7 @@ impl Store {
     }
 
     fn claim_workspace_commands_filtered(&mut self, module: &str, action: Option<&str>) -> Result<Vec<Value>> {
-        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "cash_shifts"].contains(&module) {
+        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "cash_shifts", "tables"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;

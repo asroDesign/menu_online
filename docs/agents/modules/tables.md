@@ -52,3 +52,12 @@ GET/CRUD /api/tables؛ `POST /api/tables/:id/status` برای transition عمل�
 ## مرجع بازسازی
 
 برای جزئیات دقیق فیلدها، ترتیب کنترل‌ها، پیام‌های فارسی و قرارداد typeها، فایل منبع بالا را همراه API route متناظر در `src/app/api` بخوان. این راهنما رفتار را مشخص می‌کند و جایگزین بررسی source-of-truth نیست.
+
+## Windows آفلاین — وضعیت عملیاتی — ۲۰۲۶-۱۰-۲۷
+
+- تب «وضعیت میزها» در برنامهٔ Windows فهرست میزها، زون، ظرفیت و وضعیت عملیاتی را از snapshot رمز‌شدهٔ `menu` می‌خواند؛ این داده بدون اینترنت قابل مشاهده است.
+- با PIN مدیر محلی می‌توان transitionهای موجود را درخواست کرد: آمادهٔ سرویس به نظافت/خارج از سرویس، نظافت به آمادهٔ سرویس/خارج از سرویس، و خارج از سرویس به آمادهٔ سرویس. علت خارج از سرویس اجباری است. وضعیت pending فقط روی دستگاه نمایش داده می‌شود و «تأیید سرور» تلقی نمی‌شود.
+- فرمان `tables/set_status` به snapshot همان میز مقید است و در migration `0078_offline_table_status.sql` به allowlist سرور اضافه شده؛ rollback وقتی history فرمان میز وجود دارد متوقف می‌شود.
+- سرور tenant، terminal، entitlement `cashier_pos`، snapshot/نسخه، وضعیت فعلی، transition، سفارش پرداخت‌نشدهٔ باز و رزرو درخواست‌شده/تأییدشدهٔ فعال یا آینده را داخل transaction بازبینی می‌کند. update میز و `table_status_events` اتمی هستند. actor ثبت‌شده صادرکنندهٔ terminal است؛ PIN محلی شناسهٔ کارمند/مدیر جداگانه به سرور نمی‌دهد.
+- بعد از sync موفق یا conflict، snapshot منو تازه می‌شود؛ conflict وضعیت را overwrite نمی‌کند. تا refresh، دادهٔ UI همان baseline دستگاه است و occupancy/reservation زنده را نشان نمی‌دهد.
+- این vertical slice شامل ساخت/ویرایش میز و zone، تنظیم QR، سفارش‌گیری از میز یا پیش‌بینی occupancy آفلاین نیست. تست PostgreSQL یا اعمال migration انجام نشده است؛ راستی‌آزمایی این نوبت به typecheck و syntax/static checks محدود است.
