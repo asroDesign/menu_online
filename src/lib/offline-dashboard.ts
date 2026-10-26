@@ -12,6 +12,7 @@ import { outstandingAmount, receivableState } from "@/lib/receivables-core";
 import { cashShiftTotalsByShift } from "@/lib/cash-shifts";
 import { startOfDayTehran } from "@/lib/jalali";
 import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
+import { normalizeProductOptionGroups } from "@/lib/product-options";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -630,15 +631,21 @@ function parseMenuCommand(raw: unknown): MenuCommand {
     const key = action === "create_product" ? "product" : "category";
     if (Object.keys(payload).length !== 1 || !isRecord(payload[key])) throw new HttpError(400, "اطلاعات قلم جدید منو معتبر نیست");
     const item = payload[key] as Record<string, unknown>;
-    const allowed = action === "create_product" ? ["name", "description", "price", "categoryId"] : ["name", "description", "isActive", "sortOrder"];
+    const allowed = action === "create_product" ? ["name", "description", "price", "categoryId", "modifierGroups"] : ["name", "description", "isActive", "sortOrder"];
     if (Object.keys(item).some((field) => !allowed.includes(field))) throw new HttpError(400, "قلم جدید منو فیلد ناشناخته دارد");
     const nameLimit = action === "create_product" ? 100 : 60;
     const descriptionLimit = action === "create_product" ? 400 : 500;
     if (typeof item.name !== "string" || !item.name.trim() || item.name.trim().length > nameLimit) throw new HttpError(400, "نام قلم منو معتبر نیست");
     if (typeof item.description !== "string" || item.description.length > descriptionLimit) throw new HttpError(400, "توضیح قلم منو معتبر نیست");
     if (action === "create_product") {
+      const required = ["name", "description", "price", "categoryId"];
+      if (required.some((field) => !(field in item))) throw new HttpError(400, "اطلاعات پایهٔ محصول کامل نیست");
       if (!Number.isSafeInteger(item.price) || Number(item.price) < 1 || Number(item.price) > 100_000_000) throw new HttpError(400, "قیمت محصول باید بیشتر از صفر و حداکثر ۱۰۰ میلیون تومان باشد");
       if (item.categoryId !== null && (!Number.isSafeInteger(item.categoryId) || Number(item.categoryId) < 1)) throw new HttpError(400, "دسته‌بندی محصول معتبر نیست");
+      if ("modifierGroups" in item) {
+        try { item.modifierGroups = normalizeProductOptionGroups(item.modifierGroups); }
+        catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "گروه‌های گزینه محصول معتبر نیستند"); }
+      }
     } else {
       if (typeof item.isActive !== "boolean" || !Number.isSafeInteger(item.sortOrder) || Number(item.sortOrder) < 0 || Number(item.sortOrder) > 10_000) throw new HttpError(400, "وضعیت یا ترتیب دسته‌بندی معتبر نیست");
     }
@@ -649,13 +656,17 @@ function parseMenuCommand(raw: unknown): MenuCommand {
   const payloadKeys = action === "update_product" ? ["productId", "patch"] : ["categoryId", "patch"];
   if (Object.keys(payload).some((key) => !payloadKeys.includes(key))) throw new HttpError(400, "محتوای فرمان منو فیلد ناشناخته دارد");
   if (!Number.isSafeInteger(expectedId) || Number(expectedId) < 1 || !isRecord(patch)) throw new HttpError(400, "شناسه یا تغییرات منو معتبر نیست");
-  const allowed = action === "update_product" ? ["name", "description", "price", "isAvailable"] : ["name", "description", "isActive", "sortOrder"];
+  const allowed = action === "update_product" ? ["name", "description", "price", "isAvailable", "modifierGroups"] : ["name", "description", "isActive", "sortOrder"];
   const keys = Object.keys(patch);
   if (!keys.length || keys.some((key) => !allowed.includes(key))) throw new HttpError(400, "فرمان فقط می‌تواند فیلدهای مجاز منو را تغییر دهد");
   if ("name" in patch && (typeof patch.name !== "string" || !patch.name.trim() || patch.name.trim().length > (action === "update_product" ? 100 : 60))) throw new HttpError(400, "نام منو معتبر نیست");
   if ("description" in patch && (typeof patch.description !== "string" || patch.description.length > (action === "update_product" ? 400 : 500))) throw new HttpError(400, "توضیح منو معتبر نیست");
   if ("price" in patch && (!Number.isSafeInteger(patch.price) || Number(patch.price) < 0 || Number(patch.price) > 100_000_000)) throw new HttpError(400, "قیمت محصول معتبر نیست");
   if ("isAvailable" in patch && typeof patch.isAvailable !== "boolean") throw new HttpError(400, "وضعیت موجودی محصول معتبر نیست");
+  if ("modifierGroups" in patch) {
+    try { patch.modifierGroups = normalizeProductOptionGroups(patch.modifierGroups); }
+    catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "گروه‌های گزینه محصول معتبر نیستند"); }
+  }
   if ("isActive" in patch && typeof patch.isActive !== "boolean") throw new HttpError(400, "وضعیت دسته‌بندی معتبر نیست");
   if ("sortOrder" in patch && (!Number.isSafeInteger(patch.sortOrder) || Number(patch.sortOrder) < 0 || Number(patch.sortOrder) > 10_000)) throw new HttpError(400, "ترتیب دسته‌بندی معتبر نیست");
   return raw as unknown as MenuCommand;
@@ -705,7 +716,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
 
     if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "snapshot منوی مبنا پیدا نشد یا اعتبارش پایان یافته است");
     if (command.action === "create_product") {
-      const item = command.payload.product as { name: string; description: string; price: number; categoryId: number | null };
+      const item = command.payload.product as { name: string; description: string; price: number; categoryId: number | null; modifierGroups?: ReturnType<typeof normalizeProductOptionGroups> };
       if (item.categoryId !== null) {
         const baseCategories = (snapshot.payload.categories as Record<string, unknown>[] | undefined) ?? [];
         const baseCategory = baseCategories.find((row) => row.id === item.categoryId && row.isActive === true);
@@ -716,7 +727,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
       }
       const [created] = await tx.insert(products).values({
         businessId: business.id, categoryId: item.categoryId, name: item.name.trim(), description: item.description.trim(),
-        price: item.price, isAvailable: true, sellingMode: "count", yieldRatio: 1,
+        price: item.price, isAvailable: true, sellingMode: "count", yieldRatio: 1, modifierGroups: item.modifierGroups ?? [],
       }).returning({ id: products.id });
       if (!created) throw new HttpError(500, "ساخت محصول منو انجام نشد");
       return record("applied", 200, "", String(created.id));
@@ -733,7 +744,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
     const patch = command.payload.patch as Record<string, unknown>;
 
     if (command.action === "update_product") {
-      const [current] = await tx.select({ id: products.id, name: products.name, description: products.description, price: products.price, isAvailable: products.isAvailable })
+      const [current] = await tx.select({ id: products.id, name: products.name, description: products.description, price: products.price, isAvailable: products.isAvailable, modifierGroups: products.modifierGroups })
         .from(products).where(and(eq(products.id, targetId), eq(products.businessId, business.id))).for("update");
       const baseRows = (snapshot.payload.products as Record<string, unknown>[] | undefined) ?? [];
       const base = baseRows.find((row) => row.id === targetId);

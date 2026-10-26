@@ -137,7 +137,7 @@
     const q=$('workspace-menu-search').value.trim().toLocaleLowerCase('fa-IR'),category=$('workspace-menu-category').value,editable=canEditLocalMenu();
     $('workspace-menu-product-create').disabled=!editable;$('workspace-menu-category-create').disabled=!editable;
     const products=payload.products.filter(p=>(!q||`${p.name} ${p.description}`.toLocaleLowerCase('fa-IR').includes(q))&&(!category||String(p.categoryId??'')===category));
-    $('workspace-menu-products').innerHTML=products.length?products.map(p=>{const categoryName=payload.categories.find(c=>c.id===p.categoryId)?.name||'بدون دسته';const pending=p.localChange;return `<article class="workspace-product"><div><span class="workspace-product-category">${esc(categoryName)}</span><h2>${esc(p.name)}</h2><p>${esc(p.description||'توضیحی ثبت نشده است')}</p></div><div class="workspace-product-meta"><b>${money(p.price)} تومان${p.sellingMode==='weight'?' / کیلو':''}</b><span class="${p.isAvailable?'workspace-available':'workspace-unavailable'}">${p.isAvailable?'موجود برای سفارش':'فعلاً ناموجود'}</span></div><div class="workspace-product-actions">${pending?'<span class="workspace-pending-label">تغییر محلی در صف ارسال است</span>':'<span></span>'}<button class="button secondary" data-edit-menu="product" data-id="${p.id}" ${!editable||pending?'disabled':''}>ویرایش</button></div></article>`}).join(''):'<p class="muted">محصولی در این دسته یا جست‌وجو پیدا نشد.</p>';
+    $('workspace-menu-products').innerHTML=products.length?products.map(p=>{const categoryName=payload.categories.find(c=>c.id===p.categoryId)?.name||'بدون دسته';const pending=p.localChange,groupCount=Array.isArray(p.modifierGroups)?p.modifierGroups.filter(group=>group.active!==false).length:0;return `<article class="workspace-product"><div><span class="workspace-product-category">${esc(categoryName)}</span><h2>${esc(p.name)}</h2><p>${esc(p.description||'توضیحی ثبت نشده است')}</p>${groupCount?`<small class="workspace-product-category">${money(groupCount)} گروه انتخاب و افزودنی</small>`:''}</div><div class="workspace-product-meta"><b>${money(p.price)} تومان${p.sellingMode==='weight'?' / کیلو':''}</b><span class="${p.isAvailable?'workspace-available':'workspace-unavailable'}">${p.isAvailable?'موجود برای سفارش':'فعلاً ناموجود'}</span></div><div class="workspace-product-actions">${pending?'<span class="workspace-pending-label">تغییر محلی در صف ارسال است</span>':'<span></span>'}<button class="button secondary" data-edit-menu="product" data-id="${p.id}" ${!editable||pending?'disabled':''}>ویرایش</button></div></article>`}).join(''):'<p class="muted">محصولی در این دسته یا جست‌وجو پیدا نشد.</p>';
     $('workspace-menu-categories').innerHTML=payload.categories.length?payload.categories.map(c=>{const pending=c.localChange;return `<article class="workspace-category-row"><div><h3>${esc(c.name)}</h3><p>${esc(c.description||'توضیحی ثبت نشده است')} · ${c.isActive?'فعال':'غیرفعال'} · ترتیب ${money(c.sortOrder)}</p>${pending?'<small class="workspace-pending-label">تغییر محلی در صف ارسال است</small>':''}</div><button class="button secondary" data-edit-menu="category" data-id="${c.id}" ${!editable||pending?'disabled':''}>ویرایش</button></article>`}).join(''):'<p class="muted">دسته‌بندی‌ای در snapshot منو موجود نیست.</p>';
   }
   function renderWorkspaceCommands(){
@@ -735,6 +735,48 @@
       $('inventory-receipt-dialog').close();$('inventory-receipt-pin').value='';notify('فاکتور در صف رمز‌شدهٔ دستگاه ثبت شد؛ موجودی و سند حسابداری پس از تأیید سرور قطعی می‌شوند.');await refresh();
     }catch(error){$('inventory-receipt-error').textContent=String(error);}finally{submit.disabled=false;}
   };
+  function newMenuChildId(prefix){return `${prefix}-${crypto.randomUUID()}`;}
+  function signedInteger(value){const normalized=String(value??'').replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[\u200e\u200f]/g,'').replace(/−/g,'-').replace(/[٬,\s]/g,'');return /^-?\d+$/.test(normalized)?Number(normalized):NaN;}
+  function readModifierGroups(){
+    return [...$('workspace-edit-modifier-groups').querySelectorAll('[data-modifier-group]')].map(group=>({
+      id:group.dataset.groupId,
+      name:group.querySelector('[data-modifier-name]').value.trim(),
+      required:group.querySelector('[data-modifier-required]').checked,
+      min:Number(group.querySelector('[data-modifier-min]').value),
+      max:Number(group.querySelector('[data-modifier-max]').value),
+      active:group.querySelector('[data-modifier-active]').checked,
+      options:[...group.querySelectorAll('[data-modifier-option]')].map(option=>({
+        id:option.dataset.optionId,
+        name:option.querySelector('[data-modifier-option-name]').value.trim(),
+        priceDelta:signedInteger(option.querySelector('[data-modifier-option-price]').value),
+        active:option.querySelector('[data-modifier-option-active]').checked,
+      })),
+    }));
+  }
+  function validateModifierGroups(groups){
+    if(!Array.isArray(groups)||groups.length>12)throw new Error('هر محصول حداکثر ۱۲ گروه انتخاب دارد.');
+    const ids=new Set(),optionIds=new Set();
+    for(const group of groups){
+      if(!group.id||ids.has(group.id)||group.id.length>48||!/^[a-zA-Z0-9_-]+$/.test(group.id))throw new Error('شناسهٔ یکی از گروه‌های انتخاب معتبر نیست.');ids.add(group.id);
+      if(!group.name||group.name.length>60)throw new Error('نام گروه انتخاب باید بین ۱ تا ۶۰ نویسه باشد.');
+      if(!Number.isInteger(group.min)||!Number.isInteger(group.max)||group.min<0||group.max<1||group.max>10||group.min>group.max||(group.required&&group.min<1)||(!group.required&&group.min>0))throw new Error(`حداقل یا حداکثر انتخاب گروه «${group.name}» معتبر نیست.`);
+      if(!Array.isArray(group.options)||group.options.length<1||group.options.length>20||group.max>group.options.length)throw new Error(`گروه «${group.name}» باید ۱ تا ۲۰ گزینه داشته باشد و سقف انتخاب از تعداد گزینه‌ها بیشتر نباشد.`);
+      let activeCount=0;
+      for(const option of group.options){
+        if(!option.id||optionIds.has(option.id)||option.id.length>48||!/^[a-zA-Z0-9_-]+$/.test(option.id))throw new Error('شناسهٔ یکی از گزینه‌های محصول معتبر نیست.');optionIds.add(option.id);
+        if(!option.name||option.name.length>60)throw new Error(`نام گزینه‌های گروه «${group.name}» باید بین ۱ تا ۶۰ نویسه باشد.`);
+        if(!Number.isSafeInteger(option.priceDelta)||Math.abs(option.priceDelta)>100_000_000)throw new Error(`تغییر قیمت گزینهٔ «${option.name}» معتبر نیست.`);
+        if(option.active)activeCount++;
+      }
+      if(group.min>activeCount)throw new Error(`حداقل انتخاب گروه «${group.name}» از گزینه‌های فعال بیشتر است.`);
+    }
+    return groups;
+  }
+  function renderModifierGroups(groups=[]){
+    const root=$('workspace-edit-modifier-groups');
+    root.innerHTML=groups.length?groups.map((group,index)=>`<article class="modifier-group-card" data-modifier-group data-group-id="${esc(group.id)}"><div class="modifier-group-head"><label>نام گروه<input data-modifier-name maxlength="60" value="${esc(group.name||'')}"></label><label>حداقل انتخاب<input data-modifier-min type="number" min="0" max="10" value="${esc(group.min??0)}"></label><label>حداکثر انتخاب<input data-modifier-max type="number" min="1" max="10" value="${esc(group.max??1)}"></label><label class="workspace-check"><input data-modifier-required type="checkbox" ${group.required?'checked':''}><span>اجباری</span></label><label class="workspace-check"><input data-modifier-active type="checkbox" ${group.active!==false?'checked':''}><span>فعال</span></label><button class="button secondary" data-remove-modifier-group type="button" aria-label="حذف گروه ${index+1}">حذف گروه</button></div><div class="modifier-options-heading"><span>گزینه‌ها و تغییر قیمت</span><button class="button secondary" data-add-modifier-option type="button">افزودن گزینه</button></div><div class="modifier-options">${(group.options||[]).map((option,optionIndex)=>`<div class="modifier-option-row" data-modifier-option data-option-id="${esc(option.id)}"><label>نام گزینه<input data-modifier-option-name maxlength="60" value="${esc(option.name||'')}"></label><label>تغییر قیمت (تومان)<input data-modifier-option-price inputmode="numeric" dir="ltr" value="${esc(money(option.priceDelta||0))}"></label><label class="workspace-check"><input data-modifier-option-active type="checkbox" ${option.active!==false?'checked':''}><span>فعال</span></label><button class="button secondary" data-remove-modifier-option type="button" aria-label="حذف گزینه ${optionIndex+1}">حذف</button></div>`).join('')||'<p class="modifier-empty">برای این گروه هنوز گزینه‌ای ثبت نشده است.</p>'}</div></article>`).join(''):'<p class="modifier-empty">برای محصول افزودنی لازم نباشد، این قسمت را خالی بگذارید.</p>';
+  }
+  function canonicalMenuValue(value){if(Array.isArray(value))return `[${value.map(canonicalMenuValue).join(',')}]`;if(value&&typeof value==='object')return `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonicalMenuValue(value[key])}`).join(',')}}`;return JSON.stringify(value);}
   function openMenuCreator(kind){
     const base=workspaceMenu?.payload;
     if(!base||!canEditLocalMenu())return;
@@ -747,6 +789,7 @@
     $('workspace-edit-category').innerHTML='<option value="">بدون دسته‌بندی</option>'+base.categories.filter(row=>row.isActive).map(row=>'<option value="'+row.id+'">'+esc(row.name)+'</option>').join('');
     $('workspace-edit-sort-wrap').hidden=isProduct;$('workspace-edit-sort').required=!isProduct;$('workspace-edit-sort').value=isProduct?'':String(base.categories.length);
     $('workspace-edit-enabled-wrap').hidden=isProduct;$('workspace-edit-enabled').checked=true;$('workspace-edit-enabled-label').textContent='دسته‌بندی فعال';
+    $('workspace-edit-modifiers-wrap').hidden=!isProduct;renderModifierGroups([]);
     $('workspace-edit-submit').textContent='ثبت در صف همگام‌سازی';$('workspace-edit-pin').value='';$('workspace-edit-dialog').showModal();
   }
   function openMenuEditor(kind,id){
@@ -757,8 +800,11 @@
     editingMenu={kind,id,original};$('workspace-edit-error').textContent='';$('workspace-edit-title').textContent=isProduct?'ویرایش محصول آفلاین':'ویرایش دسته‌بندی آفلاین';
     $('workspace-edit-name').value=row.name||'';$('workspace-edit-name').maxLength=isProduct?100:60;$('workspace-edit-description').value=row.description||'';$('workspace-edit-description').maxLength=isProduct?400:500;
     $('workspace-edit-price-wrap').hidden=!isProduct;$('workspace-edit-sort-wrap').hidden=isProduct;$('workspace-edit-price').required=isProduct;$('workspace-edit-sort').required=!isProduct;$('workspace-edit-price').value=isProduct?String(row.price):'';$('workspace-edit-sort').value=isProduct?'':String(row.sortOrder||0);
-    $('workspace-edit-enabled-wrap').hidden=false;$('workspace-edit-enabled').checked=isProduct?!!row.isAvailable:!!row.isActive;$('workspace-edit-enabled-label').textContent=isProduct?'در دسترس برای سفارش':'دسته‌بندی فعال';$('workspace-edit-category-wrap').hidden=true;$('workspace-edit-submit').textContent='ذخیره روی این دستگاه';$('workspace-edit-pin').value='';$('workspace-edit-dialog').showModal();
+    $('workspace-edit-enabled-wrap').hidden=false;$('workspace-edit-enabled').checked=isProduct?!!row.isAvailable:!!row.isActive;$('workspace-edit-enabled-label').textContent=isProduct?'در دسترس برای سفارش':'دسته‌بندی فعال';$('workspace-edit-category-wrap').hidden=true;$('workspace-edit-modifiers-wrap').hidden=!isProduct;renderModifierGroups(isProduct?(Array.isArray(row.modifierGroups)?row.modifierGroups:[]):[]);$('workspace-edit-submit').textContent='ذخیره روی این دستگاه';$('workspace-edit-pin').value='';$('workspace-edit-dialog').showModal();
   }
+  $('workspace-edit-add-group').onclick=()=>{const groups=readModifierGroups();if(groups.length>=12){$('workspace-edit-error').textContent='هر محصول حداکثر ۱۲ گروه انتخاب دارد.';return;}groups.push({id:newMenuChildId('group'),name:'گروه جدید',required:false,min:0,max:1,active:true,options:[{id:newMenuChildId('option'),name:'گزینه جدید',priceDelta:0,active:true}]});renderModifierGroups(groups);$('workspace-edit-error').textContent='';};
+  $('workspace-edit-modifier-groups').onclick=event=>{const add=event.target.closest('[data-add-modifier-option]'),removeOption=event.target.closest('[data-remove-modifier-option]'),removeGroup=event.target.closest('[data-remove-modifier-group]');if(!add&&!removeOption&&!removeGroup)return;const groups=readModifierGroups(),groupElement=event.target.closest('[data-modifier-group]'),groupIndex=groups.findIndex(group=>group.id===groupElement?.dataset.groupId);if(groupIndex<0)return;if(add){if(groups[groupIndex].options.length>=20){$('workspace-edit-error').textContent='هر گروه حداکثر ۲۰ گزینه دارد.';return;}groups[groupIndex].options.push({id:newMenuChildId('option'),name:'گزینه جدید',priceDelta:0,active:true});}else if(removeOption){const optionElement=event.target.closest('[data-modifier-option]');groups[groupIndex].options=groups[groupIndex].options.filter(option=>option.id!==optionElement?.dataset.optionId);}else groups.splice(groupIndex,1);renderModifierGroups(groups);$('workspace-edit-error').textContent='';};
+  $('workspace-edit-modifier-groups').onchange=event=>{if(!event.target.matches('[data-modifier-required]'))return;const group=event.target.closest('[data-modifier-group]');const min=group?.querySelector('[data-modifier-min]');if(!min)return;if(event.target.checked&&Number(min.value)<1)min.value='1';if(!event.target.checked)min.value='0';};
   $('workspace-menu-product-create').onclick=()=>openMenuCreator('product');
   $('workspace-menu-category-create').onclick=()=>openMenuCreator('category');
   $('workspace-menu-products').onclick=e=>{const button=e.target.closest('[data-edit-menu="product"]');if(button&&!button.disabled)openMenuEditor('product',Number(button.dataset.id));};
@@ -767,7 +813,8 @@
     e.preventDefault();if(!editingMenu)return;
     const isProduct=editingMenu.kind==='product',name=$('workspace-edit-name').value.trim(),description=$('workspace-edit-description').value;
     if(editingMenu.creating){
-      const payload=isProduct?{product:{name,description,price:Number(digits($('workspace-edit-price').value)),categoryId:$('workspace-edit-category').value?Number($('workspace-edit-category').value):null}}:{category:{name,description,isActive:$('workspace-edit-enabled').checked,sortOrder:Number($('workspace-edit-sort').value)}};
+      let modifierGroups=[];if(isProduct){try{modifierGroups=validateModifierGroups(readModifierGroups());}catch(error){$('workspace-edit-error').textContent=String(error);return;}}
+      const payload=isProduct?{product:{name,description,price:Number(digits($('workspace-edit-price').value)),categoryId:$('workspace-edit-category').value?Number($('workspace-edit-category').value):null,modifierGroups}}:{category:{name,description,isActive:$('workspace-edit-enabled').checked,sortOrder:Number($('workspace-edit-sort').value)}};
       if(isProduct&&(!Number.isSafeInteger(payload.product.price)||payload.product.price<1||payload.product.price>100_000_000)){$('workspace-edit-error').textContent='قیمت محصول باید بیشتر از صفر و حداکثر ۱۰۰ میلیون تومان باشد.';return;}
       if(!isProduct&&(!Number.isSafeInteger(payload.category.sortOrder)||payload.category.sortOrder<0||payload.category.sortOrder>10_000)){$('workspace-edit-error').textContent='ترتیب نمایش باید عدد صحیح بین صفر تا ۱۰٬۰۰۰ باشد.';return;}
       $('workspace-edit-submit').disabled=true;$('workspace-edit-error').textContent='';
@@ -778,7 +825,7 @@
     }
     const original=editingMenu.original;
     const patch={};if(name!==original.name)patch.name=name;if(description!== (original.description||''))patch.description=description;
-    if(isProduct){const price=Number(digits($('workspace-edit-price').value));if(!Number.isSafeInteger(price)){$('workspace-edit-error').textContent='قیمت را به‌صورت عدد صحیح وارد کنید.';return;}if(price!==original.price)patch.price=price;const available=$('workspace-edit-enabled').checked;if(available!==original.isAvailable)patch.isAvailable=available;}
+    if(isProduct){const price=Number(digits($('workspace-edit-price').value));if(!Number.isSafeInteger(price)||price<0||price>100_000_000){$('workspace-edit-error').textContent='قیمت باید عدد صحیح بین صفر تا ۱۰۰ میلیون تومان باشد.';return;}if(price!==original.price)patch.price=price;const available=$('workspace-edit-enabled').checked;if(available!==original.isAvailable)patch.isAvailable=available;let modifierGroups=[];try{modifierGroups=validateModifierGroups(readModifierGroups());}catch(error){$('workspace-edit-error').textContent=String(error);return;}if(canonicalMenuValue(modifierGroups)!==canonicalMenuValue(original.modifierGroups||[]))patch.modifierGroups=modifierGroups;}
     else{const sortOrder=Number($('workspace-edit-sort').value);if(!Number.isSafeInteger(sortOrder)){$('workspace-edit-error').textContent='ترتیب نمایش باید عدد صحیح باشد.';return;}if(sortOrder!==original.sortOrder)patch.sortOrder=sortOrder;const active=$('workspace-edit-enabled').checked;if(active!==original.isActive)patch.isActive=active;}
     if(!Object.keys(patch).length){$('workspace-edit-error').textContent='تغییری برای ذخیره وارد نشده است.';return;}
     $('workspace-edit-submit').disabled=true;$('workspace-edit-error').textContent='';

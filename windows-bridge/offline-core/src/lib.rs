@@ -41,6 +41,60 @@ fn number(v: &Value, key: &str) -> Result<i64> {
 fn clean(v: &str) -> String {
     v.replace(['|', '\r', '\n'], " ")
 }
+fn valid_menu_option_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 48 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+fn normalize_menu_modifier_groups(value: &Value) -> Result<Value> {
+    let groups = value.as_array().ok_or("گروه‌های گزینهٔ محصول باید فهرست باشند")?;
+    if groups.len() > 12 { return Err("هر محصول حداکثر ۱۲ گروه گزینه دارد".into()); }
+    let group_keys = ["id", "name", "required", "min", "max", "active", "options"];
+    let option_keys = ["id", "name", "priceDelta", "active"];
+    let mut group_ids = std::collections::HashSet::new();
+    let mut option_ids = std::collections::HashSet::new();
+    let mut normalized = Vec::with_capacity(groups.len());
+    for group in groups {
+        let object = group.as_object().ok_or("گروه گزینه معتبر نیست")?;
+        if object.keys().any(|key| !group_keys.contains(&key.as_str())) || group_keys.iter().any(|key| !object.contains_key(*key)) {
+            return Err("ساختار گروه گزینه معتبر نیست".into());
+        }
+        let id = group["id"].as_str().ok_or("شناسه گروه گزینه لازم است")?;
+        let name = group["name"].as_str().ok_or("نام گروه گزینه لازم است")?.trim();
+        if !valid_menu_option_id(id) || !group_ids.insert(id.to_string()) || name.is_empty() || name.chars().count() > 60 {
+            return Err("شناسه یا نام گروه گزینه معتبر نیست".into());
+        }
+        let required = group["required"].as_bool().ok_or("وضعیت اجباری گروه گزینه معتبر نیست")?;
+        let active = group["active"].as_bool().ok_or("وضعیت گروه گزینه معتبر نیست")?;
+        let min = group["min"].as_i64().ok_or("حداقل انتخاب گروه گزینه معتبر نیست")?;
+        let max = group["max"].as_i64().ok_or("حداکثر انتخاب گروه گزینه معتبر نیست")?;
+        if min < 0 || max < 1 || max > 10 || min > max || (required && min < 1) || (!required && min > 0) {
+            return Err("حد انتخاب گروه گزینه معتبر نیست".into());
+        }
+        let options = group["options"].as_array().ok_or("گزینه‌های گروه معتبر نیستند")?;
+        if options.is_empty() || options.len() > 20 || max as usize > options.len() {
+            return Err("هر گروه باید ۱ تا ۲۰ گزینه با سقف انتخاب معتبر داشته باشد".into());
+        }
+        let mut active_count = 0usize;
+        let mut normalized_options = Vec::with_capacity(options.len());
+        for option in options {
+            let object = option.as_object().ok_or("گزینه محصول معتبر نیست")?;
+            if object.keys().any(|key| !option_keys.contains(&key.as_str())) || option_keys.iter().any(|key| !object.contains_key(*key)) {
+                return Err("ساختار گزینه محصول معتبر نیست".into());
+            }
+            let option_id = option["id"].as_str().ok_or("شناسه گزینه لازم است")?;
+            let option_name = option["name"].as_str().ok_or("نام گزینه لازم است")?.trim();
+            let price_delta = option["priceDelta"].as_i64().ok_or("مبلغ تغییر قیمت گزینه معتبر نیست")?;
+            let option_active = option["active"].as_bool().ok_or("وضعیت گزینه معتبر نیست")?;
+            if !valid_menu_option_id(option_id) || !option_ids.insert(option_id.to_string()) || option_name.is_empty() || option_name.chars().count() > 60 || !(-100_000_000..=100_000_000).contains(&price_delta) {
+                return Err("شناسه، نام یا تغییر قیمت گزینه خارج از محدوده است".into());
+            }
+            if option_active { active_count += 1; }
+            normalized_options.push(json!({"id":option_id,"name":option_name,"priceDelta":price_delta,"active":option_active}));
+        }
+        if min as usize > active_count { return Err("حداقل انتخاب از تعداد گزینه‌های فعال بیشتر است".into()); }
+        normalized.push(json!({"id":id,"name":name,"required":required,"min":min,"max":max,"active":active,"options":normalized_options}));
+    }
+    Ok(Value::Array(normalized))
+}
 fn valid_manager_pin(pin: &str) -> bool {
     (8..=12).contains(&pin.len()) && pin.bytes().all(|byte| byte.is_ascii_digit())
 }
@@ -626,17 +680,23 @@ impl Store {
         pin: &str,
         action: &str,
         target_id: i64,
-        patch: Value,
+        mut patch: Value,
     ) -> Result<Value> {
         self.verify_local_manager_pin(pin)?;
         if target_id < 1 || !["update_product", "update_category"].contains(&action) {
             return Err("نوع و شناسهٔ تغییر منو معتبر نیست".into());
         }
+        if action == "update_product" {
+            if let Some(groups) = patch.get("modifierGroups").cloned() {
+                let normalized = normalize_menu_modifier_groups(&groups)?;
+                patch.as_object_mut().ok_or("تغییرات منو معتبر نیست")?.insert("modifierGroups".into(), normalized);
+            }
+        }
         let Some(fields) = patch.as_object() else {
             return Err("تغییرات منو معتبر نیست".into());
         };
         let allowed: &[&str] = if action == "update_product" {
-            &["name", "description", "price", "isAvailable"]
+            &["name", "description", "price", "isAvailable", "modifierGroups"]
         } else {
             &["name", "description", "isActive", "sortOrder"]
         };
@@ -710,14 +770,19 @@ impl Store {
         let item = &payload[key];
         let Some(values) = item.as_object() else { return Err("اطلاعات قلم جدید منو معتبر نیست".into()) };
         let allowed: &[&str] = if action == "create_product" {
-            &["name", "description", "price", "categoryId"]
+            &["name", "description", "price", "categoryId", "modifierGroups"]
         } else {
             &["name", "description", "isActive", "sortOrder"]
         };
         if values.keys().any(|field| !allowed.contains(&field.as_str())) {
             return Err("قلم جدید منو فیلد ناشناخته دارد".into());
         }
-        if values.len() != allowed.len() || allowed.iter().any(|field| !values.contains_key(*field)) {
+        let required: &[&str] = if action == "create_product" {
+            &["name", "description", "price", "categoryId"]
+        } else {
+            allowed
+        };
+        if required.iter().any(|field| !values.contains_key(*field)) {
             return Err("همهٔ اطلاعات لازم برای ساخت قلم منو باید ارسال شود".into());
         }
         let name = item["name"].as_str().ok_or("نام قلم منو لازم است")?.trim();
@@ -740,6 +805,10 @@ impl Store {
             } else {
                 Some(item["categoryId"].as_i64().filter(|id| *id > 0).ok_or("دسته‌بندی محصول معتبر نیست")?)
             };
+            let modifier_groups = match item.get("modifierGroups") {
+                Some(groups) => normalize_menu_modifier_groups(groups)?,
+                None => json!([]),
+            };
             let snapshot = self.workspace_snapshot("menu")?.ok_or_else(|| "نسخهٔ محلی منو دریافت نشده است".to_string())?;
             if snapshot["expired"].as_bool() == Some(true) {
                 return Err("نسخهٔ منو منقضی است؛ برای ساخت محصول ابتدا منو را تازه کنید".into());
@@ -749,7 +818,7 @@ impl Store {
                     return Err("دستهٔ انتخاب‌شده در نسخهٔ منوی این دستگاه فعال نیست".into());
                 }
             }
-            json!({"product":{"name":name,"description":description,"price":price,"categoryId":category_id}})
+            json!({"product":{"name":name,"description":description,"price":price,"categoryId":category_id,"modifierGroups":modifier_groups}})
         } else {
             let is_active = item["isActive"].as_bool().ok_or("وضعیت دسته‌بندی معتبر نیست")?;
             let sort_order = item["sortOrder"].as_i64().ok_or("ترتیب دسته‌بندی معتبر نیست")?;
@@ -2406,6 +2475,22 @@ mod tests {
         assert!(quote(&catalog, &sale).is_err());
         drop(store);
         let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn offline_menu_modifier_groups_validate_bounds_and_unique_option_ids() {
+        let valid = json!([{"id":"size","name":"اندازه","required":true,"min":1,"max":1,"active":true,"options":[
+            {"id":"small","name":"کوچک","priceDelta":0,"active":true},
+            {"id":"large","name":"بزرگ","priceDelta":25000,"active":true}
+        ]}]);
+        let normalized = normalize_menu_modifier_groups(&valid).unwrap();
+        assert_eq!(normalized[0]["options"][1]["priceDelta"], json!(25000));
+        let duplicate = json!([
+            {"id":"first","name":"اول","required":false,"min":0,"max":1,"active":true,"options":[{"id":"same","name":"یک","priceDelta":0,"active":true}]},
+            {"id":"second","name":"دوم","required":false,"min":0,"max":1,"active":true,"options":[{"id":"same","name":"دو","priceDelta":0,"active":true}]}
+        ]);
+        assert!(normalize_menu_modifier_groups(&duplicate).is_err());
+        let impossible_minimum = json!([{"id":"g","name":"گروه","required":true,"min":1,"max":1,"active":true,"options":[{"id":"o","name":"غیرفعال","priceDelta":0,"active":false}]}]);
+        assert!(normalize_menu_modifier_groups(&impossible_minimum).is_err());
     }
     #[test]
     fn durable_sale_and_print_survive_restart_and_duplicate_submission() {
