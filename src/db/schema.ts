@@ -1,5 +1,6 @@
 import {
   boolean,
+  foreignKey,
   integer,
   pgTable,
   serial,
@@ -1931,7 +1932,7 @@ export const offlineTerminals = pgTable("offline_terminals", {
   id: text("id").primaryKey(), businessId: bizId(), name: text("name").notNull(),
   tokenHash: text("token_hash").notNull().unique(), createdBy: integer("created_by").notNull().references(() => users.id),
   revokedAt: timestamp("revoked_at", { withTimezone: true }), lastSeenAt: timestamp("last_seen_at", { withTimezone: true }), createdAt: created(),
-});
+}, (t) => [uniqueIndex("offline_terminals_id_business_uq").on(t.id, t.businessId)]);
 export const offlineCatalogs = pgTable("offline_catalogs", {
   id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id),
   payload: jsonb("payload").$type<import("@/lib/offline-pos-core").OfflineCatalog>().notNull(), createdAt: created(),
@@ -1950,6 +1951,30 @@ export const offlineWorkspaceSnapshots = pgTable("offline_workspace_snapshots", 
   createdAt: created(),
 }, (t) => [
   uniqueIndex("offline_workspace_terminal_dataset_revision_uq").on(t.terminalId, t.dataset, t.revision),
+]);
+export const offlineWorkspaceCommands = pgTable("offline_workspace_commands", {
+  id: text("id").primaryKey(),
+  terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id, { onDelete: "restrict" }),
+  businessId: bizId(),
+  actorId: integer("actor_id").notNull().references(() => users.id),
+  module: text("module").notNull(),
+  action: text("action").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  state: text("state").notNull(),
+  httpStatus: integer("http_status").notNull(),
+  receipt: text("receipt").notNull().default(""),
+  error: text("error").notNull().default(""),
+  result: jsonb("result").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: created(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("offline_workspace_commands_terminal_time_idx").on(t.terminalId, t.createdAt),
+  foreignKey({
+    columns: [t.terminalId, t.businessId],
+    foreignColumns: [offlineTerminals.id, offlineTerminals.businessId],
+    name: "offline_workspace_command_terminal_business_fk",
+  }).onDelete("restrict"),
 ]);
 export const offlineSales = pgTable("offline_sales", {
   id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id), businessId: bizId(),

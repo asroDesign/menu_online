@@ -979,3 +979,11 @@ endpoint محدود `GET /api/offline-dashboard/snapshots/menu` با Bearer تر
 ## نمایش snapshot منو در برنامهٔ ویندوز — ۲۰۲۶-۱۰-۲۶
 
 تب read-only «منوی محلی» از فرمان Tauri `offline_workspace_menu` snapshot محصولات/دسته‌های همان کسب‌وکار را از SQLite محلی می‌خواند و جست‌وجو، فیلتر دسته، revision و انقضا را نشان می‌دهد. این رابط هیچ داده‌ای را تغییر نمی‌دهد؛ auth نقش محلی و replay سروری هنوز قبل از فرم‌های ویرایش لازم‌اند. جزئیات در [راهنمای پنل آفلاین](docs/agents/modules/offline-full-dashboard.md) و [گزارش مرحله](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) ثبت شد.
+
+
+دکمهٔ به‌روزرسانی برنامه snapshot پنل منو و catalog صندوق را هم‌زمان درخواست می‌کند؛ خطای sync منو از وضعیت فروش جداست و نسخهٔ قبلی محلی را حذف نمی‌کند. جزئیات در [راهنمای صندوق](docs/agents/modules/offline-pos.md) و [گزارش snapshot](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) ثبت شد.
+
+
+## Outbox فرمان پنل منو — ۲۰۲۶-۱۰-۲۶
+
+route محدود replay منو، ledger idempotent و relay در worker ویندوز اضافه شده است؛ تنها نام/توضیح/قیمت/موجودی محصول و نام/توضیح/فعال‌بودن/ترتیب دسته پذیرفته می‌شود. UI محلی هنوز فرمان تغییر نمی‌سازد؛ بنابراین ادیت آفلاین منو در دسترس کاربر نیست. جزئیات و محدودیت‌ها در [راهنمای صندوق](docs/agents/modules/offline-pos.md)، [نقشهٔ اپ کامل](docs/agents/modules/offline-full-dashboard.md) و [گزارش مرحله](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) ثبت شده‌اند.

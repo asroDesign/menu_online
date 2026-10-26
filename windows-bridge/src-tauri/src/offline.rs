@@ -149,6 +149,86 @@ impl OfflineState {
                             }
                         }
                     }
+                    let workspace_commands = state
+                        .store
+                        .lock()
+                        .ok()
+                        .and_then(|mut store| store.claim_workspace_commands("menu").ok())
+                        .unwrap_or_default();
+                    for job in workspace_commands {
+                        let command_id = job["id"].as_str().unwrap_or("").to_string();
+                        let command = job["command"].clone();
+                        if uuid::Uuid::parse_str(&command_id).is_err() || !command.is_object() {
+                            if let Ok(store) = state.store.lock() {
+                                let _ = store.finish_workspace_command(
+                                    &command_id,
+                                    None,
+                                    Some("فرمان محلی معتبر نیست"),
+                                    "rejected",
+                                );
+                            }
+                            continue;
+                        }
+                        let request = client
+                            .post(format!("{server}/api/offline-dashboard/commands"))
+                            .bearer_auth(token)
+                            .json(&command)
+                            .send();
+                        match decode(request) {
+                            Ok((status, data))
+                                if (200..300).contains(&status)
+                                    && data["commandId"].as_str() == Some(command_id.as_str())
+                                    && data["state"].as_str() == Some("applied")
+                                    && data["receipt"].as_str().is_some_and(|value| !value.is_empty()) =>
+                            {
+                                if let Ok(store) = state.store.lock() {
+                                    let receipt = data["receipt"].as_str().unwrap_or("");
+                                    let _ = store.finish_workspace_command(
+                                        &command_id,
+                                        Some(receipt),
+                                        None,
+                                        "",
+                                    );
+                                    let _ = store.set("workspace_refresh", &json!(true));
+                                }
+                            }
+                            Ok((status, data)) => {
+                                let message = data["error"]
+                                    .as_str()
+                                    .unwrap_or("فرمان پنل آفلاین پاسخ معتبر نگرفت");
+                                let failure = if status == 409 {
+                                    "conflict"
+                                } else if status == 404 || status == 429 || status >= 500 {
+                                    "transient"
+                                } else {
+                                    "rejected"
+                                };
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.finish_workspace_command(
+                                        &command_id,
+                                        None,
+                                        Some(message),
+                                        failure,
+                                    );
+                                }
+                                if status == 401 || status == 403 || status == 404 || status == 429 || status >= 500 {
+                                    break;
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.finish_workspace_command(
+                                        &command_id,
+                                        None,
+                                        Some("ارتباط فرمان با سایت برقرار نشد"),
+                                        "transient",
+                                    );
+                                }
+                                break;
+                            }
+                        }
+                    }
+
                     if workspace_refresh.elapsed() >= Duration::from_secs(600)
                         || state
                             .store
@@ -314,6 +394,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "draft": s.get("draft")?,
         "workspaceSnapshots": s.workspace_snapshot_index()?,
         "workspaceSync": s.get("workspace_sync")?,
+        "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
 }
@@ -458,11 +539,9 @@ pub fn offline_ring(code: String, number: i64, state: State<'_, OfflineState>) -
 
 #[tauri::command]
 pub fn offline_refresh(state: State<'_, OfflineState>) -> Result<()> {
-    state
-        .store
-        .lock()
-        .map_err(|_| "پایگاه محلی مشغول است")?
-        .set("refresh", &json!(true))
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.set("refresh", &json!(true))?;
+    store.set("workspace_refresh", &json!(true))
 }
 #[tauri::command]
 pub fn offline_quote(sale: Value, state: State<'_, OfflineState>) -> Result<Value> {

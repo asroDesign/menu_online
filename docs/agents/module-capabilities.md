@@ -195,4 +195,4 @@
 
 ## قابلیت در حال توسعه
 
-| اپ ویندوزی آفلاین پنل کامل | `docs/agents/modules/offline-full-dashboard.md` | snapshot tenant-scoped منو دریافت و با DPAPI ذخیره می‌شود؛ تب read-only برای جست‌وجو/مشاهدهٔ کالا و دسته دارد، اما سایر datasetها، فرم تغییر، replay فرمان‌ها و UI ماژول‌ها پیاده نشده‌اند، بنابراین کل پنل آفلاین نیست |
+| اپ ویندوزی آفلاین پنل کامل | `docs/agents/modules/offline-full-dashboard.md` | snapshot tenant-scoped منو با DPAPI ذخیره می‌شود و تب read-only دارد؛ server replay محدود تغییر کالا/دسته و ledger آن اضافه شده اما هنوز UI فرمان‌ساز ندارد؛ سایر datasetها و UI ماژول‌ها پیاده نشده‌اند، پس کل پنل آفلاین نیست |

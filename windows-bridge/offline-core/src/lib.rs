@@ -345,16 +345,19 @@ impl Store {
         tx.commit().map_err(err)
     }
 
-    pub fn claim_workspace_commands(&mut self) -> Result<Vec<Value>> {
+    pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
+        if !["menu"].contains(&module) {
+            return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
+        }
         let business_id = self.paired_business_id()?;
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(err)?;
         let rows = {
-            let mut q = tx.prepare("SELECT sequence,id,module,action,state,error,attempts,payload,created_at FROM workspace_commands WHERE business_id=?1 AND state='pending' AND retry_at<=unixepoch() AND lease_until<=unixepoch() ORDER BY sequence LIMIT 20").map_err(err)?;
+            let mut q = tx.prepare("SELECT sequence,id,module,action,state,error,attempts,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module=?2 AND state='pending' AND retry_at<=unixepoch() AND lease_until<=unixepoch() ORDER BY sequence LIMIT 20").map_err(err)?;
             let mapped = q
-                .query_map([business_id], |r| {
+                .query_map(params![business_id,module], |r| {
                     Ok((
                         r.get::<_, i64>(0)?,
                         r.get::<_, String>(1)?,

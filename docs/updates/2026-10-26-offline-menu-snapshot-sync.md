@@ -35,3 +35,16 @@
 - تب «منوی محلی» به برنامه اضافه شد: جست‌وجوی نام/توضیح، فیلتر دسته، قیمت، موجودبودن، شماره revision و زمان/وضعیت انقضا را از snapshot رمز‌شده نشان می‌دهد. دادهٔ منقضی برای مشاهده باقی می‌ماند اما برچسب منقضی دارد. نما read-only است و هیچ command نوشتن ایجاد نمی‌کند.
 - محدودیت: به‌روزرسانی محصول/دسته، server replay و بقیهٔ صفحات پنل هنوز پیاده نشده‌اند. احراز هویت نقش محلی پیش از فعال‌کردن هر تغییر داده لازم است.
 - بررسی این گام: `node --check windows-bridge/ui/pos.js` موفق شد. TypeScript، route و schema در گام قبلی با `npx tsc --noEmit --incremental false` و ESLint هدفمند بررسی شده‌اند و در این گام TypeScript تغییر نکرد. `cargo` و `rustfmt` در محیط فعلی موجود نیستند؛ Rust compile و اجرای Windows ممکن نشد. تست خودکار و دیتابیس اجرا نشدند.
+
+
+## Refresh دستی از برنامه — ۲۰۲۶-۱۰-۲۶
+
+فرمان `offline_refresh` اکنون هم catalog فروش و هم workspace snapshot منو را علامت‌گذاری می‌کند. دکمهٔ «دریافت نسخهٔ تازه» در تب منوی محلی همین فرمان را اجرا می‌کند؛ محتوای آخرین snapshot تا دریافت موفق حفظ می‌شود و پیام `workspaceSync` نتیجهٔ آخرین تلاش را نشان می‌دهد. دکمهٔ «به‌روزرسانی منو» در POS نیز هر دو dataset را درخواست می‌کند. `node --check windows-bridge/ui/pos.js` و `git diff --check` موفق شدند؛ Rust و Windows همچنان به‌دلیل نبود toolchain اجرا نشده‌اند و تست خودکار/DB انجام نشد.
+
+
+## Relay امن فرمان منو — ۲۰۲۶-۱۰-۲۶
+
+- route `POST /api/offline-dashboard/commands` اضافه شد؛ scope آن به دو action منو محدود است و با snapshot پایهٔ همان دستگاه optimistic conflict را ثبت می‌کند. migration `0056` ledger/receipt idempotent و FK مرکب terminal/business دارد.
+- worker Tauri فرمان‌های module `menu` را relay می‌کند، receipt موفق را در SQLite ثبت می‌کند و برای conflict/rejected/transient حالت جدا دارد. actor از مدیر جفت‌کنندهٔ دستگاه تعیین می‌شود.
+- UI فعلی فقط snapshot را می‌خواند و هیچ command را enqueue نمی‌کند؛ پس ویرایش منو هنگام آفلاین هنوز قابل استفاده نیست. برای همین role محلی یا mutation UI جدیدی expose نشد.
+- اعتبارسنجی بعد از این تغییر باید شامل typecheck، lint، `node --check` و `git diff --check` باشد؛ تست/DB اجرا نمی‌شود. `cargo`/`rustfmt` در محیط موجود نیستند، پس Rust compile قابل تأیید نیست.
