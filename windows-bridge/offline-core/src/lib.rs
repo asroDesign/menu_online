@@ -644,7 +644,7 @@ impl Store {
             "inventory" => ["create_item", "receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
             "receivables" => ["record_payment"].contains(&action),
-            "staff" => ["attendance", "create_shift", "leave_request", "shift_change", "mark_absent"].contains(&action),
+            "staff" => ["attendance", "create_shift", "leave_request", "shift_change", "mark_absent", "decide_leave", "decide_shift_swap"].contains(&action),
             "payroll" => ["adjustment", "settlement"].contains(&action),
             "settings" => ["update"].contains(&action),
             "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
@@ -2050,6 +2050,71 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":command_id,"state":"pending","action":"shift_change","scheduleId":schedule_id,"targetStaffId":target_staff_id}))
+    }
+
+    pub fn enqueue_staff_request_decision_with_pin(
+        &mut self,
+        manager_pin: &str,
+        request_kind: &str,
+        request_id: i64,
+        decision: &str,
+        note: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(manager_pin)?;
+        if !["leave", "shift_swap"].contains(&request_kind)
+            || request_id < 1
+            || !["approve", "reject"].contains(&decision)
+            || note.chars().count() > 300
+        {
+            return Err("اطلاعات تصمیم درخواست کارکنان معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("shifts")?.ok_or_else(|| "نسخهٔ محلی کارکنان دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ برنامهٔ کارکنان منقضی است؛ ابتدا آن را تازه کنید".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let (action, payload) = if request_kind == "leave" {
+            let requests = snapshot["payload"]["leaveRequests"].as_array().ok_or("فهرست درخواست‌های مرخصی محلی معتبر نیست")?;
+            let request = requests.iter().find(|row| row["id"].as_i64() == Some(request_id)).ok_or("درخواست مرخصی در نسخهٔ محلی پیدا نشد")?;
+            if request["status"].as_str() != Some("pending") {
+                return Err("فقط درخواست مرخصی در انتظار بررسی قابل تصمیم‌گیری است".into());
+            }
+            let starts_at = request["startsAt"].as_str().ok_or("زمان شروع مرخصی در نسخهٔ محلی معتبر نیست")?;
+            let ends_at = request["endsAt"].as_str().ok_or("زمان پایان مرخصی در نسخهٔ محلی معتبر نیست")?;
+            ("decide_leave", json!({
+                "requestId":request_id,"decision":decision,"expectedStartsAt":starts_at,"expectedEndsAt":ends_at,"note":note.trim()
+            }))
+        } else {
+            let requests = snapshot["payload"]["shiftSwapRequests"].as_array().ok_or("فهرست درخواست‌های تعویض محلی معتبر نیست")?;
+            let request = requests.iter().find(|row| row["id"].as_i64() == Some(request_id)).ok_or("درخواست تعویض در نسخهٔ محلی پیدا نشد")?;
+            if request["status"].as_str() != Some("pending_manager") {
+                return Err("فقط درخواست تعویض پذیرفته‌شده توسط همکار، در انتظار تأیید مدیر است".into());
+            }
+            let schedule_id = number(request, "scheduleId")?;
+            let schedule_version = number(request, "scheduleVersion")?;
+            let from_staff_id = number(request, "fromStaffId")?;
+            let to_staff_id = number(request, "toStaffId")?;
+            let schedule_staff_id = number(request, "scheduleStaffId")?;
+            let schedule_updated_at = request["scheduleUpdatedAt"].as_str().ok_or("زمان تغییر شیفت در نسخهٔ محلی معتبر نیست")?;
+            DateTime::parse_from_rfc3339(schedule_updated_at).map_err(err)?;
+            if schedule_id < 1 || schedule_version < 1 || from_staff_id < 1 || to_staff_id < 1 || from_staff_id == to_staff_id
+                || request["scheduleStatus"].as_str() != Some("scheduled") || schedule_staff_id != from_staff_id
+            {
+                return Err("شیفت درخواست تعویض در نسخهٔ محلی تغییر کرده است؛ نسخه را تازه کنید".into());
+            }
+            ("decide_shift_swap", json!({
+                "requestId":request_id,"decision":decision,"scheduleId":schedule_id,
+                "expectedScheduleVersion":schedule_version,"expectedScheduleUpdatedAt":schedule_updated_at,
+                "expectedFromStaffId":from_staff_id,"expectedToStaffId":to_staff_id,"note":note.trim()
+            }))
+        };
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"staff","action":action,
+            "baseDataset":"shifts","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],"payload":payload
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":action,"requestId":request_id,"decision":decision}))
     }
 
     pub fn workspace_staff_attendance_events(&self) -> Result<Value> {

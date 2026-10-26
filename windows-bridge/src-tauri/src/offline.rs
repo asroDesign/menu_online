@@ -1442,6 +1442,20 @@ pub fn offline_workspace_request_shift_change(
 }
 
 #[tauri::command]
+pub fn offline_workspace_decide_staff_request(
+    request_kind: String,
+    request_id: i64,
+    decision: String,
+    note: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_request_decision_with_pin(
+        &manager_pin, &request_kind, request_id, &decision, &note,
+    )
+}
+
+#[tauri::command]
 pub fn offline_pair(content: String, manager_pin: String, state: State<'_, OfflineState>) -> Result<()> {
     if content.len() > 8192 {
         return Err("فایل اتصال بزرگ است".into());

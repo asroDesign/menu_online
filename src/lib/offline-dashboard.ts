@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { accAccounts, accDocuments, accFiscalYears, accLines, bankAccounts, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, devices, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, transactions, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
@@ -391,7 +391,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
           .from(staffLeaveRequests).innerJoin(staff, and(eq(staff.id, staffLeaveRequests.staffId), eq(staff.businessId, business.id)))
           .where(and(eq(staffLeaveRequests.businessId, business.id), lt(staffLeaveRequests.startsAt, to), gt(staffLeaveRequests.endsAt, from)))
           .orderBy(asc(staffLeaveRequests.startsAt), asc(staffLeaveRequests.id)).limit(501),
-        tx.select({ id: staffShiftSwapRequests.id, scheduleId: staffShiftSwapRequests.scheduleId, fromStaffId: staffShiftSwapRequests.fromStaffId, toStaffId: staffShiftSwapRequests.toStaffId, status: staffShiftSwapRequests.status, reason: staffShiftSwapRequests.reason, decisionNote: staffShiftSwapRequests.decisionNote, startsAt: staffSchedules.startsAt, endsAt: staffSchedules.endsAt, createdAt: staffShiftSwapRequests.createdAt })
+        tx.select({ id: staffShiftSwapRequests.id, scheduleId: staffShiftSwapRequests.scheduleId, fromStaffId: staffShiftSwapRequests.fromStaffId, toStaffId: staffShiftSwapRequests.toStaffId, status: staffShiftSwapRequests.status, reason: staffShiftSwapRequests.reason, decisionNote: staffShiftSwapRequests.decisionNote, startsAt: staffSchedules.startsAt, endsAt: staffSchedules.endsAt, scheduleStatus: staffSchedules.status, scheduleStaffId: staffSchedules.staffId, scheduleVersion: staffSchedules.version, scheduleUpdatedAt: staffSchedules.updatedAt, createdAt: staffShiftSwapRequests.createdAt })
           .from(staffShiftSwapRequests).innerJoin(staffSchedules, and(eq(staffSchedules.id, staffShiftSwapRequests.scheduleId), eq(staffSchedules.businessId, business.id)))
           .where(and(eq(staffShiftSwapRequests.businessId, business.id), lt(staffSchedules.startsAt, to), gt(staffSchedules.endsAt, from)))
           .orderBy(desc(staffShiftSwapRequests.createdAt), desc(staffShiftSwapRequests.id)).limit(501),
@@ -418,7 +418,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
           };
         }),
         leaveRequests: leaveRows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(), createdAt: row.createdAt.toISOString() })),
-        shiftSwapRequests: shiftSwapRows.map((row) => ({ ...row, fromStaffName: staffNameById.get(row.fromStaffId) ?? `کارمند ${row.fromStaffId}`, toStaffName: staffNameById.get(row.toStaffId) ?? `کارمند ${row.toStaffId}`, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(), createdAt: row.createdAt.toISOString() })),
+        shiftSwapRequests: shiftSwapRows.map((row) => ({ ...row, fromStaffName: staffNameById.get(row.fromStaffId) ?? `کارمند ${row.fromStaffId}`, toStaffName: staffNameById.get(row.toStaffId) ?? `کارمند ${row.toStaffId}`, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(), scheduleUpdatedAt: row.scheduleUpdatedAt.toISOString(), createdAt: row.createdAt.toISOString() })),
         offlineAttendanceRequests: offlineAttendanceRows.map((row) => ({ ...row, occurredAt: row.occurredAt.toISOString() })),
         totalSchedules: scheduleRows.length,
         totalLeaveRequests: leaveRows.length,
@@ -1314,7 +1314,7 @@ type StaffCommand = {
   id: string;
   businessId: number;
   module: "staff";
-  action: "create_shift" | "leave_request" | "shift_change" | "mark_absent";
+  action: "create_shift" | "leave_request" | "shift_change" | "mark_absent" | "decide_leave" | "decide_shift_swap";
   baseDataset: "shifts";
   baseSnapshotId: string;
   baseRevision: number;
@@ -1322,7 +1322,7 @@ type StaffCommand = {
 };
 
 function parseStaffCommand(raw: unknown): StaffCommand {
-  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["create_shift", "leave_request", "shift_change", "mark_absent"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
+  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["create_shift", "leave_request", "shift_change", "mark_absent", "decide_leave", "decide_shift_swap"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
   const allowedCommandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
   if (Object.keys(raw).some((key) => !allowedCommandKeys.includes(key))) throw new HttpError(400, "فرمان کارکنان فیلد ناشناخته دارد");
   if (typeof raw.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id)) throw new HttpError(400, "شناسهٔ درخواست معتبر نیست");
@@ -1334,6 +1334,10 @@ function parseStaffCommand(raw: unknown): StaffCommand {
     if (Object.keys(payload).some((key) => !["staffId", "startsAt", "endsAt", "kind", "reason"].includes(key)) || !Number.isSafeInteger(payload.staffId) || Number(payload.staffId) < 1 || !isIsoTimestamp(payload.startsAt) || !isIsoTimestamp(payload.endsAt) || Date.parse(payload.endsAt) <= Date.parse(payload.startsAt) || Date.parse(payload.endsAt) - Date.parse(payload.startsAt) > 31 * 86_400_000 || !["personal", "sick", "unpaid"].includes(String(payload.kind)) || typeof payload.reason !== "string" || payload.reason.length > 500) throw new HttpError(400, "اطلاعات درخواست مرخصی معتبر نیست");
   } else if (raw.action === "mark_absent") {
     if (Object.keys(payload).some((key) => !["scheduleId", "expectedVersion", "expectedUpdatedAt", "note"].includes(key)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.expectedVersion) || Number(payload.expectedVersion) < 1 || !isIsoTimestamp(payload.expectedUpdatedAt) || typeof payload.note !== "string" || payload.note.length > 300) throw new HttpError(400, "اطلاعات ثبت غیبت آفلاین معتبر نیست");
+  } else if (raw.action === "decide_leave") {
+    if (Object.keys(payload).some((key) => !["requestId", "decision", "expectedStartsAt", "expectedEndsAt", "note"].includes(key)) || !Number.isSafeInteger(payload.requestId) || Number(payload.requestId) < 1 || !["approve", "reject"].includes(String(payload.decision)) || !isIsoTimestamp(payload.expectedStartsAt) || !isIsoTimestamp(payload.expectedEndsAt) || Date.parse(payload.expectedEndsAt) <= Date.parse(payload.expectedStartsAt) || typeof payload.note !== "string" || payload.note.length > 300) throw new HttpError(400, "اطلاعات تصمیم مرخصی آفلاین معتبر نیست");
+  } else if (raw.action === "decide_shift_swap") {
+    if (Object.keys(payload).some((key) => !["requestId", "decision", "scheduleId", "expectedScheduleVersion", "expectedScheduleUpdatedAt", "expectedFromStaffId", "expectedToStaffId", "note"].includes(key)) || !Number.isSafeInteger(payload.requestId) || Number(payload.requestId) < 1 || !["approve", "reject"].includes(String(payload.decision)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.expectedScheduleVersion) || Number(payload.expectedScheduleVersion) < 1 || !isIsoTimestamp(payload.expectedScheduleUpdatedAt) || !Number.isSafeInteger(payload.expectedFromStaffId) || Number(payload.expectedFromStaffId) < 1 || !Number.isSafeInteger(payload.expectedToStaffId) || Number(payload.expectedToStaffId) < 1 || payload.expectedFromStaffId === payload.expectedToStaffId || typeof payload.note !== "string" || payload.note.length > 300) throw new HttpError(400, "اطلاعات تصمیم تعویض شیفت آفلاین معتبر نیست");
   } else if (Object.keys(payload).some((key) => !["scheduleId", "targetStaffId", "reason"].includes(key)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.targetStaffId) || Number(payload.targetStaffId) < 1 || typeof payload.reason !== "string" || payload.reason.length > 300) {
     throw new HttpError(400, "اطلاعات درخواست تعویض شیفت معتبر نیست");
   }
@@ -1358,7 +1362,7 @@ async function syncOfflineStaffRequest(req: Request, command: StaffCommand) {
     const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "shifts"), eq(offlineWorkspaceSnapshots.revision, command.baseRevision))).for("update");
     const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "", details: Record<string, unknown> = {}) => {
       const response = { commandId: command.id, state, receipt, ...details, ...(error ? { error } : {}) };
-      const ledgerPayload = command.action === "create_shift" ? command : { ...command, payload: { ...command.payload, reason: "" } };
+      const ledgerPayload = command.action === "create_shift" ? command : { ...command, payload: { ...command.payload, reason: "", note: "" } };
       await tx.insert(offlineWorkspaceCommands).values({ id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy, module: "staff", action: command.action, payloadHash, payload: ledgerPayload as unknown as Record<string, unknown>, state, httpStatus, error, receipt, result: response });
       return { httpStatus, response };
     };
@@ -1400,6 +1404,106 @@ async function syncOfflineStaffRequest(req: Request, command: StaffCommand) {
       if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || startsAt < from || endsAt > to) return record("conflict", 409, "بازهٔ مرخصی بیرون از محدودهٔ نسخهٔ ذخیره‌شده است؛ برنامه را به‌روز کنید");
       const [created] = await tx.insert(staffLeaveRequests).values({ businessId: business.id, staffId, startsAt, endsAt, kind: String(command.payload.kind), reason: String(command.payload.reason).trim() }).returning({ id: staffLeaveRequests.id });
       return record("applied", 200, "", randomUUID(), { requestId: created.id });
+    }
+    if (command.action === "decide_leave") {
+      const requestId = Number(command.payload.requestId);
+      const baseRequests = (snapshot.payload.leaveRequests as Record<string, unknown>[] | undefined) ?? [];
+      const base = baseRequests.find((row) => row.id === requestId);
+      if (!base || base.status !== "pending" || base.startsAt !== command.payload.expectedStartsAt || base.endsAt !== command.payload.expectedEndsAt) {
+        return record("conflict", 409, "درخواست مرخصی با نسخهٔ ذخیره‌شده هم‌خوان نیست؛ نسخهٔ تازه را دریافت و دوباره بررسی کنید");
+      }
+      const [leave] = await tx.select().from(staffLeaveRequests).where(and(
+        eq(staffLeaveRequests.id, requestId), eq(staffLeaveRequests.businessId, business.id),
+      )).for("update");
+      if (!leave || leave.status !== "pending" || leave.startsAt.toISOString() !== command.payload.expectedStartsAt || leave.endsAt.toISOString() !== command.payload.expectedEndsAt || leave.staffId !== Number(base.staffId)) {
+        return record("conflict", 409, "درخواست مرخصی در سرور تغییر کرده یا دیگر در انتظار بررسی نیست");
+      }
+      const [member] = await tx.select({ id: staff.id, isActive: staff.isActive }).from(staff).where(and(
+        eq(staff.id, leave.staffId), eq(staff.businessId, business.id),
+      )).for("update");
+      if (command.payload.decision === "approve" && !member?.isActive) return record("conflict", 409, "کارمند درخواست‌دهنده حذف یا غیرفعال شده است");
+      if (command.payload.decision === "approve") {
+        const [overlap] = await tx.select({ id: staffLeaveRequests.id }).from(staffLeaveRequests).where(and(
+          eq(staffLeaveRequests.businessId, business.id), eq(staffLeaveRequests.staffId, leave.staffId),
+          eq(staffLeaveRequests.status, "approved"), ne(staffLeaveRequests.id, leave.id),
+          lt(staffLeaveRequests.startsAt, leave.endsAt), gt(staffLeaveRequests.endsAt, leave.startsAt),
+        )).limit(1);
+        if (overlap) return record("conflict", 409, "درخواست با مرخصی تأییدشدهٔ دیگری تداخل دارد");
+        const [shift] = await tx.select({ id: staffSchedules.id }).from(staffSchedules).where(and(
+          eq(staffSchedules.businessId, business.id), eq(staffSchedules.staffId, leave.staffId),
+          eq(staffSchedules.status, "scheduled"), lt(staffSchedules.startsAt, leave.endsAt), gt(staffSchedules.endsAt, leave.startsAt),
+        )).limit(1);
+        if (shift) return record("conflict", 409, "در بازهٔ مرخصی برای کارمند شیفت فعال ثبت شده است");
+      }
+      const now = new Date();
+      const [updated] = await tx.update(staffLeaveRequests).set({
+        status: command.payload.decision === "approve" ? "approved" : "rejected",
+        decidedBy: terminal.createdBy, decidedAt: now, decisionNote: String(command.payload.note).trim().slice(0, 300),
+      }).where(and(
+        eq(staffLeaveRequests.id, leave.id), eq(staffLeaveRequests.businessId, business.id), eq(staffLeaveRequests.status, "pending"),
+      )).returning({ id: staffLeaveRequests.id });
+      if (!updated) return record("conflict", 409, "درخواست مرخصی هم‌زمان تغییر کرده است");
+      return record("applied", 200, "", randomUUID(), { requestId: updated.id, decision: command.payload.decision });
+    }
+    if (command.action === "decide_shift_swap") {
+      const requestId = Number(command.payload.requestId);
+      const baseRequests = (snapshot.payload.shiftSwapRequests as Record<string, unknown>[] | undefined) ?? [];
+      const base = baseRequests.find((row) => row.id === requestId);
+      if (!base || base.status !== "pending_manager" || base.scheduleId !== command.payload.scheduleId || base.fromStaffId !== command.payload.expectedFromStaffId || base.toStaffId !== command.payload.expectedToStaffId || base.scheduleVersion !== command.payload.expectedScheduleVersion || base.scheduleUpdatedAt !== command.payload.expectedScheduleUpdatedAt || base.scheduleStatus !== "scheduled" || base.scheduleStaffId !== command.payload.expectedFromStaffId) {
+        return record("conflict", 409, "درخواست تعویض با نسخهٔ ذخیره‌شده هم‌خوان نیست؛ نسخهٔ تازه را دریافت و دوباره بررسی کنید");
+      }
+      const [request] = await tx.select().from(staffShiftSwapRequests).where(and(
+        eq(staffShiftSwapRequests.id, requestId), eq(staffShiftSwapRequests.businessId, business.id),
+      )).for("update");
+      if (!request || request.status !== "pending_manager" || request.scheduleId !== Number(command.payload.scheduleId) || request.fromStaffId !== Number(command.payload.expectedFromStaffId) || request.toStaffId !== Number(command.payload.expectedToStaffId)) {
+        return record("conflict", 409, "درخواست تعویض در سرور تغییر کرده یا دیگر در انتظار تأیید مدیر نیست");
+      }
+      if (command.payload.decision === "reject") {
+        const [updated] = await tx.update(staffShiftSwapRequests).set({
+          status: "rejected", decisionNote: String(command.payload.note).trim().slice(0, 300), decidedBy: terminal.createdBy, decidedAt: new Date(),
+        }).where(and(
+          eq(staffShiftSwapRequests.id, request.id), eq(staffShiftSwapRequests.businessId, business.id), eq(staffShiftSwapRequests.status, "pending_manager"),
+        )).returning({ id: staffShiftSwapRequests.id });
+        if (!updated) return record("conflict", 409, "درخواست تعویض هم‌زمان تغییر کرده است");
+        return record("applied", 200, "", randomUUID(), { requestId: updated.id, decision: command.payload.decision });
+      }
+      const [shift] = await tx.select().from(staffSchedules).where(and(
+        eq(staffSchedules.id, request.scheduleId), eq(staffSchedules.businessId, business.id),
+      )).for("update");
+      if (!shift || shift.status !== "scheduled" || shift.staffId !== request.fromStaffId || shift.staffId !== Number(command.payload.expectedFromStaffId) || shift.version !== Number(command.payload.expectedScheduleVersion) || shift.updatedAt.toISOString() !== command.payload.expectedScheduleUpdatedAt || shift.startsAt.toISOString() !== base.startsAt || shift.endsAt.toISOString() !== base.endsAt) {
+        return record("conflict", 409, "شیفت از زمان دریافت نسخه تغییر کرده است؛ نسخهٔ تازه را دریافت و دوباره بررسی کنید");
+      }
+      if (shift.startsAt <= new Date()) return record("rejected", 422, "شیفت شروع شده یا گذشته است و دیگر قابل جابه‌جایی نیست");
+      const lockedStaff = await tx.select({ id: staff.id, isActive: staff.isActive }).from(staff).where(and(
+        eq(staff.businessId, business.id), inArray(staff.id, [request.fromStaffId, request.toStaffId]),
+      )).orderBy(asc(staff.id)).for("update");
+      if (lockedStaff.length !== 2 || lockedStaff.some((member) => !member.isActive)) return record("conflict", 409, "هر دو کارمند باید همچنان فعال باشند");
+      const [overlap] = await tx.select({ id: staffSchedules.id }).from(staffSchedules).where(and(
+        eq(staffSchedules.businessId, business.id), eq(staffSchedules.staffId, request.toStaffId),
+        eq(staffSchedules.status, "scheduled"), ne(staffSchedules.id, shift.id),
+        lt(staffSchedules.startsAt, shift.endsAt), gt(staffSchedules.endsAt, shift.startsAt),
+      )).limit(1);
+      if (overlap) return record("conflict", 409, "کارمند مقصد در این بازه شیفت دیگری دارد");
+      const [leave] = await tx.select({ id: staffLeaveRequests.id }).from(staffLeaveRequests).where(and(
+        eq(staffLeaveRequests.businessId, business.id), eq(staffLeaveRequests.staffId, request.toStaffId),
+        eq(staffLeaveRequests.status, "approved"), lt(staffLeaveRequests.startsAt, shift.endsAt), gt(staffLeaveRequests.endsAt, shift.startsAt),
+      )).limit(1);
+      if (leave) return record("conflict", 409, "کارمند مقصد برای این بازه مرخصی تأییدشده دارد");
+      const now = new Date();
+      const [updatedShift] = await tx.update(staffSchedules).set({
+        staffId: request.toStaffId, version: sql`${staffSchedules.version} + 1`, updatedBy: terminal.createdBy, updatedAt: now,
+      }).where(and(
+        eq(staffSchedules.id, shift.id), eq(staffSchedules.businessId, business.id), eq(staffSchedules.staffId, request.fromStaffId),
+        eq(staffSchedules.status, "scheduled"), eq(staffSchedules.version, shift.version),
+      )).returning({ id: staffSchedules.id });
+      if (!updatedShift) return record("conflict", 409, "شیفت هم‌زمان تغییر کرده است؛ نسخهٔ تازه را دریافت کنید");
+      const [updated] = await tx.update(staffShiftSwapRequests).set({
+        status: "approved", decisionNote: String(command.payload.note).trim().slice(0, 300), decidedBy: terminal.createdBy, decidedAt: now,
+      }).where(and(
+        eq(staffShiftSwapRequests.id, request.id), eq(staffShiftSwapRequests.businessId, business.id), eq(staffShiftSwapRequests.status, "pending_manager"),
+      )).returning({ id: staffShiftSwapRequests.id });
+      if (!updated) throw new HttpError(409, "درخواست تعویض هم‌زمان تغییر کرده است؛ تراکنش جابه‌جایی لغو شد");
+      return record("applied", 200, "", randomUUID(), { requestId: updated.id, scheduleId: updatedShift.id, decision: command.payload.decision });
     }
     if (command.action === "mark_absent") {
       const scheduleId = Number(command.payload.scheduleId);
