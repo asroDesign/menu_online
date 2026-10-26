@@ -1,6 +1,6 @@
 import { parseCashierDebt, type CashierDebtInput } from "@/lib/cashier-debt-input";
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, max, ne, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, max, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   bankAccounts,
@@ -759,10 +759,16 @@ export async function settleOrder(
         await queuePrintJobs(biz, o.id, features, false, undefined, tx);
 
       let activeShiftId: number | null = null;
-      if (!opts.offlineOccurredAt && (o.source === "cashier" || o.source === "waiter")) {
+      if (o.source === "cashier" || o.source === "waiter") {
+        const shiftWindow = opts.offlineOccurredAt
+          ? and(
+              lte(cashShifts.openedAt, opts.offlineOccurredAt),
+              or(isNull(cashShifts.closedAt), gte(cashShifts.closedAt, opts.offlineOccurredAt)),
+            )
+          : isNull(cashShifts.closedAt);
         const [shift] = await tx.select({ id: cashShifts.id }).from(cashShifts)
-          .where(and(eq(cashShifts.businessId, biz.id), isNull(cashShifts.closedAt)))
-          .for("update").limit(1);
+          .where(and(eq(cashShifts.businessId, biz.id), shiftWindow))
+          .orderBy(desc(cashShifts.openedAt)).for("update").limit(1);
         activeShiftId = shift?.id ?? null;
       }
 
