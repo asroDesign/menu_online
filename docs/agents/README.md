@@ -149,7 +149,7 @@
 
 فهرست بالا slugهای جاری `MODULES` و چهار صفحه ثابت داشبورد را پوشش می‌دهد؛ تعداد را پیش از کار از registry زنده بررسی کن. `home-page.md` صفحه `/` و `core-pages/` مسیرهای عمومی/سیستمی اصلی و نقشه قراردادهای API را مستند می‌کند. برای هر resource API سند جداگانه نمی‌سازد؛ schema نهایی در route TypeScript است.
 
-برای گزینه محصول، [فروش وزنی](modules/weighted-sales.md)، رهگیری خصوصی سفارش، funnel، قالب منو و بازطراحی فضایی Captain M در [راهنمای منوی عمومی](core-pages/public-menu.md)، شیفت صندوق، [ورود CSV](modules/menu-import.md)، [زمان‌بندی کارکنان](modules/staff-schedule.md)، [انتقال انبار](modules/stock-transfers.md)، [سیاست trial](modules/trial-policy.md)، [دفتر چک](modules/cheques.md) و [پیشنهاد خرید](modules/purchase-suggestions.md)، سند ماژول متناظر و [معماری](architecture.md) را ببین. تصمیم‌های هنوز تصویب‌نشده در `../decisions/` و `../adr/` ثبت شده‌اند. فروش وزنی M09 در checkout محلی پیاده شده و migration آن هنوز اجرا نشده؛ M11 چندشعبه و M12 صندوق آفلاین هنوز پیاده نشده‌اند.
+برای گزینه محصول، [فروش وزنی](modules/weighted-sales.md)، رهگیری خصوصی سفارش، funnel، قالب منو و بازطراحی فضایی Captain M در [راهنمای منوی عمومی](core-pages/public-menu.md)، شیفت صندوق، [ورود CSV](modules/menu-import.md)، [زمان‌بندی کارکنان](modules/staff-schedule.md)، [انتقال انبار](modules/stock-transfers.md)، [سیاست trial](modules/trial-policy.md)، [دفتر چک](modules/cheques.md) و [پیشنهاد خرید](modules/purchase-suggestions.md)، سند ماژول متناظر و [معماری](architecture.md) را ببین. تصمیم‌های هنوز تصویب‌نشده در `../decisions/` و `../adr/` ثبت شده‌اند. فروش وزنی M09 در checkout محلی پیاده شده و migration آن هنوز اجرا نشده؛ M11 چندشعبه هنوز پیاده نشده است؛ M12 صندوق آفلاین در نسخه ۰٫۲ طبق [سند صندوق آفلاین](modules/offline-pos.md) کدنویسی شده و عرضه آن نیازمند migration و نصب‌گر جدید است.
 
 > اصلاح تور راه‌اندازی (۲۰۲۶-۱۰-۱۹): راهنما اکنون روی کنترل‌های صفحات واقعی است؛ فرم مستقل ندارد. مشخصات فعلی و مسیر بازسازی در [مستند تور](modules/onboarding-tour.md) ثبت شده است.
 
@@ -168,3 +168,6 @@
 
 ### چاپ تراز و دفتر حساب
 تراز آزمایشی دو قالب چاپ ۲ و ۴ ستونی دارد؛ دفتر کل/معین/تفصیلی پس از انتخاب حساب صورت‌حساب چاپ می‌کند. سربرگ کسب‌وکار و دوره از داده جاری پنل پر می‌شوند. [جزئیات پیاده‌سازی](../updates/2026-10-25-accounting-printable-reports.md).
+
+### صندوق آفلاین ویندوز
+پیش از تغییر صندوق/همگام‌سازی، [راهنمای کامل ماژول](modules/offline-pos.md) و [گزارش توسعه](../updates/2026-10-26-offline-pos-desktop.md) را بخوانید. قیمت از snapshot سرور، ثبت مالی اتمی و شناسه ثابت فروش، قراردادهای ضروری این ماژول هستند.

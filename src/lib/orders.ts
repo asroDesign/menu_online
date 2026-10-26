@@ -204,7 +204,7 @@ export async function addWalletEntry(
   return true;
 }
 
-export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; deferPrint?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number } = {}) {
+export async function createOrder(biz: Biz, input: OrderInput, source: string, features: FeatureMap, opts: { hold?: boolean; deferPrint?: boolean; actorId?: number; executor?: OrderTransaction; verifiedCustomerId?: number; offline?: { products: import("./offline-pos-core").OfflineProduct[]; occurredAt: Date } } = {}) {
   if (input.useCashback && (source !== "customer" || !opts.verifiedCustomerId))
     throw new HttpError(403, "برای مصرف اعتبار کیف پول، از پروفایل مشتری با شمارهٔ تأییدشده وارد شوید");
   if (input.payNow === "credit") {
@@ -235,7 +235,12 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     .select()
     .from(products)
     .where(and(eq(products.businessId, biz.id), inArray(products.id, ids)));
-  const byId = new Map(prods.map((p) => [p.id, p]));
+  // Only the authenticated offline sync service supplies a server-stored catalog.
+  // Public/staff request bodies never populate this internal option.
+  const byId = new Map(prods.map((p) => {
+    const saved = opts.offline?.products.find(item => item.id === p.id);
+    return [p.id, saved ? { ...p, ...saved, isAvailable: true } : p];
+  }));
   for (const it of input.items) {
     const p = byId.get(it.productId);
     if (!p) throw new HttpError(400, "یکی از محصولات پیدا نشد");
@@ -305,8 +310,8 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       .from(diningTables)
       .where(and(eq(diningTables.id, input.tableId), eq(diningTables.businessId, biz.id)));
     if (!t) throw new HttpError(400, "میز نامعتبر است");
-    if (t.operationalStatus === "cleaning") throw new HttpError(409, "این میز در حال نظافت است و سفارش نمی‌پذیرد");
-    if (t.operationalStatus === "out_of_service") throw new HttpError(409, "این میز موقتاً خارج از سرویس است");
+    if (!opts.offline && t.operationalStatus === "cleaning") throw new HttpError(409, "این میز در حال نظافت است و سفارش نمی‌پذیرد");
+    if (!opts.offline && t.operationalStatus === "out_of_service") throw new HttpError(409, "این میز موقتاً خارج از سرویس است");
   }
   if (input.waiterId) {
     const [w] = await db
@@ -389,8 +394,8 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
       const [table] = await tx.select({ id: diningTables.id, operationalStatus: diningTables.operationalStatus }).from(diningTables)
         .where(and(eq(diningTables.id, input.tableId), eq(diningTables.businessId, biz.id))).for("update").limit(1);
       if (!table) throw new HttpError(400, "میز نامعتبر است");
-      if (table.operationalStatus === "cleaning") throw new HttpError(409, "این میز در حال نظافت است و سفارش نمی‌پذیرد");
-      if (table.operationalStatus === "out_of_service") throw new HttpError(409, "این میز موقتاً خارج از سرویس است");
+      if (!opts.offline && table.operationalStatus === "cleaning") throw new HttpError(409, "این میز در حال نظافت است و سفارش نمی‌پذیرد");
+      if (!opts.offline && table.operationalStatus === "out_of_service") throw new HttpError(409, "این میز موقتاً خارج از سرویس است");
       const serviceAt = scheduledFor ?? new Date();
       const [reservation] = await tx.select({ id: reservations.id }).from(reservations).where(and(
         eq(reservations.businessId, biz.id), eq(reservations.tableId, table.id),
@@ -398,7 +403,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
         sql`${reservations.startsAt} <= ${serviceAt}`,
         sql`${reservations.startsAt} + (${reservations.durationMinutes} * interval '1 minute') > ${serviceAt}`,
       )).limit(1);
-      if (reservation) throw new HttpError(409, "این میز در زمان انتخاب‌شده رزرو است؛ میز یا زمان دیگری انتخاب کنید");
+      if (reservation && !opts.offline) throw new HttpError(409, "این میز در زمان انتخاب‌شده رزرو است؛ میز یا زمان دیگری انتخاب کنید");
     }
     let customerId: number | null = null;
     let customerName = input.customerName ?? "";
@@ -573,6 +578,7 @@ export async function createOrder(biz: Biz, input: OrderInput, source: string, f
     const number = (m?.n ?? 1000) + 1;
     const [created] = await tx.insert(orders).values({
       businessId: biz.id, number,
+      ...(opts.offline ? { createdAt: opts.offline.occurredAt } : {}),
       trackingTokenHash,
       trackingExpiresAt,
       tableId: type === "dine_in" ? (input.tableId ?? null) : null,
@@ -656,7 +662,7 @@ export async function settleOrder(
   orderId: number,
   method: string | null,
   setStatus: boolean,
-  opts: { reopen?: boolean; paymentId?: number; paymentRef?: string; actorId?: number; actorType?: string; creditSale?: boolean; creditDetails?: CashierDebtInput; settlement?: ReturnType<typeof normalizeSettlementInput>; executor?: OrderTransaction } = {},
+  opts: { reopen?: boolean; paymentId?: number; paymentRef?: string; actorId?: number; actorType?: string; creditSale?: boolean; creditDetails?: CashierDebtInput; settlement?: ReturnType<typeof normalizeSettlementInput>; executor?: OrderTransaction; offlineOccurredAt?: Date; skipPrint?: boolean } = {},
 ) {
   if (method === "credit" && !opts.creditSale) throw new HttpError(400, "فروش نسیه باید از دفتر مطالبات ثبت شود");
   if (!opts.executor) await ensureAccounting(biz);
@@ -749,11 +755,11 @@ export async function settleOrder(
         await addWalletEntry(biz.id, o.customerId, -o.cashbackUsed, "spend", o.id,
           `استفاده مجدد در سفارش بازگشایی‌شده #${o.number}`, `order:${o.id}:spend:reopen`, tx);
       }
-      if (reopens || (o.status !== "preparing" && status === "preparing"))
+      if (!opts.skipPrint && (reopens || (o.status !== "preparing" && status === "preparing")))
         await queuePrintJobs(biz, o.id, features, false, undefined, tx);
 
       let activeShiftId: number | null = null;
-      if (o.source === "cashier" || o.source === "waiter") {
+      if (!opts.offlineOccurredAt && (o.source === "cashier" || o.source === "waiter")) {
         const [shift] = await tx.select({ id: cashShifts.id }).from(cashShifts)
           .where(and(eq(cashShifts.businessId, biz.id), isNull(cashShifts.closedAt)))
           .for("update").limit(1);
@@ -769,6 +775,7 @@ export async function settleOrder(
         if (rows.length) await tx.insert(transactions).values(rows.map((row) => ({
           businessId: biz.id, kind: "income", source: "sale", category: "فروش", amount: row.amount,
           bankAccountId: row.bankAccountId, posDeviceId: row.posDeviceId, orderId: o.id, shiftId: activeShiftId,
+          ...(opts.offlineOccurredAt ? { createdAt: opts.offlineOccurredAt, date: opts.offlineOccurredAt } : {}),
           settlementMethod: row.method, sourceRef: `order:${o.id}:${settlement.idempotencyKey}:${row.method}`,
           description: `دریافت ${row.method === "cash" ? "نقدی" : row.method === "pos" ? "کارتخوان" : "بانکی"} سفارش #${o.number}`,
         })));
@@ -844,7 +851,7 @@ export async function settleOrder(
       }
       cogs = Math.round(cogs);
       if (cogs) await tx.update(orders).set({ cogs }).where(and(eq(orders.id, o.id), eq(orders.businessId, biz.id)));
-      const saleDocument = await postOrderSaleInTransaction(tx, biz, { ...o, cashbackEarned: earned, paymentMethod }, cogs, earned, opts.creditSale ?? false, settlement ?? undefined);
+      const saleDocument = await postOrderSaleInTransaction(tx, biz, { ...o, cashbackEarned: earned, paymentMethod }, cogs, earned, opts.creditSale ?? false, settlement ?? undefined, opts.offlineOccurredAt);
       if (debtSale && o.customerId) {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`receivable-customer:${biz.id}:${o.customerId}`}))`);
         let [account] = await tx.select().from(receivableAccounts)
@@ -870,7 +877,7 @@ export async function settleOrder(
 
     if (payment) await tx.update(payments).set({ status: "paid", refId: (opts.paymentRef ?? payment.refId).slice(0, 80), settlementError: "" })
       .where(and(eq(payments.id, payment.id), eq(payments.businessId, biz.id), eq(payments.orderId, o.id)));
-    if (!alreadyPaid && !opts.creditSale) await queuePrintJobs(biz, o.id, features, false, undefined, tx, "settled");
+    if (!opts.skipPrint && !alreadyPaid && !opts.creditSale) await queuePrintJobs(biz, o.id, features, false, undefined, tx, "settled");
   };
   if (opts.executor) await settle(opts.executor);
   else await db.transaction((rawTx) => settle(rawTx as unknown as QueryDb));

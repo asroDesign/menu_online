@@ -75,6 +75,7 @@ const NAV: { title?: string; items: Item[] }[] = [
     { href: "/dashboard/couriers", label: "مدیریت پیک", icon: "motorcycle", feature: "courier" },
     { href: "/dashboard/zones", label: "محدوده‌های ارسال", icon: "map", feature: "zones" },
     { href: "/dashboard/devices", label: "تبلت و پوز", icon: "mobile", feature: "tablet_pos" },
+    { href: "/dashboard/settings/offline-pos", label: "صندوق آفلاین ویندوز", icon: "desktop", feature: "cashier_pos" },
     { href: "/dashboard/settings/printers/devices", label: "پرینترها و چاپ خودکار", icon: "print", feature: "cloud_printer" },
     { href: "/dashboard/caller-id", label: "کالر آیدی", icon: "phone", feature: "caller_id" },
     { href: "/dashboard/scale", label: "ترازوی دیجیتال", icon: "scale", feature: "scale" },

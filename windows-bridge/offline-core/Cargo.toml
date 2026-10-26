@@ -1,0 +1,10 @@
+[package]
+name = "menupeak-offline-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }

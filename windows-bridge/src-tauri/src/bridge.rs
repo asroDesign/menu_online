@@ -721,3 +721,16 @@ mod tests {
         assert!(requests.iter().all(|request| !request.contains("/jobs")));
     }
 }
+
+/// Durable local POS queue calls this directly; cloud sync never queues it again.
+pub fn send_local_receipt(device: &DeviceConfig, content: &str) -> Result<(), String> {
+    if device.kind != "printer" { return Err("دستگاه چاپگر نیست".into()); }
+    probe_printer(device)?;
+    print_job(device, content)
+}
+pub fn ring_local_pager(device: &DeviceConfig, number: i64) -> Result<(), String> {
+    if device.kind != "pager" || !(1..=9999).contains(&number) { return Err("پیجر یا شماره معتبر نیست".into()); }
+    probe_transmitter(device)?;
+    let command=pager_command(device.format.as_deref().unwrap_or("R{n}\\r\\n"),number);
+    send_wire(device, &decode_escapes(&command))
+}

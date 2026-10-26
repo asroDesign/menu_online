@@ -2,3 +2,8 @@
 drizzle.config.json
 node_modules
 .next
+
+# Native build output (lockfiles are kept for reproducibility)
+windows-bridge/offline-core/target/
+windows-bridge/src-tauri/target/
+windows-bridge/src-tauri/gen/

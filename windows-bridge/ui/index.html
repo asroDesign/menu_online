@@ -3,11 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>پل سخت‌افزار منو</title>
+    <title>MenuPeak Desktop</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main class="shell">
+    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
+    <main id="pos-app" class="pos-app">
+      <header class="pos-top"><div><span class="pos-eyebrow">فروش ادامه دارد</span><h1 id="pos-name">صندوق محلی MenuPeak</h1></div><div><span id="pos-health" class="pos-status">در حال آماده‌سازی</span><button id="pos-refresh" class="button secondary">به‌روزرسانی منو</button></div></header>
+      <section id="pos-pair-card" class="card"><h2>اتصال به رستوران</h2><p>در سایت، تنظیمات ← صندوق آفلاین ویندوز، فایل اتصال را بسازید و اینجا وارد کنید.</p><label class="button primary">انتخاب فایل اتصال<input id="pos-pair" type="file" accept=".json" hidden></label><p class="muted">پس از دریافت منو، سفارش‌گیری به اینترنت وابسته نیست. کلید و اطلاعات فروش با حساب Windows شما محافظت می‌شوند.</p></section>
+      <div class="pos-layout"><section class="pos-catalog card"><div class="pos-search"><input id="pos-search" placeholder="جست‌وجوی محصول…" aria-label="جست‌وجوی محصول"><select id="pos-category" aria-label="دسته‌بندی"><option value="">همه دسته‌ها</option></select></div><div id="pos-products" class="pos-products"></div></section>
+      <aside class="pos-cart card"><div class="pos-cart-title"><h2>سفارش جاری</h2><button id="pos-clear" class="text-button">خالی‌کردن</button></div><div class="pos-form-row"><label>نوع سفارش<select id="pos-type"><option value="dine_in">داخل سالن</option><option value="takeaway">بیرون‌بر</option></select></label><label>میز<select id="pos-table"><option value="">بدون میز</option></select></label></div><div id="pos-cart-lines" class="pos-cart-lines"></div><div class="pos-form-row"><input id="pos-customer" placeholder="نام مشتری (اختیاری)" maxlength="80" aria-label="نام مشتری"><input id="pos-phone" placeholder="موبایل مشتری" maxlength="11" inputmode="tel" dir="ltr" aria-label="شماره مشتری"></div><textarea id="pos-note" rows="2" maxlength="300" placeholder="توضیح سفارش" aria-label="توضیح سفارش"></textarea><div class="pos-total"><span>جمع با مالیات و خدمات</span><strong id="pos-total">۰ تومان</strong></div><button id="pos-checkout" class="button primary pos-checkout" disabled>ثبت سفارش و دریافت وجه</button><p class="muted">ابتدا در پایگاه محلی ذخیره، سپس به سایت ارسال می‌شود.</p></aside></div>
+      <section class="card"><div class="section-heading"><div><h2>صف و سوابق محلی</h2><p id="pos-counts">—</p></div><button id="pos-backup" class="button secondary">پشتیبان‌گیری</button></div><p id="pos-sync-message" class="muted"></p><div class="pos-history-scroll"><table class="pos-table"><thead><tr><th>فیش</th><th>مبلغ</th><th>وجه</th><th>همگام‌سازی</th><th>عملیات</th></tr></thead><tbody id="pos-history"></tbody></table></div></section>
+      <details class="card"><summary>چاپ محلی، دسته‌های آشپزخانه و پیجر</summary><p class="muted">ابتدا تجهیزات را در تب تجهیزات تعریف کنید. هر چاپگر یک مسیر دارد؛ فیش‌های محلی هنگام همگام‌سازی دوباره چاپ نمی‌شوند.</p><div id="pos-routes"></div><button id="pos-route-save" class="button secondary">ذخیره مسیرهای چاپ</button><div class="pos-form-row pager-form"><select id="pos-pager" aria-label="فرستنده پیجر"></select><input id="pos-pager-number" type="number" min="1" max="9999" placeholder="شماره پیجر" aria-label="شماره پیجر"><button id="pos-ring" class="button primary">صداکردن پیجر</button></div><div id="pos-prints"></div></details>
+      <p class="pos-footer">منوی ذخیره‌شده تا ۷ روز معتبر است · موجودی و حسابداری مرکزی پس از همگام‌سازی به‌روز می‌شوند · برنامه در کنار ساعت Windows فعال می‌ماند</p>
+    </main>
+    <main id="hardware-app" class="shell" hidden>
       <header class="topbar">
         <div class="brand-mark">م</div>
         <div class="brand-copy"><h1>پل سخت‌افزار منو</h1><p>اتصال امن صندوق به چاپگر و ترازو</p></div>
@@ -45,9 +55,12 @@
         <div id="logs" class="logs"><p class="muted">گزارشی ثبت نشده است.</p></div>
       </section>
 
-      <footer>پنجره را باز یا کوچک‌شده نگه دارید. بستن برنامه، چاپ خودکار را متوقف می‌کند.</footer>
+      <footer>بستن پنجره برنامه را به کنار ساعت منتقل می‌کند. برای خروج کامل از منوی آیکن MenuPeak کنار ساعت استفاده کنید.</footer>
       <div id="toast" role="status" aria-live="polite"></div>
     </main>
-    <script src="./app.js"></script>
+    <dialog id="pos-product-dialog" class="pos-dialog"><form id="pos-product-form"><div class="section-heading"><h2 id="pos-product-title"></h2><button type="button" data-close="pos-product-dialog" class="text-button">بستن</button></div><div id="pos-options"></div><div id="pos-weight" class="pos-form-row"><label>وزن ناخالص (گرم)<input id="pos-gross" type="number" min="1" max="100000"></label><label>وزن ظرف (گرم)<input id="pos-tare" type="number" min="0" value="0"></label></div><label>تعداد<input id="pos-qty" type="number" min="1" max="50" value="1" required></label><p id="pos-product-error" role="alert"></p><button class="button primary pos-checkout">افزودن به سفارش</button></form></dialog>
+    <dialog id="pos-checkout-dialog" class="pos-dialog"><form id="pos-payment-form"><div class="section-heading"><h2>ثبت سفارش / دریافت وجه</h2><button type="button" data-close="pos-checkout-dialog" class="text-button">بستن</button></div><p id="pos-payment-total" class="pos-total"></p><label>وضعیت دریافت<select id="pos-method"><option value="cash">دریافت نقدی کامل</option><option value="pos">دریافت با کارتخوان</option><option value="mixed">نقدی و کارتخوان</option><option value="unpaid">ثبت سفارش بدون دریافت وجه</option></select></label><div id="pos-payment-fields"><label id="pos-cash-label">مبلغ نقدی (تومان)<input id="pos-cash" inputmode="numeric" value="0"></label><div id="pos-bank-fields"><label>کارتخوان<select id="pos-terminal"></select></label><label>شماره پیگیری تراکنش موفق<input id="pos-ref" dir="ltr" maxlength="40" autocomplete="off"></label><p class="muted">این ثبت به معنی ارسال خودکار مبلغ یا تأیید بانکی نیست. نتیجه موفق را روی دستگاه بررسی و شماره پیگیری رسید را وارد کنید.</p><p id="pos-card-amount"></p></div></div><p id="pos-payment-error" role="alert"></p><button id="pos-submit" class="button primary pos-checkout">ثبت در پایگاه محلی</button></form></dialog>
+    <div id="pos-toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script><script src="./pos.js"></script>
   </body>
 </html>

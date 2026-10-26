@@ -1925,3 +1925,19 @@ export const apiRateLimits = pgTable("api_rate_limits", {
   count: integer("count").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Offline POS credentials are scoped to one business; only hashes are retained.
+export const offlineTerminals = pgTable("offline_terminals", {
+  id: text("id").primaryKey(), businessId: bizId(), name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(), createdBy: integer("created_by").notNull().references(() => users.id),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }), lastSeenAt: timestamp("last_seen_at", { withTimezone: true }), createdAt: created(),
+});
+export const offlineCatalogs = pgTable("offline_catalogs", {
+  id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id),
+  payload: jsonb("payload").$type<import("@/lib/offline-pos-core").OfflineCatalog>().notNull(), createdAt: created(),
+});
+export const offlineSales = pgTable("offline_sales", {
+  id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id), businessId: bizId(),
+  payloadHash: text("payload_hash").notNull(), payload: jsonb("payload").$type<import("@/lib/offline-pos-core").OfflineSale>().notNull(),
+  orderId: integer("order_id").references(() => orders.id), createdAt: created(),
+});

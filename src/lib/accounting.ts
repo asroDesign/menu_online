@@ -606,7 +606,7 @@ export async function postOrderSale(biz: Biz, o: OrderRow, cogs: number, earned:
 export async function postOrderSaleInTransaction(txInput: Q, biz: Biz, o: OrderRow, cogs: number, earned: number, receivable = false, settlement?: {
   cashAmount: number; bankAmount: number; bankAccountId: number | null;
   posAmount: number; posDeviceId: number | null; posBankAccountId: number | null; posRefNo?: string; creditAmount: number;
-}) {
+}, occurredAt?: Date) {
   const tx = txInput as Q;
   await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
   const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
@@ -670,7 +670,7 @@ export async function postOrderSaleInTransaction(txInput: Q, biz: Biz, o: OrderR
     if (settlement.creditAmount > 0) tenderLines.push({ accountId: byCode.get(C.AR)!.id, amount: settlement.creditAmount, description: `مانده در دفتر بدهکاران سفارش #${o.number}` });
   }
   return postDocumentInTransaction(tx, biz, {
-    date: new Date(), source: "order", sourceRef: `order:${o.id}`,
+    date: occurredAt ?? new Date(), source: "order", sourceRef: `order:${o.id}`,
     description: `فروش سفارش #${o.number}${o.customerName ? ` — ${o.customerName}` : ""}`,
     lines: orderDocLines(o, payId, ids, cogs, earned, tenderLines),
   });

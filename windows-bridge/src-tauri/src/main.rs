@@ -1,4 +1,6 @@
 mod bridge;
+mod offline;
+use offline::*;
 
 use bridge::{BridgeConfig, LogSink};
 use serde::Serialize;
@@ -251,7 +253,13 @@ fn autostart_enabled() -> bool {
 
 fn main() {
     let state = AppState::new();
+    let root = state.config_path.parent().expect("application data directory").to_path_buf();
+    let offline = OfflineState::new(root).expect("پایگاه محلی باز نشد؛ فایل پایگاه را حذف نکنید");
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
+        }))
+        .manage(offline)
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             bridge_status,
@@ -262,10 +270,26 @@ fn main() {
             test_cloud_printer,
             stop_bridge,
             clear_logs,
-            set_autostart
+            set_autostart,
+            offline_status, offline_pair, offline_save, offline_pay, offline_retry,
+            offline_draft, offline_routes, offline_retry_print, offline_backup, offline_ring, offline_refresh, offline_quote
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event { api.prevent_close(); let _ = window.hide(); }
+        })
         .setup(|app| {
+            use tauri::menu::{Menu, MenuItem};
+            let show = MenuItem::with_id(app, "show", "بازکردن صندوق", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "خروج کامل", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            tauri::tray::TrayIconBuilder::new().icon(app.default_window_icon().expect("tray icon").clone()).menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => { if let Some(w) = app.get_webview_window("main") { let _=w.show(); let _=w.set_focus(); } },
+                    "quit" => app.exit(0), _ => {}
+                }).build(app)?;
+            app.state::<OfflineState>().start();
             if std::env::args().any(|arg| arg == "--autostart") {
+                if let Some(window) = app.get_webview_window("main") { let _=window.hide(); }
                 let state = app.state::<AppState>();
                 if let Err(error) = start_inner(&state) {
                     (state.logger())(format!("شروع خودکار انجام نشد: {error}"));
