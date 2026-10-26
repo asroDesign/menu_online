@@ -150,7 +150,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"] {
+                    'workspace_modules: for module in ["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -197,7 +197,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    if module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" { let _ = store.set("workspace_refresh", &json!(true)); }
+                                    if module == "menu" || module == "customers" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -218,7 +218,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 && (module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques") {
+                                    if status == 409 && (module == "menu" || module == "customers" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
@@ -1102,7 +1102,19 @@ pub fn offline_workspace_menu(state: State<'_, OfflineState>) -> Result<Option<V
 #[tauri::command]
 pub fn offline_workspace_customers(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("customers")
+    let mut snapshot = store.workspace_snapshot("customers")?;
+    if let Some(value) = snapshot.as_mut() { value["localChanges"] = store.workspace_customer_commands()?; }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn offline_workspace_create_customer(name: String, phone: String, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_customer_create_with_pin(&manager_pin, &name, &phone)
+}
+
+#[tauri::command]
+pub fn offline_workspace_update_customer_name(customer_id: i64, name: String, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_customer_name_update_with_pin(&manager_pin, customer_id, &name)
 }
 
 #[tauri::command]

@@ -13,6 +13,7 @@ import { cashShiftTotalsByShift } from "@/lib/cash-shifts";
 import { startOfDayTehran } from "@/lib/jalali";
 import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
 import { normalizeProductOptionGroups } from "@/lib/product-options";
+import { parseOfflineCustomerCommand, type OfflineCustomerCommand } from "@/lib/offline-customer-core";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -676,6 +677,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
   if (isRecord(raw) && raw.module === "cheques") return syncOfflineChequeCommand(req, raw);
   if (isRecord(raw) && raw.module === "staff") return syncOfflineStaffRequest(req, parseStaffCommand(raw));
   if (isRecord(raw) && raw.module === "accounting") return syncOfflineAccountingCommand(req, raw);
+  if (isRecord(raw) && raw.module === "customers") return syncOfflineCustomerCommand(req, raw);
   const command = parseMenuCommand(raw);
   const { terminal, business, features } = await offlineAuth(req);
   if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "همگام‌سازی پنل آفلاین در اشتراک فعلی فعال نیست");
@@ -781,6 +783,89 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
     const error = typeof outcome.response.error === "string" ? outcome.response.error : "فرمان پنل آفلاین اعمال نشد";
     throw new HttpError(outcome.httpStatus, error);
   }
+  return outcome.response;
+}
+
+function parseCustomerCommand(raw: unknown): OfflineCustomerCommand {
+  try {
+    return parseOfflineCustomerCommand(raw);
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : "فرمان مشتری آفلاین معتبر نیست");
+  }
+}
+
+export async function syncOfflineCustomerCommand(req: Request, raw: unknown) {
+  const command = parseCustomerCommand(raw);
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty")) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
+  if (command.businessId !== business.id) throw new HttpError(403, "فرمان مشتری متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+
+  const outcome = await db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این دستگاه لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.module !== "customers" || previous.payloadHash !== payloadHash) {
+        return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      }
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(
+      eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId),
+      eq(offlineWorkspaceSnapshots.terminalId, terminal.id),
+      eq(offlineWorkspaceSnapshots.businessId, business.id),
+      eq(offlineWorkspaceSnapshots.dataset, "customers"),
+      eq(offlineWorkspaceSnapshots.revision, command.baseRevision),
+    )).for("update");
+
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "") => {
+      const response = { commandId: command.id, state, receipt, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({
+        id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy,
+        module: "customers", action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>,
+        state, httpStatus, error, receipt, result: response,
+      });
+      return { httpStatus, response };
+    };
+
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ مشتریان پیدا نشد یا منقضی شده است؛ پس از اتصال نسخهٔ تازه بگیرید");
+    const snapshotCustomers = Array.isArray(snapshot.payload.customers) ? snapshot.payload.customers as Record<string, unknown>[] : [];
+
+    if (command.action === "create") {
+      const item = (command.payload as Extract<OfflineCustomerCommand["payload"], { customer: unknown }>).customer;
+      if (snapshotCustomers.some((row) => row.phone === item.phone)) return record("conflict", 409, "این شماره در نسخهٔ محلی مشتریان موجود است؛ نام همان مشتری را ویرایش کنید");
+      const [existingByPhone] = await tx.select({ id: customers.id, name: customers.name }).from(customers)
+        .where(and(eq(customers.businessId, business.id), eq(customers.phone, item.phone))).for("update");
+      if (existingByPhone) {
+        if (existingByPhone.name === item.name) return record("applied", 200, "", String(existingByPhone.id));
+        return record("conflict", 409, "این شماره پس از snapshot برای مشتری دیگری ثبت شده است؛ اطلاعات موجود را بررسی کنید");
+      }
+      const [created] = await tx.insert(customers).values({
+        businessId: business.id, name: item.name, phone: item.phone, smsOptIn: false,
+      }).onConflictDoNothing({ target: [customers.businessId, customers.phone] }).returning({ id: customers.id });
+      if (!created) return record("conflict", 409, "این شماره هم‌زمان در سامانه ثبت شده است؛ نسخهٔ مشتریان را تازه کنید");
+      return record("applied", 200, "", String(created.id));
+    }
+
+    const { customerId, patch } = command.payload as Extract<OfflineCustomerCommand["payload"], { customerId: number }>;
+    const [current] = await tx.select({ id: customers.id, name: customers.name, phone: customers.phone })
+      .from(customers).where(and(eq(customers.id, customerId), eq(customers.businessId, business.id))).for("update");
+    const base = snapshotCustomers.find((row) => row.id === customerId);
+    if (!current || !base) return record("conflict", 409, "مشتری در نسخهٔ مبنا یا سرور پیدا نشد؛ نسخهٔ تازه بگیرید");
+    if (current.name !== base.name || current.phone !== base.phone) return record("conflict", 409, "اطلاعات مشتری از زمان دریافت نسخه تغییر کرده است؛ برای جلوگیری از بازنویسی، تغییر را بازبینی کنید");
+    if (current.name === patch.name) return record("applied", 200, "", String(current.id));
+    await tx.update(customers).set({ name: patch.name }).where(and(
+      eq(customers.id, current.id), eq(customers.businessId, business.id), eq(customers.name, current.name), eq(customers.phone, current.phone),
+    ));
+    return record("applied", 200, "", String(current.id));
+  });
+
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, "error" in outcome.response && typeof outcome.response.error === "string" ? outcome.response.error : "همگام‌سازی تغییر مشتری انجام نشد");
   return outcome.response;
 }
 

@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceAccounting, workspaceAccountingLoaded=false, workspaceReceivables, workspaceReceivablesLoaded=false, workspaceCashShifts, workspaceCashShiftsLoaded=false, workspaceReports, workspaceReportsLoaded=false, workspaceCheques, workspaceChequesLoaded=false, workspaceReceivablesMetaKey='', workspaceReceivablesSyncKey='', workspaceCashShiftsMetaKey='', workspaceCashShiftsSyncKey='', workspaceReportsMetaKey='', workspaceReportsSyncKey='', workspaceChequesMetaKey='', workspaceChequesSyncKey='', workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceOrderHistorySyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceAccountingMetaKey='', workspaceAccountingSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), manualDiscountAmount=0, total=0, chosen, payingId=null, activeInventoryWasteItem=null, activeInventoryMovement=null, activeInventoryTransferDecision=null, activeReservationStatus=null, activeReceivablePayment=null, activeChequeStatus=null, inventoryPaidEdited=false, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
+  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceAccounting, workspaceAccountingLoaded=false, workspaceReceivables, workspaceReceivablesLoaded=false, workspaceCashShifts, workspaceCashShiftsLoaded=false, workspaceReports, workspaceReportsLoaded=false, workspaceCheques, workspaceChequesLoaded=false, workspaceReceivablesMetaKey='', workspaceReceivablesSyncKey='', workspaceCashShiftsMetaKey='', workspaceCashShiftsSyncKey='', workspaceReportsMetaKey='', workspaceReportsSyncKey='', workspaceChequesMetaKey='', workspaceChequesSyncKey='', workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceOrderHistorySyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceAccountingMetaKey='', workspaceAccountingSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), manualDiscountAmount=0, total=0, chosen, payingId=null, activeCustomerEdit=null, activeInventoryWasteItem=null, activeInventoryMovement=null, activeInventoryTransferDecision=null, activeReservationStatus=null, activeReceivablePayment=null, activeChequeStatus=null, inventoryPaidEdited=false, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value,manualDiscountAmount};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -330,27 +330,75 @@
   function renderWorkspaceCustomers(){
     const snapshot=workspaceCustomers,payload=snapshot?.payload;
     const sync=state?.workspaceCustomerSync;
+    const createButton=$('customer-create-open');
+    if(createButton)createButton.disabled=!snapshot||snapshot.expired||!state?.localManagerPinConfigured;
     if(!snapshot||!payload){
       $('customers-sync').textContent=sync?.message||'داده‌ای دریافت نشده';
       $('customers-sync').className='pos-status';
       $('customers-state').textContent=sync?.message||'برای دریافت فهرست مشتریان، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
       $('customers-summary').innerHTML='';$('customers-list').innerHTML='';return;
     }
-    const customers=Array.isArray(payload.customers)?payload.customers:[];
+    const customers=Array.isArray(payload.customers)?payload.customers:[],changes=Array.isArray(snapshot.localChanges)?snapshot.localChanges:[];
+    const activeUpdates=new Map();
+    const customerCreateByPhone=new Map();
+    for(const change of changes.filter(item=>item.action==='update')){
+      const id=Number(change.payload?.customerId),row=customers.find(customer=>Number(customer.id)===id),name=change.payload?.patch?.name;
+      if(!row||typeof name!=='string'||row.name===name)continue;
+      const previous=activeUpdates.get(id);
+      if(!previous||String(previous.createdAt)<String(change.createdAt))activeUpdates.set(id,change);
+    }
+    for(const change of changes.filter(item=>item.action==='create')){
+      const phone=change.payload?.customer?.phone;if(!phone)continue;const previous=customerCreateByPhone.get(phone);
+      if(!previous||String(previous.createdAt)<String(change.createdAt))customerCreateByPhone.set(phone,change);
+    }
+    const localCreates=changes.filter(change=>change.action==='create'&&change.payload?.customer?.phone&&!customers.some(customer=>customer.phone===change.payload.customer.phone));
     const query=$('customers-search').value.trim().toLocaleLowerCase('fa-IR');
-    const filtered=customers.filter(customer=>!query||`${customer.name||''} ${customer.phone||''}`.toLocaleLowerCase('fa-IR').includes(query));
+    const filtered=customers.filter(customer=>!query||`${customer.name||''} ${activeUpdates.get(Number(customer.id))?.payload?.patch?.name||''} ${customer.phone||''}`.toLocaleLowerCase('fa-IR').includes(query));
+    const filteredCreates=localCreates.filter(change=>!query||`${change.payload.customer.name||''} ${change.payload.customer.phone||''}`.toLocaleLowerCase('fa-IR').includes(query));
     const totalSpent=customers.reduce((sum,customer)=>sum+Number(customer.totalSpent||0),0);
     const totalPoints=customers.reduce((sum,customer)=>sum+Number(customer.points||0),0);
     $('customers-sync').textContent=snapshot.expired?'نسخه منقضی · فقط مشاهده':`نسخه ${money(snapshot.revision)} · ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}`;
     $('customers-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
-    $('customers-state').textContent=`${money(payload.totalCustomers)} مشتری در نسخهٔ محلی · ${money(filtered.length)} نتیجه · آخرین دریافت ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}${sync?.message?` · ${sync.message}`:''}`;
-    $('customers-summary').innerHTML=`<article><span>مشتریان ذخیره‌شده</span><b>${money(payload.totalCustomers)}</b></article><article><span>مجموع امتیاز ثبت‌شده</span><b>${money(totalPoints)}</b></article><article><span>مجموع خرید در snapshot</span><b>${money(totalSpent)} تومان</b></article>`;
-    $('customers-list').innerHTML=filtered.length?`<table class="pos-table"><thead><tr><th>مشتری</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>امتیاز</th><th>اعتبار کیف پول</th><th>آخرین خرید</th></tr></thead><tbody>${filtered.map(customer=>`<tr><td><b>${esc(customer.name)}</b><small dir="ltr">${esc(customer.phone)}</small></td><td>${money(customer.ordersCount)}</td><td>${money(customer.totalSpent)} تومان</td><td>${money(customer.points)}</td><td>${money(customer.walletBalance)} تومان</td><td>${customer.lastOrderAt?new Date(customer.lastOrderAt).toLocaleDateString('fa-IR'):'—'}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">مشتری‌ای با این جست‌وجو در نسخهٔ محلی پیدا نشد.</p>';
+    const pendingChanges=changes.filter(item=>['pending','conflict','rejected'].includes(item.state)).length;
+    $('customers-state').textContent=`${money(payload.totalCustomers)} مشتری سرور · ${money(filtered.length+filteredCreates.length)} نتیجه · ${money(pendingChanges)} تغییر محلی${pendingChanges?' در انتظار همگام‌سازی یا بازبینی':''} · آخرین دریافت ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}${sync?.message?` · ${sync.message}`:''}`;
+    $('customers-summary').innerHTML=`<article><span>مشتریان سرور</span><b>${money(payload.totalCustomers)}</b></article><article><span>مجموع امتیاز ثبت‌شده</span><b>${money(totalPoints)}</b></article><article><span>مجموع خرید در snapshot</span><b>${money(totalSpent)} تومان</b></article>`;
+    const stateLabel=change=>({pending:'در صف همگام‌سازی',conflict:'نیازمند بازبینی',rejected:'ردشده',synced:'ثبت‌شده در سرور'})[change.state]||change.state;
+    const canEdit=!snapshot.expired&&!!state?.localManagerPinConfigured;
+    const customerRows=filtered.map(customer=>{const change=activeUpdates.get(Number(customer.id)),createChange=customerCreateByPhone.get(customer.phone),displayName=change?.state==='pending'||change?.state==='synced'?change.payload.patch.name:customer.name;return `<tr><td><b>${esc(displayName)}</b><small dir="ltr">${esc(customer.phone)}</small>${change?`<small class="customer-local-change ${esc(change.state)}">درخواست تغییر نام: ${esc(change.payload.patch.name)} · ${esc(stateLabel(change))}${change.error?` · ${esc(change.error)}`:''}</small>`:''}${createChange&&['conflict','rejected'].includes(createChange.state)?`<small class="customer-local-change ${esc(createChange.state)}">درخواست ثبت مشتری: ${esc(stateLabel(createChange))}${createChange.error?` · ${esc(createChange.error)}`:''}</small>`:''}</td><td>${money(customer.ordersCount)}</td><td>${money(customer.totalSpent)} تومان</td><td>${money(customer.points)}</td><td>${money(customer.walletBalance)} تومان</td><td>${customer.lastOrderAt?new Date(customer.lastOrderAt).toLocaleDateString('fa-IR'):'—'}</td><td><button class="button secondary" type="button" data-customer-edit="${customer.id}" ${canEdit?'':'disabled'}>اصلاح نام</button></td></tr>`;}).join('');
+    const localRows=filteredCreates.map(change=>`<tr class="customer-local-row"><td><b>${esc(change.payload.customer.name)}</b><small dir="ltr">${esc(change.payload.customer.phone)}</small><small class="customer-local-change ${esc(change.state)}">مشتری محلی · ${esc(stateLabel(change))}${change.error?` · ${esc(change.error)}`:''}</small></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`).join('');
+    $('customers-list').innerHTML=customerRows||localRows?`<table class="pos-table"><thead><tr><th>مشتری</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>امتیاز</th><th>اعتبار کیف پول</th><th>آخرین خرید</th><th>عملیات</th></tr></thead><tbody>${customerRows}${localRows}</tbody></table>`:'<p class="muted">مشتری‌ای با این جست‌وجو در نسخهٔ محلی پیدا نشد.</p>';
   }
   async function loadWorkspaceCustomers(){
     try{workspaceCustomers=await call('offline_workspace_customers');renderWorkspaceCustomers();}
     catch(error){$('customers-state').textContent=String(error);$('customers-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('customers-sync').className='pos-status offline';}
   }
+  function openCustomerEditor(customer=null){
+    if(!workspaceCustomers||workspaceCustomers.expired||!state?.localManagerPinConfigured){notify('برای تغییر مشتری، snapshot معتبر و PIN مدیر محلی لازم است.',true);return;}
+    activeCustomerEdit=customer?{id:Number(customer.id)}:null;
+    $('customer-editor-title').textContent=customer?'اصلاح نام مشتری':'ثبت مشتری آفلاین';
+    $('customer-editor-name').value=customer?.name||'';
+    $('customer-editor-phone').value=customer?.phone||'';
+    $('customer-editor-phone-wrap').hidden=!!customer;
+    $('customer-editor-phone').disabled=!!customer;
+    $('customer-editor-phone').required=!customer;
+    $('customer-editor-phone-help').textContent=customer?'شمارهٔ مشتری شناسهٔ یکتای باشگاه است و از این فرم تغییر نمی‌کند.':'شماره برای جلوگیری از ساخت مشتری تکراری، هنگام همگام‌سازی هم در سرور کنترل می‌شود.';
+    $('customer-editor-pin').value='';$('customer-editor-error').textContent='';$('customer-editor-submit').disabled=false;
+    $('customer-editor-dialog').showModal();$('customer-editor-name').focus();
+  }
+  $('customer-create-open').onclick=()=>openCustomerEditor();
+  $('customers-list').onclick=event=>{const button=event.target.closest('[data-customer-edit]');if(!button||button.disabled)return;const customer=(workspaceCustomers?.payload?.customers||[]).find(row=>Number(row.id)===Number(button.dataset.customerEdit));if(customer)openCustomerEditor(customer);};
+  $('customer-editor-form').onsubmit=async event=>{
+    event.preventDefault();const submit=$('customer-editor-submit');if(submit.disabled)return;submit.disabled=true;$('customer-editor-error').textContent='';
+    try{
+      const name=$('customer-editor-name').value.trim(),managerPin=digits($('customer-editor-pin').value),response=activeCustomerEdit
+        ?await call('offline_workspace_update_customer_name',{customerId:activeCustomerEdit.id,name,managerPin})
+        :await call('offline_workspace_create_customer',{name,phone:$('customer-editor-phone').value.trim(),managerPin});
+      $('customer-editor-dialog').close();$('customer-editor-form').reset();activeCustomerEdit=null;
+      notify(response.action==='create'?'مشتری تازه در صف رمز‌شدهٔ همگام‌سازی ذخیره شد.':'درخواست اصلاح نام مشتری در صف رمز‌شدهٔ همگام‌سازی ذخیره شد.');
+      await refresh();await loadWorkspaceCustomers();
+    }catch(error){$('customer-editor-error').textContent=String(error);}
+    finally{submit.disabled=false;}
+  };
   function inventoryExpiryDays(item,today){
     if(!item.expiryDate||Number(item.stock)<=0)return null;
     const expiry=Date.parse(`${item.expiryDate}T00:00:00Z`),current=Date.parse(`${today}T00:00:00Z`);

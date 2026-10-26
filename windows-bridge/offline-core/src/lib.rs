@@ -98,6 +98,25 @@ fn normalize_menu_modifier_groups(value: &Value) -> Result<Value> {
 fn valid_manager_pin(pin: &str) -> bool {
     (8..=12).contains(&pin.len()) && pin.bytes().all(|byte| byte.is_ascii_digit())
 }
+fn normalize_customer_name(value: &str) -> Result<String> {
+    let name = value.trim();
+    if name.is_empty() || name.chars().count() > 80 { return Err("نام مشتری باید بین ۱ تا ۸۰ نویسه باشد".into()); }
+    Ok(name.to_string())
+}
+fn normalize_customer_phone(value: &str) -> Result<String> {
+    let normalized = value.chars().map(|character| match character {
+        '۰'..='۹' => char::from(b'0' + (character as u32 - '۰' as u32) as u8),
+        '٠'..='٩' => char::from(b'0' + (character as u32 - '٠' as u32) as u8),
+        other => other,
+    }).filter(|character| character.is_ascii_digit()).collect::<String>();
+    let local = if let Some(rest) = normalized.strip_prefix("98") {
+        format!("0{rest}")
+    } else if normalized.len() == 10 && normalized.starts_with('9') {
+        format!("0{normalized}")
+    } else { normalized };
+    if local.len() != 11 || !local.starts_with("09") { return Err("شمارهٔ موبایل باید یک شمارهٔ معتبر ایران باشد".into()); }
+    Ok(local)
+}
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
     for index in 0..left.len().max(right.len()) {
@@ -837,6 +856,73 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":id,"state":"pending","action":action}))
+    }
+
+    pub fn enqueue_customer_create_with_pin(&mut self, pin: &str, name: &str, phone: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        let name = normalize_customer_name(name)?;
+        let phone = normalize_customer_phone(phone)?;
+        let snapshot = self.workspace_snapshot("customers")?.ok_or_else(|| "نسخهٔ مشتریان این دستگاه دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ مشتریان منقضی است؛ برای ثبت مشتری آن را تازه کنید".into()); }
+        if snapshot["payload"]["customers"].as_array().is_some_and(|rows| rows.iter().any(|row| row["phone"].as_str() == Some(phone.as_str()))) {
+            return Err("این شماره در فهرست مشتریان هست؛ نام همان مشتری را ویرایش کنید".into());
+        }
+        let pending = self.customer_commands_for_state("pending")?;
+        if pending.iter().any(|row| row["action"] == "create" && row["payload"]["customer"]["phone"].as_str() == Some(phone.as_str())) {
+            return Err("برای این شماره یک ثبت مشتری در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"customers","action":"create",
+            "baseDataset":"customers","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"customer":{"name":name,"phone":phone}}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"create"}))
+    }
+
+    pub fn enqueue_customer_name_update_with_pin(&mut self, pin: &str, customer_id: i64, name: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if customer_id < 1 { return Err("شناسهٔ مشتری معتبر نیست".into()); }
+        let name = normalize_customer_name(name)?;
+        let snapshot = self.workspace_snapshot("customers")?.ok_or_else(|| "نسخهٔ مشتریان این دستگاه دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ مشتریان منقضی است؛ برای ویرایش آن را تازه کنید".into()); }
+        let customer = snapshot["payload"]["customers"].as_array().and_then(|rows| rows.iter().find(|row| row["id"].as_i64() == Some(customer_id))).ok_or("مشتری در نسخهٔ این دستگاه پیدا نشد")?;
+        if customer["name"].as_str() == Some(name.as_str()) { return Err("نام واردشده با نام فعلی تفاوتی ندارد".into()); }
+        let pending = self.customer_commands_for_state("pending")?;
+        if pending.iter().any(|row| row["action"] == "update" && row["payload"]["customerId"].as_i64() == Some(customer_id)) {
+            return Err("برای این مشتری یک تغییر نام در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"customers","action":"update",
+            "baseDataset":"customers","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"customerId":customer_id,"patch":{"name":name}}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"update","customerId":customer_id}))
+    }
+
+    fn customer_commands_for_state(&self, state: &str) -> Result<Vec<Value>> {
+        if !["pending", "conflict", "rejected", "synced"].contains(&state) { return Err("وضعیت فرمان مشتری معتبر نیست".into()); }
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='customers' AND state=?2 ORDER BY sequence DESC LIMIT 500").map_err(err)?;
+        let rows = query.query_map(params![business_id,state], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,Vec<u8>>(4)?,row.get::<_,String>(5)?))).map_err(err)?;
+        rows.map(|row| {
+            let (command_id, action, state, error, payload, created_at) = row.map_err(err)?;
+            let command = value(payload)?;
+            Ok(json!({"commandId":command_id,"action":action,"state":state,"error":error,"payload":command["payload"],"createdAt":created_at}))
+        }).collect()
+    }
+
+    pub fn workspace_customer_commands(&self) -> Result<Value> {
+        let mut changes = Vec::new();
+        for state in ["pending", "conflict", "rejected", "synced"] {
+            changes.extend(self.customer_commands_for_state(state)?);
+        }
+        changes.sort_by(|left, right| right["createdAt"].as_str().cmp(&left["createdAt"].as_str()));
+        changes.truncate(500);
+        Ok(Value::Array(changes))
     }
 
     pub fn enqueue_inventory_waste_with_pin(
@@ -1714,7 +1800,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"].contains(&module) {
+        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;
@@ -2491,6 +2577,13 @@ mod tests {
         assert!(normalize_menu_modifier_groups(&duplicate).is_err());
         let impossible_minimum = json!([{"id":"g","name":"گروه","required":true,"min":1,"max":1,"active":true,"options":[{"id":"o","name":"غیرفعال","priceDelta":0,"active":false}]}]);
         assert!(normalize_menu_modifier_groups(&impossible_minimum).is_err());
+    }
+    #[test]
+    fn offline_customer_inputs_are_normalized_and_validated() {
+        assert_eq!(normalize_customer_name("  نسترن  ").unwrap(), "نسترن");
+        assert_eq!(normalize_customer_phone("+۹۸ ۹۱۲ ۳۴۵ ۶۷۸۹").unwrap(), "09123456789");
+        assert!(normalize_customer_name("  ").is_err());
+        assert!(normalize_customer_phone("12345").is_err());
     }
     #[test]
     fn durable_sale_and_print_survive_restart_and_duplicate_submission() {
