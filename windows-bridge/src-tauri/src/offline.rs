@@ -210,6 +210,9 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
+                                    if status == 409 {
+                                        let _ = store.set("workspace_refresh", &json!(true));
+                                    }
                                 }
                                 if status == 401 || status == 403 || status == 404 || status == 429 || status >= 500 {
                                     break;
@@ -386,6 +389,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
     let s = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     Ok(json!({
         "paired": s.get("pairing")?.is_some(),
+        "localManagerPinConfigured": s.local_manager_pin_configured()?,
         "catalog": s.get("catalog")?,
         "sales": s.history()?,
         "counts": s.counts()?,
@@ -401,11 +405,15 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
 #[tauri::command]
 pub fn offline_workspace_menu(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("menu")
+    let mut snapshot = store.workspace_snapshot("menu")?;
+    if let Some(snapshot) = snapshot.as_mut() {
+        snapshot["localChanges"] = store.workspace_menu_pending_changes()?;
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
-pub fn offline_pair(content: String, state: State<'_, OfflineState>) -> Result<()> {
+pub fn offline_pair(content: String, manager_pin: String, state: State<'_, OfflineState>) -> Result<()> {
     if content.len() > 8192 {
         return Err("فایل اتصال بزرگ است".into());
     }
@@ -434,13 +442,29 @@ pub fn offline_pair(content: String, state: State<'_, OfflineState>) -> Result<(
     {
         return Err("فایل اتصال صندوق معتبر نیست".into());
     }
-    #[cfg(windows)]
-    crate::set_autostart(true)?;
     state
         .store
         .lock()
         .map_err(|_| "پایگاه محلی مشغول است")?
-        .pair(&pair)
+        .pair_with_manager_pin(&pair, &manager_pin)?;
+    #[cfg(windows)]
+    crate::set_autostart(true)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn offline_workspace_update_menu(
+    action: String,
+    target_id: i64,
+    patch: Value,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "پایگاه محلی مشغول است")?
+        .enqueue_menu_update_with_pin(&manager_pin, &action, target_id, patch)
 }
 #[tauri::command]
 pub fn offline_save(sale: Value, state: State<'_, OfflineState>) -> Result<Value> {

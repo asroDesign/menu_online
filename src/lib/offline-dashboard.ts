@@ -90,6 +90,8 @@ function parseMenuCommand(raw: unknown): MenuCommand {
   if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "menu" || !["update_product", "update_category"].includes(String(raw.action))) {
     throw new HttpError(400, "قالب فرمان منوی آفلاین معتبر نیست");
   }
+  const allowedCommandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(raw).some((key) => !allowedCommandKeys.includes(key))) throw new HttpError(400, "فرمان منو فیلد ناشناخته دارد");
   if (typeof raw.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id)) throw new HttpError(400, "شناسه فرمان معتبر نیست");
   if (!Number.isSafeInteger(raw.businessId) || Number(raw.businessId) < 1) throw new HttpError(400, "کسب‌وکار فرمان معتبر نیست");
   if (raw.baseDataset !== "menu" || typeof raw.baseSnapshotId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.baseSnapshotId)) throw new HttpError(400, "snapshot پایهٔ فرمان معتبر نیست");
@@ -99,6 +101,8 @@ function parseMenuCommand(raw: unknown): MenuCommand {
   const payload = raw.payload;
   const patch = payload.patch;
   const expectedId = action === "update_product" ? payload.productId : payload.categoryId;
+  const payloadKeys = action === "update_product" ? ["productId", "patch"] : ["categoryId", "patch"];
+  if (Object.keys(payload).some((key) => !payloadKeys.includes(key))) throw new HttpError(400, "محتوای فرمان منو فیلد ناشناخته دارد");
   if (!Number.isSafeInteger(expectedId) || Number(expectedId) < 1 || !isRecord(patch)) throw new HttpError(400, "شناسه یا تغییرات منو معتبر نیست");
   const allowed = action === "update_product" ? ["name", "description", "price", "isAvailable"] : ["name", "description", "isActive", "sortOrder"];
   const keys = Object.keys(patch);

@@ -17,7 +17,7 @@
 | هماهنگ‌کننده | `windows-bridge/src-tauri/src/offline.rs` | فرمان‌های Tauri، workerهای ارسال و چاپ، HTTP محدود، وضعیت اتصال |
 | عمر برنامه | `windows-bridge/src-tauri/src/main.rs` | single instance، tray، مخفی‌شدن هنگام بستن پنجره، شروع workerها پس از راه‌اندازی |
 | سخت‌افزار | `windows-bridge/src-tauri/src/bridge.rs` | چاپ مستقیم با درایور Windows/TCP/serial و ارسال فرمان پیجر طبق تنظیم دستگاه |
-| رابط صندوق | `windows-bridge/ui/index.html`, `pos.js`, `style.css` | کاتالوگ، جست‌وجو، گزینه‌ها/وزن، سبد، دریافت وجه، سوابق، خطاها، مسیر چاپ و تب read-only منوی محلی |
+| رابط صندوق | `windows-bridge/ui/index.html`, `pos.js`, `style.css` | کاتالوگ، جست‌وجو، گزینه‌ها/وزن، سبد، دریافت وجه، سوابق، خطاها، مسیر چاپ، تب منوی محلی و ویرایش PINدار محدود محصول/دسته |
 | قرارداد و قواعد | `src/lib/offline-pos-core.ts` | ساختار نسخه ۱، کنترل UUID، مبالغ، شماره پیگیری و بازه اعتبار snapshot |
 | سرویس سرور | `src/lib/offline-pos.ts` | احراز دستگاه، snapshot متعلق به همان دستگاه، idempotency و تراکنش مشترک سفارش/تسویه |
 | مدیریت دستگاه | `src/app/dashboard/settings/offline-pos/page.tsx` | ساخت کلید، دریافت فایل اتصال، لغو دسترسی، ۵۰ فروش اخیر |
@@ -39,9 +39,11 @@
 
 پیش از deploy API، migration اجرا شود. rollback فقط پس از توقف همگام‌سازی و خروجی‌گرفتن از سه جدول مجاز است؛ فایل down اسناد مالی و سفارش‌های ساخته‌شده را حذف نمی‌کند. حذف receiptهای idempotency باعث احتمال ورود دوباره فروش می‌شود، بنابراین پاک‌سازی خودکار این جدول وجود ندارد. برای snapshotهای منو نیز retention خودکار تعریف نشده؛ باید با درنظرگرفتن دستگاه‌های هنوز آفلاین سیاست جداگانه تعیین شود.
 
-## نمای read-only منوی محلی
+## نمای منوی محلی و ویرایش کنترل‌شده
 
-تب «منوی محلی» در کنار صندوق و تجهیزات، `offline_workspace_menu` را صدا می‌زند و snapshot رمز‌شده را برای مشاهدهٔ نام/توضیح/قیمت/دسته/موجودبودن می‌خواند. جست‌وجو و فیلتر دسته روی همان دادهٔ محلی انجام می‌شود. این نما هیچ mutation یا فرمان sync نمی‌سازد؛ revision منو فقط پس از دریافت تازه از سرور تغییر می‌کند. انقضای هفت‌روزه مانع دیدن دادهٔ قدیمی نمی‌شود، اما در UI مشخص است. این هنوز پنل مدیریت محصول نیست.
+تب «منوی محلی» در کنار صندوق و تجهیزات، `offline_workspace_menu` را صدا می‌زند و snapshot رمز‌شده را برای مشاهده/جست‌وجوی محصول و دسته می‌خواند. ویرایش نام/توضیح/قیمت/موجودی محصول یا نام/توضیح/فعال‌بودن/ترتیب دسته را در صف محلی ثبت می‌کند. ویرایش فقط با PIN محلی مدیر پذیرفته می‌شود؛ PIN هنگام واردکردن فایل اتصال تعیین می‌شود، روی Windows با DPAPI رمز می‌شود، پس از ۵ تلاش ناموفق ۱۰ دقیقه قفل می‌شود و برای هر تغییر دوباره درخواست می‌شود. فرمان و outbox در SQLite محافظت‌شده‌اند و revision منو فقط پس از دریافت تازه از سرور تغییر می‌کند. تغییر pending به‌صورت overlay نشان داده می‌شود و تا sync برای همان قلم ویرایش دوباره فعال نیست. snapshot منقضی برای مشاهده باقی می‌ماند اما ویرایش آن بسته است.
+
+PIN هویت جداگانهٔ کارمند نیست و audit سرور فرمان را به کاربری نسبت می‌دهد که terminal را ساخته/جفت کرده است. PIN فراموش‌شده در نسخهٔ فعلی مسیر بازیابی جدا ندارد؛ مدیر باید پیش از فعال‌کردن تغییرهای آفلاین PIN را ثبت و نگهداری کند. این guard برای کنترل استفادهٔ روزمره روی حساب Windows است، نه جایگزین کنترل دسترسی OS در برابر کاربری با دسترسی مدیر سیستم.
 
 جدول `offline_workspace_snapshots` از migration `0055_offline_workspace_snapshots.sql` است و rollback تا زمانی که نسخهٔ سرور دارد عمداً متوقف می‌شود.
 
@@ -49,7 +51,7 @@
 
 `POST /api/offline-dashboard/commands` فقط با Bearer token دستگاه جفت‌شده کار می‌کند و پس از tenant/entitlement check، snapshot پایه را روی همان terminal بررسی می‌کند. در transaction قفل‌شده، تغییر فیلدهای patch شده را با snapshot مقایسه می‌کند؛ تغییر هم‌زمان به‌جای overwrite بی‌صدا conflict می‌شود. migration `0056_offline_workspace_commands.sql` ledger نتیجه و idempotency را نگه می‌دارد و rollback تا زمان وجود receipt عمداً متوقف می‌شود. actor از `offlineTerminals.createdBy` گرفته می‌شود.
 
-Worker Tauri فقط module `menu` را relay می‌کند. مجازها: `update_product` با `name`, `description`, `price`, `isAvailable` و `update_category` با `name`, `description`, `isActive`, `sortOrder`. SQLite outbox generic از قبل lease/receipt محلی دارد؛ اما UI فعلی فرمانی برای ویرایش یا enqueue ندارد و هیچ تغییر منو را آفلاین ثبت نمی‌کند. این مسیر زیرساخت محدود همگام‌سازی است، نه قابلیت ویرایش عملیاتی برای کاربر.
+Worker Tauri فقط module `menu` را relay می‌کند. مجازها: `update_product` با `name`, `description`, `price`, `isAvailable` و `update_category` با `name`, `description`, `isActive`, `sortOrder`. SQLite outbox generic lease/receipt محلی دارد؛ رابط محلی پس از بررسی PIN همین دو نوع فرمان را با درج اتمی در outbox enqueue می‌کند، overlay pending نشان می‌دهد و وضعیت pending/conflict/rejected/synced را در صف منو نمایش می‌دهد. این vertical slice هنوز ساخت/حذف محصول، بارگذاری فایل، گزینه‌ها، فرمول مواد، قیمت‌گذاری هوشمند، سایر ماژول‌ها یا جریان‌های دارای side effect را آفلاین نمی‌کند.
 
 ## قرارداد سفارش و دریافت وجه
 

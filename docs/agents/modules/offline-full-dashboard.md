@@ -7,7 +7,7 @@
 ## وضعیت فعلی کد
 
 - کلاینت فعلی Tauri/Rust نسخهٔ ۰٫۲، با رابط HTML محلی، صندوق POS آفلاین، تجهیزات و SQLite موجود در `windows-bridge/` است.
-- SQLite محلی POS، فروش و کارهای چاپ را نگه می‌دارد. در ۲۰۲۶-۱۰-۲۶ foundation نسخهٔ ۲ برای snapshotهای tenant-scoped و outbox فرمان‌های پنل اضافه شد. snapshot محدود منو endpoint دریافت دارد و endpoint replay فقط دو تغییر محدود محصول/دسته را می‌پذیرد؛ هنوز فرم و مصرف‌کنندهٔ UI برای ساخت این فرمان‌ها وجود ندارد.
+- SQLite محلی POS، فروش و کارهای چاپ را نگه می‌دارد. در ۲۰۲۶-۱۰-۲۶ foundation نسخهٔ ۲ برای snapshotهای tenant-scoped و outbox فرمان‌های پنل اضافه شد. dataset منو snapshot دارد؛ تب منو ویرایش محدود محصول/دسته را با PIN مدیر در outbox ذخیره و پس از اتصال relay می‌کند. این هنوز فقط یک vertical slice است.
 - پنل اصلی Next.js با Server Components و APIهای وابسته به PostgreSQL در سرور اجرا می‌شود. قراردادن URL سایت در WebView فقط پوستهٔ ویندوزی می‌سازد و هنگام قطع اینترنت پنل را فعال نمی‌کند.
 - در بازبینی ۲۰۲۶-۱۰-۲۶ تعداد ۱۱۸ جدول PostgreSQL و ۱۴۰ فایل route در `src/app/api` شمرده شد. اینها معادل تعداد ماژول‌های قابل آفلاین‌سازی نیستند؛ هر route باید از نظر مالکیت داده، side effect، اتصال خارجی و سیاست تعارض بررسی شود.
 
@@ -18,7 +18,7 @@
 - pairing اولیه فقط هنگام اتصال و توسط مالک/مدیر مجاز انجام شود.
 - token دستگاه در ویندوز با DPAPI و در سرور به‌شکل hash ذخیره شود؛ کلید به JavaScript برنگردد.
 - پنل آفلاین فقط برای همان business، نقش‌ها و entitlementهای snapshotشده قابل استفاده باشد. مجوز لغوشده در سرور هنگام اتصال مجدد اعمال شود؛ رویدادهای صف‌شده حذف یا پنهان نشوند.
-- دسترسی محلی به پروفایل Windows یا PIN محلی محدود شود؛ PIN محلی احراز هویت تازهٔ سرور محسوب نمی‌شود.
+- دسترسی محلی به پروفایل Windows یا PIN محلی محدود شود؛ PIN محلی احراز هویت تازهٔ سرور محسوب نمی‌شود. در نسخهٔ فعلی PIN فقط mutation منو را gate می‌کند؛ تغییرها به حسابی نسبت داده می‌شوند که terminal را pair کرده و PIN کارمند جداگانه نیست.
 
 ### snapshot و نسخهٔ محلی
 
@@ -49,10 +49,10 @@
 - `workspace_snapshots` هر مجموعه را با کلید `(business_id,dataset)`، revision، نسخهٔ payload، UUID snapshot، مهلت اعتبار و payload رمزگذاری‌شده نگه می‌دارد. فقط datasetهای ثبت‌شده در allowlist Rust پذیرفته می‌شوند؛ شناسهٔ tenant باید با pairing فعلی برابر باشد، revision عقب‌گرد نمی‌کند و دو payload متفاوت با revision برابر رد می‌شوند. دریافت باید پیش از انقضا انجام شود؛ خواندن snapshot، فیلد `expired` را محاسبه می‌کند.
 - `workspace_commands` فرمان دامنه‌ای را با UUID idempotency، ترتیب محلی، tenant، module/action، `baseDataset`، `baseSnapshotId` و `baseRevision` ثبت می‌کند. در تراکنش Immediate، dataset مجاز برای همان module/action، revision/UUID snapshot موجود و مهلت آن دوباره بررسی می‌شود؛ بنابراین فرمان به snapshot دیگری نسبت داده نمی‌شود. payload رمزگذاری‌شده و وضعیت pending/conflict/rejected/synced نگه‌داری می‌شود. claim با lease دو دقیقه‌ای از برداشت هم‌زمان worker جلوگیری می‌کند. حالت synced بدون رسید سرور پذیرفته نمی‌شود و ثبت receipt تکراری idempotent است. اندازهٔ هر فرمان تا ۱ مگابایت و صف تا ۵۰٬۰۰۰ فرمان محدود است. چاپ و پیجر به‌عنوان side effect محلی از registry sync خارج‌اند.
 - payload داده و فرمان از تابع `blob()` استفاده می‌کند؛ در build ویندوز این تابع DPAPI را به‌کار می‌برد. کد غیر Windows payload را رمز نمی‌کند و فقط برای توسعه/کامپایل هسته است.
-- Storeهای generic برای snapshot/command در Rust crate هستند. تنها payload محلی که فعلاً به Tauri UI expose شده، dataset عمومی و tenant-bound `menu` از فرمان ثابت `offline_workspace_menu` است؛ UI آن فقط نمایش read-only دارد. هیچ عملیات تغییر محصول/دسته یا dataset حساس دیگری به JavaScript expose نشده تا احراز هویت محلی، scope نقش و replay معتبر آماده شود.
-- اتصال snapshot پنل در این مرحله فقط برای dataset صریح `menu` برقرار است. نسخه‌های تغییرکردهٔ سرور فعلاً نگه داشته می‌شوند تا بعداً بتوان commandهای معلق را نسبت به نسخهٔ پایه تطبیق داد؛ سیاست pruning باید پس از پیاده‌شدن server replay و دانستن کمترین revision استفاده‌شده توسط دستگاه‌ها تعریف شود.
+- Storeهای generic برای snapshot/command در Rust crate هستند. dataset عمومی و tenant-bound `menu` با فرمان ثابت `offline_workspace_menu` به Tauri UI می‌رسد. PIN محلی با DPAPI نگه‌داری و تلاش‌ها محدود می‌شوند؛ `offline_workspace_update_menu` فقط update محصول/دسته را enqueue می‌کند. هیچ dataset حساس دیگری یا تغییر خارج از allowlist به JavaScript expose نشده است.
+- اتصال snapshot پنل در این مرحله فقط برای dataset صریح `menu` برقرار است. تاریخچهٔ snapshotهای سرور فعلاً نگه داشته می‌شود تا فرمان‌های معلق دستگاه‌های دیرمتصل قابل تطبیق بمانند؛ pruning نیازمند دانستن کمترین revision مرجع دستگاه‌های فعال و سیاست retention است.
 - GET `/api/offline-dashboard/snapshots/menu` به Bearer صندوق paired، مالکیت همان business و entitlement `cashier_pos` نیاز دارد؛ پاسخ شامل پروفایل عمومی کسب‌وکار، دسته‌ها، محصولات و میزهاست و تنظیمات محرمانه، حسابداری، مشتری، کارمند یا پرداخت را صادر نمی‌کند. hash محتوا revision را به‌ازای terminal/dataset افزایش می‌دهد؛ محتوای ثابت همان revision را نگه می‌دارد و فقط مهلت هفت‌روزه را تمدید می‌کند. migration `0055` تاریخچهٔ snapshotهای سرور را می‌سازد و rollback آن در صورت وجود snapshot سرور، برای محافظت از reference فرمان‌های محلی متوقف می‌شود. worker هر ۱۰ دقیقه یا با درخواست refresh snapshot را دریافت و در SQLite رمز‌شده ذخیره می‌کند؛ `offline_status` فقط index و وضعیت sync را برمی‌گرداند.
-- تب «منوی محلی» در UI Tauri از فرمان `offline_workspace_menu` snapshot را برای جست‌وجو و مشاهدهٔ محصولات/دسته‌ها می‌خواند و انقضا را نشان می‌دهد؛ این نما read-only است. برای فرمان‌های محلی، worker فقط module `menu` را به `POST /api/offline-dashboard/commands` می‌فرستد. سرور با Bearer صندوق همان کسب‌وکار، entitlement، snapshot پایهٔ معتبر، مقایسهٔ optimistic فیلدهای تغییرکرده، قفل terminal/ردیف محصول یا دسته و ledger migration `0056` درخواست را اعمال یا conflict/reject را ثبت می‌کند؛ `actor_id` از مدیر جفت‌کنندهٔ terminal می‌آید و از payload محلی پذیرفته نمی‌شود. allowlist فعلی فقط `update_product` برای name/description/price/isAvailable و `update_category` برای name/description/isActive/sortOrder است. هیچ UI محلی فرمانی نمی‌سازد، پس این endpoint هنوز در تجربهٔ کاربر قابل استفاده نیست. سایر datasetها و فرم‌های پنل وجود ندارند؛ snapshot منو به‌تنهایی به معنی آفلاین‌بودن ماژول منو یا کل پنل نیست.
+- تب «منوی محلی» در UI Tauri از snapshot برای جست‌وجو، مشاهده و ویرایش محدود محصولات/دسته‌ها استفاده می‌کند. فرم برای هر تغییر PIN مدیر محلی می‌خواهد، فرمان را در SQLite می‌گذارد و فقط pendingها را به‌شکل overlay نشان می‌دهد. worker فقط module `menu` را به `POST /api/offline-dashboard/commands` می‌فرستد. سرور با Bearer صندوق همان کسب‌وکار، entitlement، snapshot پایهٔ معتبر، مقایسهٔ optimistic فیلدهای تغییرکرده، قفل terminal/ردیف محصول یا دسته و ledger migration `0056` درخواست را اعمال یا conflict/reject را ثبت می‌کند؛ `actor_id` از مدیر جفت‌کنندهٔ terminal می‌آید و از payload محلی پذیرفته نمی‌شود. allowlist فعلی فقط `update_product` برای name/description/price/isAvailable و `update_category` برای name/description/isActive/sortOrder است. ساخت/حذف محصول، رسانه، گزینه‌ها، دستور تهیه و بقیهٔ datasetها پیاده نشده‌اند؛ snapshot و این فرم‌های محدود به معنی آفلاین‌بودن کامل منو یا کل پنل نیست.
 - SQLite `user_version` از ۱ به ۲ مهاجرت می‌کند؛ نسخهٔ جدیدتر از برنامه رد می‌شود. جداول فروش/چاپ قبلی حذف یا بازنویسی نمی‌شوند.
 
 ## پوشش ماژول‌های رستوران
@@ -85,8 +85,8 @@
 | گروه | snapshot محلی | فرمان/نوشتن محلی | sync سمت سرور | conflict | وضعیت |
 |---|---|---|---|---|---|
 | صندوق و سفارش آفلاین | منوی نسخه‌دار POS | فروش/تسویه محلی | `/api/offline-pos/*` | مبلغ/سفارش ردشده در صف | پیاده‌سازی اولیهٔ v0.2؛ محدود به سفارش و POS |
-| بنیاد پنل آفلاین | ذخیرهٔ محلی allowlist شده با revision/tenant؛ نمایش read-only منو | outbox domain با idempotency، هنوز بدون فرم ماژول | هنوز ندارد | وضعیت‌های پایدار محلی، بدون حل سروری | snapshot منو به API و تب محلی وصل است؛ read-only |
-| پنل کامل رستوران | endpoint و مجموعه‌های هر ماژول تعریف/ساخته نشده | UI ماژول‌ها به outbox وصل نیست | replay سروری ندارد | سیاست نهایی برای هر ماژول پیاده نشده | انجام‌نشده |
+| foundation محدود پنل | snapshot tenant-scoped منو | ویرایش PINدار نام/توضیح/قیمت/موجودی محصول و نام/توضیح/فعال‌بودن/ترتیب دسته در outbox | replay محدود `menu` از `POST /api/offline-dashboard/commands` | optimistic conflict و ledger سرور؛ conflict در صف محلی | فقط vertical slice منو؛ ساخت/حذف، رسانه و سایر datasetها ندارند |
+| پنل کامل رستوران | endpoint و مجموعه‌های اکثر ماژول‌ها تعریف/ساخته نشده | UI ماژول‌های دیگر به outbox وصل نیست | replay فقط برای تغییر محدود منو دارد | سیاست نهایی سایر ماژول‌ها پیاده نشده | انجام‌نشده |
 | انبار، تولید و recipe | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
 | حسابداری و حقوق | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
 | CRM، پشتیبانی و ارتباطات | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
@@ -101,7 +101,7 @@
 - `src/components/dashboard-shell.tsx`: منبع فهرست ماژول‌های رستوران برای ماتریس پوشش.
 - `src/db/migrations/0054_offline_pos.sql`: جداول دستگاه، snapshot صندوق و فروش آفلاین.
 - `windows-bridge/offline-core/src/lib.rs`: مهاجرت SQLite محلی به user_version=2 و store رمزگذاری‌شدهٔ snapshot/outbox.
-- `windows-bridge/src-tauri/src/offline.rs`: worker POS و snapshot منو؛ `offline_workspace_menu` فقط payload منوی محلی را به UI می‌دهد. Replay فرمان‌های پنل هنوز وجود ندارد.
+- `windows-bridge/src-tauri/src/offline.rs`: worker POS، snapshot منو و relay محدود فرمان‌های منو؛ `offline_workspace_menu` داده/overlay محلی را می‌دهد و `offline_workspace_update_menu` فقط با PIN، update مجاز را در outbox ثبت می‌کند.
 
 ## معیار تکمیل
 

@@ -40,6 +40,18 @@ fn number(v: &Value, key: &str) -> Result<i64> {
 fn clean(v: &str) -> String {
     v.replace(['|', '\r', '\n'], " ")
 }
+fn valid_manager_pin(pin: &str) -> bool {
+    (8..=12).contains(&pin.len()) && pin.bytes().all(|byte| byte.is_ascii_digit())
+}
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    for index in 0..left.len().max(right.len()) {
+        difference |= usize::from(
+            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
+        );
+    }
+    difference == 0
+}
 
 pub struct Store {
     conn: Connection,
@@ -120,6 +132,70 @@ impl Store {
             .and_then(|pair| pair["businessId"].as_i64())
             .filter(|id| *id > 0)
             .ok_or_else(|| "ابتدا دستگاه را به کسب‌وکار متصل کنید".to_string())
+    }
+
+    pub fn local_manager_pin_configured(&self) -> Result<bool> {
+        Ok(self.get("workspace_manager_pin")?.is_some())
+    }
+
+    fn configure_local_manager_pin(&self, pin: &str) -> Result<()> {
+        if !valid_manager_pin(pin) {
+            return Err("PIN مدیریت باید ۸ تا ۱۲ رقم باشد".into());
+        }
+        self.set("workspace_manager_pin", &json!(pin))?;
+        self.set("workspace_manager_pin_attempts", &json!(0))?;
+        self.set("workspace_manager_pin_locked_until", &json!(0))
+    }
+
+    pub fn verify_local_manager_pin(&mut self, pin: &str) -> Result<()> {
+        if !valid_manager_pin(pin) {
+            return Err("PIN مدیریت باید ۸ تا ۱۲ رقم باشد".into());
+        }
+        let now = Utc::now().timestamp();
+        let locked_until = self
+            .get("workspace_manager_pin_locked_until")?
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0);
+        if locked_until > now {
+            return Err("به‌دلیل چند تلاش ناموفق، ورود مدیر موقتاً قفل شده است".into());
+        }
+        let expected = self
+            .get("workspace_manager_pin")?
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .ok_or_else(|| "ابتدا مدیر باید با فایل اتصال معتبر، PIN محلی را تعریف کند".to_string())?;
+        if constant_time_eq(expected.as_bytes(), pin.as_bytes()) {
+            self.set("workspace_manager_pin_attempts", &json!(0))?;
+            self.set("workspace_manager_pin_locked_until", &json!(0))?;
+            return Ok(());
+        }
+        let attempts = self
+            .get("workspace_manager_pin_attempts")?
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0)
+            + 1;
+        if attempts >= 5 {
+            self.set("workspace_manager_pin_attempts", &json!(0))?;
+            self.set("workspace_manager_pin_locked_until", &json!(now + 600))?;
+            return Err("PIN نادرست است؛ ورود مدیر برای ۱۰ دقیقه قفل شد".into());
+        }
+        self.set("workspace_manager_pin_attempts", &json!(attempts))?;
+        Err("PIN مدیریت درست نیست".into())
+    }
+
+    pub fn pair_with_manager_pin(&mut self, config: &Value, pin: &str) -> Result<()> {
+        if let Some(old) = self.get("pairing")? {
+            if old["terminalId"] != config["terminalId"]
+                || old["businessId"] != config["businessId"]
+            {
+                return Err("این پایگاه به صندوق یا کسب‌وکار دیگری متصل است؛ داده‌های محلی را حذف نکنید".into());
+            }
+        }
+        if self.local_manager_pin_configured()? {
+            self.verify_local_manager_pin(pin)?;
+        } else {
+            self.configure_local_manager_pin(pin)?;
+        }
+        self.pair(config)
     }
 
     pub fn save_workspace_snapshot(&mut self, snapshot: &Value) -> Result<()> {
@@ -343,6 +419,95 @@ impl Store {
         }
         tx.execute("INSERT INTO workspace_commands(id,business_id,module,action,base_dataset,base_snapshot_id,base_revision,payload,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,business_id,module,action,base_dataset,base_snapshot_id,base_revision,blob(command)?,Utc::now().to_rfc3339()]).map_err(err)?;
         tx.commit().map_err(err)
+    }
+
+    pub fn enqueue_menu_update_with_pin(
+        &mut self,
+        pin: &str,
+        action: &str,
+        target_id: i64,
+        patch: Value,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if target_id < 1 || !["update_product", "update_category"].contains(&action) {
+            return Err("نوع و شناسهٔ تغییر منو معتبر نیست".into());
+        }
+        let Some(fields) = patch.as_object() else {
+            return Err("تغییرات منو معتبر نیست".into());
+        };
+        let allowed: &[&str] = if action == "update_product" {
+            &["name", "description", "price", "isAvailable"]
+        } else {
+            &["name", "description", "isActive", "sortOrder"]
+        };
+        if fields.is_empty() || fields.keys().any(|key| !allowed.contains(&key.as_str())) {
+            return Err("فقط فیلدهای مجاز محصول یا دسته قابل تغییر هستند".into());
+        }
+        let max_name = if action == "update_product" { 100 } else { 60 };
+        if let Some(name) = patch.get("name") {
+            let Some(name) = name.as_str() else { return Err("نام منو معتبر نیست".into()) };
+            if name.trim().is_empty() || name.chars().count() > max_name {
+                return Err("نام منو باید کوتاه‌تر و غیرخالی باشد".into());
+            }
+        }
+        let max_description = if action == "update_product" { 400 } else { 500 };
+        if let Some(description) = patch.get("description") {
+            let Some(description) = description.as_str() else { return Err("توضیح منو معتبر نیست".into()) };
+            if description.chars().count() > max_description {
+                return Err("توضیح منو از حد مجاز طولانی‌تر است".into());
+            }
+        }
+        if let Some(price) = patch.get("price") {
+            let Some(price) = price.as_i64() else { return Err("قیمت محصول باید عدد صحیح باشد".into()) };
+            if !(0..=100_000_000).contains(&price) {
+                return Err("قیمت محصول خارج از بازهٔ مجاز است".into());
+            }
+        }
+        if let Some(available) = patch.get("isAvailable") {
+            if !available.is_boolean() { return Err("وضعیت موجودی معتبر نیست".into()); }
+        }
+        if let Some(active) = patch.get("isActive") {
+            if !active.is_boolean() { return Err("وضعیت دسته‌بندی معتبر نیست".into()); }
+        }
+        if let Some(order) = patch.get("sortOrder") {
+            let Some(order) = order.as_i64() else { return Err("ترتیب دسته‌بندی باید عدد صحیح باشد".into()) };
+            if !(0..=10_000).contains(&order) { return Err("ترتیب دسته‌بندی خارج از بازهٔ مجاز است".into()); }
+        }
+        let snapshot = self
+            .workspace_snapshot("menu")?
+            .ok_or_else(|| "نسخهٔ محلی منو دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ منو منقضی است؛ برای ویرایش، ابتدا به اینترنت وصل و منو را تازه کنید".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let base_revision = number(&snapshot, "revision")?;
+        let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot منو پیدا نشد")?;
+        let payload = if action == "update_product" {
+            json!({"productId":target_id,"patch":patch})
+        } else {
+            json!({"categoryId":target_id,"patch":patch})
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"menu",
+            "action":action,"baseDataset":"menu","baseSnapshotId":base_snapshot_id,
+            "baseRevision":base_revision,"payload":payload
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":action,"targetId":target_id}))
+    }
+
+    pub fn workspace_menu_pending_changes(&self) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='menu' AND state='pending' ORDER BY sequence").map_err(err)?;
+        let rows = query.query_map([business_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Vec<u8>>(4)?, row.get::<_, String>(5)?))
+        }).map_err(err)?;
+        rows.map(|row| {
+            let (id, action, state, error, payload, created_at) = row.map_err(err)?;
+            let command = value(payload)?;
+            Ok(json!({"commandId":id,"action":action,"state":state,"error":error,"payload":command["payload"],"createdAt":created_at}))
+        }).collect::<Result<Vec<_>>>().map(Value::Array)
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {

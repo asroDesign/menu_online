@@ -987,3 +987,8 @@ endpoint محدود `GET /api/offline-dashboard/snapshots/menu` با Bearer تر
 ## Outbox فرمان پنل منو — ۲۰۲۶-۱۰-۲۶
 
 route محدود replay منو، ledger idempotent و relay در worker ویندوز اضافه شده است؛ تنها نام/توضیح/قیمت/موجودی محصول و نام/توضیح/فعال‌بودن/ترتیب دسته پذیرفته می‌شود. UI محلی هنوز فرمان تغییر نمی‌سازد؛ بنابراین ادیت آفلاین منو در دسترس کاربر نیست. جزئیات و محدودیت‌ها در [راهنمای صندوق](docs/agents/modules/offline-pos.md)، [نقشهٔ اپ کامل](docs/agents/modules/offline-full-dashboard.md) و [گزارش مرحله](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) ثبت شده‌اند.
+
+
+## ویرایش محلی منو با مجوز مدیر — ۲۰۲۶-۱۰-۲۶
+
+تب منوی اپ ویندوز امکان ویرایش آفلاین محدود محصول و دسته را با PIN مدیر محلی دارد. Rust PIN را بررسی و محدود می‌کند، فرمان را در SQLite outbox رمز‌شده می‌نویسد؛ worker آن را به ledger سرور می‌فرستد و conflict را در UI نشان می‌دهد. فقط فیلدهای کم‌خطر نام/توضیح/قیمت/موجودی و نام/توضیح/فعال‌بودن/ترتیب پشتیبانی می‌شوند. این پیاده‌سازی فقط vertical slice منو است؛ ایجاد/حذف، رسانه، رسپی، سایر ماژول‌ها و بازیابی PIN هنوز نیازمند کارند. مستندات در [راهنمای صندوق](docs/agents/modules/offline-pos.md)، [راهنمای اپ کامل](docs/agents/modules/offline-full-dashboard.md) و [گزارش مرحله](docs/updates/2026-10-26-offline-menu-snapshot-sync.md) آمده است.
