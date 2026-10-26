@@ -434,6 +434,144 @@ impl Store {
         tx.commit().map_err(err)
     }
 
+    pub fn enqueue_cash_shift_action_with_pin(
+        &mut self,
+        pin: &str,
+        action: &str,
+        opening_cash: i64,
+        closing_cash: i64,
+        note: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if !["open", "close"].contains(&action) || note.chars().count() > 500 {
+            return Err("عملیات یا توضیح شیفت صندوق معتبر نیست".into());
+        }
+        let amount = if action == "open" { opening_cash } else { closing_cash };
+        if !(0..=2_147_483_647).contains(&amount) {
+            return Err("موجودی نقد شیفت باید عدد صحیح بین صفر و سقف مجاز باشد".into());
+        }
+        let snapshot = self.workspace_snapshot("cash_shifts")?
+            .ok_or_else(|| "ابتدا در زمان اتصال نسخهٔ شیفت صندوق را دریافت کنید".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ شیفت صندوق منقضی است؛ پیش از تغییر، آن را تازه کنید".into());
+        }
+        let business_id = self.paired_business_id()?;
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ نسخهٔ شیفت صندوق معتبر نیست")?;
+        let revision = number(&snapshot, "revision")?;
+        let active = snapshot["payload"]["active"].clone();
+        let mut query = self.conn.prepare(
+            "SELECT id,action,state,payload,error FROM workspace_commands WHERE business_id=?1 AND module='cash_shifts' AND base_snapshot_id=?2 ORDER BY sequence",
+        ).map_err(err)?;
+        let rows = query.query_map(params![business_id,snapshot_id], |row| Ok((
+            row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?,
+            row.get::<_,Vec<u8>>(3)?, row.get::<_,String>(4)?,
+        ))).map_err(err)?;
+        let commands = rows.map(|row| {
+            let (id, action, state, payload, error) = row.map_err(err)?;
+            Ok((id, action, state, value(payload)?, error))
+        }).collect::<Result<Vec<_>>>()?;
+        drop(query);
+
+        let (payload, response_action) = if action == "open" {
+            if !active.is_null() || commands.iter().any(|(_, _, state, _, _)| state == "pending" || state == "synced") {
+                return Err("وضعیت شیفت از نسخهٔ محلی تغییر کرده است؛ پس از دریافت نسخهٔ تازه دوباره تلاش کنید".into());
+            }
+            let occurred_at = Utc::now();
+            (json!({"openingCash":opening_cash,"note":note.trim(),"occurredAt":occurred_at.to_rfc3339()}), "open")
+        } else {
+            if commands.iter().any(|(_, queued_action, state, _, _)| queued_action == "close" && (state == "pending" || state == "synced")) {
+                return Err("درخواست بستن این شیفت قبلاً ثبت شده؛ وضعیت همگام‌سازی را بررسی کنید".into());
+            }
+            let pending_open = commands.iter().find(|(_, queued_action, state, _, _)| queued_action == "open" && state == "pending");
+            let (shift_id, open_command_id, expected_opened_at) = if let Some((command_id, _, _, command, _)) = pending_open {
+                if !active.is_null() {
+                    return Err("نسخهٔ شیفت با درخواست بازکردن محلی هم‌خوان نیست؛ نسخهٔ تازه بگیرید".into());
+                }
+                (Value::Null, Some(command_id.clone()), command["payload"]["occurredAt"].as_str().ok_or("زمان شروع محلی معتبر نیست")?.to_string())
+            } else {
+                if commands.iter().any(|(_, queued_action, _, _, _)| queued_action == "open") {
+                    return Err("درخواست بازکردن شیفت نیازمند بازبینی است؛ ابتدا نسخهٔ تازه دریافت کنید".into());
+                }
+                if !active.is_object() {
+                    return Err("شیفت بازی در نسخهٔ محلی وجود ندارد".into());
+                }
+                (active["id"].clone(), None, active["openedAt"].as_str().ok_or("زمان شروع شیفت معتبر نیست")?.to_string())
+            };
+            let occurred_at = Utc::now();
+            let opened = DateTime::parse_from_rfc3339(&expected_opened_at).map_err(err)?;
+            if occurred_at < opened {
+                return Err("زمان بستن شیفت پیش از زمان شروع آن است؛ ساعت سیستم را بررسی کنید".into());
+            }
+            let mut payload = json!({
+                "shiftId":shift_id,
+                "expectedOpenedAt":expected_opened_at,
+                "closingCash":closing_cash,
+                "note":note.trim(),
+                "occurredAt":occurred_at.to_rfc3339()
+            });
+            if let Some(command_id) = open_command_id {
+                payload["openCommandId"] = json!(command_id);
+            }
+            (payload, "close")
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"cash_shifts",
+            "action":response_action,"baseDataset":"cash_shifts","baseSnapshotId":snapshot_id,
+            "baseRevision":revision,"payload":payload
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":response_action}))
+    }
+
+    pub fn workspace_cash_shifts(&self) -> Result<Option<Value>> {
+        let Some(mut snapshot) = self.workspace_snapshot("cash_shifts")? else { return Ok(None) };
+        let Some(snapshot_id) = snapshot["snapshotId"].as_str().map(str::to_owned) else { return Err("شناسهٔ نسخهٔ شیفت صندوق معتبر نیست".into()) };
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare(
+            "SELECT id,action,state,error,payload,created_at,server_receipt FROM workspace_commands WHERE business_id=?1 AND module='cash_shifts' ORDER BY sequence DESC LIMIT 50",
+        ).map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((
+            row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?,
+            row.get::<_,String>(3)?, row.get::<_,Vec<u8>>(4)?, row.get::<_,String>(5)?, row.get::<_,String>(6)?,
+        ))).map_err(err)?;
+        let commands = rows.map(|row| {
+            let (id, action, state, error, payload, created_at, receipt) = row.map_err(err)?;
+            let command = value(payload)?;
+            Ok(json!({"id":id,"action":action,"state":state,"error":error,"payload":command["payload"],"createdAt":created_at,"receipt":receipt,"baseSnapshotId":command["baseSnapshotId"]}))
+        }).collect::<Result<Vec<_>>>()?;
+        snapshot["localCommands"] = json!(commands);
+        snapshot["localCommandBaseSnapshotId"] = json!(snapshot_id);
+        Ok(Some(snapshot))
+    }
+
+    pub fn cash_shift_open_sync_ready(&self) -> Result<bool> {
+        let Some(snapshot) = self.workspace_snapshot("cash_shifts")? else { return Ok(true) };
+        let Some(snapshot_id) = snapshot["snapshotId"].as_str() else { return Ok(false) };
+        let count: i64 = self.conn.query_row(
+            "SELECT count(*) FROM workspace_commands WHERE business_id=?1 AND module='cash_shifts' AND action='open' AND base_snapshot_id=?2 AND state!='synced'",
+            params![self.paired_business_id()?,snapshot_id], |row| row.get(0),
+        ).map_err(err)?;
+        Ok(count == 0)
+    }
+
+    pub fn cash_shift_has_unresolved_sales(&self) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT count(*) FROM sales WHERE state IN ('pending','conflict')", [], |row| row.get(0),
+        ).map_err(err)?;
+        Ok(count > 0)
+    }
+
+    fn cash_shift_close_pending_for_current_snapshot(&self) -> Result<bool> {
+        let Some(snapshot) = self.workspace_snapshot("cash_shifts")? else { return Ok(false) };
+        let Some(snapshot_id) = snapshot["snapshotId"].as_str() else { return Ok(false) };
+        let count: i64 = self.conn.query_row(
+            "SELECT count(*) FROM workspace_commands WHERE business_id=?1 AND module='cash_shifts' AND action='close' AND base_snapshot_id=?2",
+            params![self.paired_business_id()?,snapshot_id], |row| row.get(0),
+        ).map_err(err)?;
+        Ok(count > 0)
+    }
+
     pub fn workspace_snapshot(&self, dataset: &str) -> Result<Option<Value>> {
         if !WORKSPACE_DATASETS.contains(&dataset) {
             return Err("این مجموعهٔ داده برای خواندن محلی مجاز نیست".into());
@@ -492,6 +630,7 @@ impl Store {
         let action = command["action"].as_str().ok_or("نوع عملیات لازم است")?;
         let allowed = match module {
             "orders" => ["create", "change_status", "confirm_cashier", "record_payment"].contains(&action),
+            "cash_shifts" => ["open", "close"].contains(&action),
             "menu" => [
                 "create_product",
                 "create_category",
@@ -524,6 +663,7 @@ impl Store {
             ("inventory", _) => "inventory",
             ("accounting", _) => "accounting",
             ("receivables", _) => "receivables",
+            ("cash_shifts", _) => "cash_shifts",
             ("staff", _) => "shifts",
             ("payroll", _) => "payroll",
             ("settings", _) => "settings",
@@ -1939,7 +2079,16 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"].contains(&module) {
+        self.claim_workspace_commands_filtered(module, None)
+    }
+
+    pub fn claim_cash_shift_commands(&mut self, action: &str) -> Result<Vec<Value>> {
+        if !["open", "close"].contains(&action) { return Err("مرحلهٔ همگام‌سازی شیفت معتبر نیست".into()); }
+        self.claim_workspace_commands_filtered("cash_shifts", Some(action))
+    }
+
+    fn claim_workspace_commands_filtered(&mut self, module: &str, action: Option<&str>) -> Result<Vec<Value>> {
+        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "cash_shifts"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;
@@ -1948,9 +2097,9 @@ impl Store {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(err)?;
         let rows = {
-            let mut q = tx.prepare("SELECT sequence,id,module,action,state,error,attempts,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module=?2 AND state='pending' AND retry_at<=unixepoch() AND lease_until<=unixepoch() ORDER BY sequence LIMIT 20").map_err(err)?;
+            let mut q = tx.prepare("SELECT sequence,id,module,action,state,error,attempts,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module=?2 AND (?3 IS NULL OR action=?3) AND state='pending' AND retry_at<=unixepoch() AND lease_until<=unixepoch() ORDER BY sequence LIMIT 20").map_err(err)?;
             let mapped = q
-                .query_map(params![business_id,module], |r| {
+                .query_map(params![business_id,module,action], |r| {
                     Ok((
                         r.get::<_, i64>(0)?,
                         r.get::<_, String>(1)?,
@@ -2135,6 +2284,9 @@ impl Store {
                 return Err("این شناسه قبلاً با مبلغ تخفیف دیگری ذخیره شده است؛ سوابق را بررسی کنید".into());
             }
             return Ok(existing);
+        }
+        if self.cash_shift_close_pending_for_current_snapshot()? {
+            return Err("شیفت به‌صورت محلی بسته شده و هنوز همگام‌سازی نشده است؛ تا دریافت نسخهٔ تازه فروش جدید ثبت نمی‌شود".into());
         }
         let catalog = self
             .get("catalog")?

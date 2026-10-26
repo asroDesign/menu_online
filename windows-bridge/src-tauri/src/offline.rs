@@ -56,12 +56,14 @@ impl OfflineState {
                 if let Some(pair) = pair {
                     let server = pair["server"].as_str().unwrap_or("").trim_end_matches('/');
                     let token = pair["token"].as_str().unwrap_or("");
-                    let jobs = state
-                        .store
-                        .lock()
-                        .ok()
-                        .and_then(|s| s.pending().ok())
-                        .unwrap_or_default();
+                    let open_shift_ready = sync_cash_shift_commands(
+                        &state, &client, server, token, "open",
+                    );
+                    let jobs = if open_shift_ready {
+                        state.store.lock().ok().and_then(|s| s.pending().ok()).unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                     for job in jobs {
                         let response = client
                             .post(format!("{server}/api/offline-pos/sync"))
@@ -109,6 +111,7 @@ impl OfflineState {
                             }
                         }
                     }
+                    sync_cash_shift_commands(&state, &client, server, token, "close");
                     if refresh.elapsed() >= Duration::from_secs(600)
                         || state
                             .store
@@ -908,6 +911,66 @@ fn refresh_receivables_snapshot(
     }
 }
 
+fn sync_cash_shift_commands(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    action: &str,
+) -> bool {
+    if action == "close" {
+        let has_unresolved_sales = state.store.lock().ok()
+            .and_then(|store| store.cash_shift_has_unresolved_sales().ok())
+            .unwrap_or(true);
+        if has_unresolved_sales { return true; }
+    }
+    let commands = state.store.lock().ok()
+        .and_then(|mut store| store.claim_cash_shift_commands(action).ok())
+        .unwrap_or_default();
+    for job in commands {
+        let command_id = job["id"].as_str().unwrap_or("").to_string();
+        let command = job["command"].clone();
+        if uuid::Uuid::parse_str(&command_id).is_err() || !command.is_object() {
+            if let Ok(store) = state.store.lock() {
+                let _ = store.finish_workspace_command(&command_id, None, Some("فرمان محلی معتبر نیست"), "rejected");
+            }
+            return false;
+        }
+        match decode(client.post(format!("{server}/api/offline-dashboard/commands")).bearer_auth(token).json(&command).send()) {
+            Ok((status, data))
+                if (200..300).contains(&status)
+                    && data["commandId"].as_str() == Some(command_id.as_str())
+                    && data["state"].as_str() == Some("applied")
+                    && data["receipt"].as_str().is_some_and(|receipt| !receipt.is_empty()) =>
+            {
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.finish_workspace_command(&command_id, data["receipt"].as_str(), None, "");
+                    let _ = store.set("workspace_refresh", &json!(true));
+                }
+            }
+            Ok((status, data)) => {
+                let message = data["error"].as_str().unwrap_or("همگام‌سازی شیفت صندوق ناموفق بود");
+                let failure = if status == 409 { "conflict" } else if status == 404 || status == 429 || status >= 500 { "transient" } else { "rejected" };
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.finish_workspace_command(&command_id, None, Some(message), failure);
+                    if status == 409 || status == 401 || status == 403 { let _ = store.set("workspace_refresh", &json!(true)); }
+                }
+                if action == "open" || status == 401 || status == 403 || status == 404 || status == 429 || status >= 500 { return false; }
+            }
+            Err(_) => {
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.finish_workspace_command(&command_id, None, Some("ارتباط همگام‌سازی شیفت صندوق برقرار نشد"), "transient");
+                }
+                return action != "open";
+            }
+        }
+    }
+    if action == "open" {
+        return state.store.lock().ok().and_then(|store| store.cash_shift_open_sync_ready().ok()).unwrap_or(false);
+    }
+    true
+}
+
 fn refresh_cash_shifts_snapshot(
     state: &OfflineState,
     client: &reqwest::blocking::Client,
@@ -1314,7 +1377,21 @@ pub fn offline_workspace_receivables(state: State<'_, OfflineState>) -> Result<O
 #[tauri::command]
 pub fn offline_workspace_cash_shifts(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("cash_shifts")
+    store.workspace_cash_shifts()
+}
+
+#[tauri::command]
+pub fn offline_workspace_cash_shift_action(
+    action: String,
+    opening_cash: i64,
+    closing_cash: i64,
+    note: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_cash_shift_action_with_pin(
+        &manager_pin, &action, opening_cash, closing_cash, &note,
+    )
 }
 
 #[tauri::command]

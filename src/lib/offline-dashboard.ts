@@ -9,7 +9,7 @@ import * as Accounting from "@/lib/accounting";
 import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
 import { syncOfflineChequeCommand } from "@/lib/offline-cheques";
 import { outstandingAmount, receivableState } from "@/lib/receivables-core";
-import { cashShiftTotalsByShift } from "@/lib/cash-shifts";
+import { cashShiftTotals, cashShiftTotalsByShift } from "@/lib/cash-shifts";
 import { startOfDayTehran } from "@/lib/jalali";
 import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
 import { normalizeProductOptionGroups } from "@/lib/product-options";
@@ -864,6 +864,7 @@ function parseMenuCommand(raw: unknown): MenuCommand {
 }
 
 export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
+  if (isRecord(raw) && raw.module === "cash_shifts") return syncOfflineCashShiftCommand(req, parseCashShiftCommand(raw));
   if (isRecord(raw) && raw.module === "cheques") return syncOfflineChequeCommand(req, raw);
   if (isRecord(raw) && raw.module === "orders") return syncOfflineOrderStatusCommand(req, raw);
   if (isRecord(raw) && raw.module === "staff") return syncOfflineStaffRequest(req, parseStaffCommand(raw));
@@ -974,6 +975,146 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
     const error = typeof outcome.response.error === "string" ? outcome.response.error : "فرمان پنل آفلاین اعمال نشد";
     throw new HttpError(outcome.httpStatus, error);
   }
+  return outcome.response;
+}
+
+type CashShiftCommand = {
+  schemaVersion: 1;
+  id: string;
+  businessId: number;
+  module: "cash_shifts";
+  action: "open" | "close";
+  baseDataset: "cash_shifts";
+  baseSnapshotId: string;
+  baseRevision: number;
+  payload: Record<string, unknown>;
+};
+
+function parseCashShiftCommand(raw: unknown): CashShiftCommand {
+  const actions = ["open", "close"];
+  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "cash_shifts" || !actions.includes(String(raw.action))) {
+    throw new HttpError(400, "قالب فرمان شیفت صندوق آفلاین معتبر نیست");
+  }
+  const commandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(raw).some((key) => !commandKeys.includes(key))) throw new HttpError(400, "فرمان شیفت صندوق فیلد ناشناخته دارد");
+  if (typeof raw.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id)
+    || !Number.isSafeInteger(raw.businessId) || Number(raw.businessId) < 1 || raw.baseDataset !== "cash_shifts"
+    || typeof raw.baseSnapshotId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.baseSnapshotId)
+    || !Number.isSafeInteger(raw.baseRevision) || Number(raw.baseRevision) < 1 || !isRecord(raw.payload)) {
+    throw new HttpError(400, "شناسه یا نسخهٔ مبنای شیفت صندوق معتبر نیست");
+  }
+  const payload = raw.payload;
+  if (raw.action === "open") {
+    if (Object.keys(payload).some((key) => !["openingCash", "note", "occurredAt"].includes(key))
+      || !Number.isSafeInteger(payload.openingCash) || Number(payload.openingCash) < 0 || Number(payload.openingCash) > 2_147_483_647
+      || typeof payload.note !== "string" || payload.note.length > 500 || !isIsoTimestamp(payload.occurredAt)) {
+      throw new HttpError(400, "مبلغ یا اطلاعات بازکردن شیفت معتبر نیست");
+    }
+  } else {
+    const allowedPayloadKeys = ["shiftId", "openCommandId", "expectedOpenedAt", "closingCash", "note", "occurredAt"];
+    const hasShiftId = Number.isSafeInteger(payload.shiftId) && Number(payload.shiftId) > 0;
+    const hasOpenCommandId = typeof payload.openCommandId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.openCommandId);
+    if (Object.keys(payload).some((key) => !allowedPayloadKeys.includes(key)) || hasShiftId === hasOpenCommandId
+      || !(payload.shiftId === null || hasShiftId) || !(payload.openCommandId === undefined || hasOpenCommandId)
+      || !isIsoTimestamp(payload.expectedOpenedAt) || !Number.isSafeInteger(payload.closingCash) || Number(payload.closingCash) < 0 || Number(payload.closingCash) > 2_147_483_647
+      || typeof payload.note !== "string" || payload.note.length > 500 || !isIsoTimestamp(payload.occurredAt)
+      || Date.parse(payload.occurredAt as string) < Date.parse(payload.expectedOpenedAt as string)) {
+      throw new HttpError(400, "مبلغ یا اطلاعات بستن شیفت معتبر نیست");
+    }
+  }
+  return raw as unknown as CashShiftCommand;
+}
+
+async function syncOfflineCashShiftCommand(req: Request, command: CashShiftCommand) {
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "مدیریت شیفت صندوق آفلاین به مجوز صندوق نیاز دارد");
+  if (command.businessId !== business.id) throw new HttpError(403, "فرمان شیفت متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+
+  const outcome = await db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این صندوق لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.module !== "cash_shifts" || previous.payloadHash !== payloadHash) {
+        return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      }
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(
+      eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id),
+      eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "cash_shifts"),
+      eq(offlineWorkspaceSnapshots.revision, command.baseRevision),
+    )).for("update");
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "") => {
+      const response = { commandId: command.id, state, receipt, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({
+        id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy,
+        module: "cash_shifts", action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>,
+        state, httpStatus, error, receipt, result: response,
+      });
+      return { httpStatus, response };
+    };
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ شیفت صندوق پیدا نشد یا منقضی شده است؛ نسخهٔ تازه دریافت کنید");
+    const now = Date.now();
+    const occurredAt = new Date(String(command.payload.occurredAt));
+    if (occurredAt.getTime() > now + 5 * 60_000 || occurredAt.getTime() < now - 8 * 86_400_000 || occurredAt < new Date(snapshot.issuedAt.getTime() - 5 * 60_000)) {
+      return record("conflict", 409, "زمان دستگاه با نسخهٔ شیفت سازگار نیست؛ ساعت سیستم و نسخهٔ تازه را بررسی کنید");
+    }
+    const snapshotActive = isRecord(snapshot.payload.active) ? snapshot.payload.active : null;
+
+    if (command.action === "open") {
+      if (snapshotActive) return record("conflict", 409, "در نسخهٔ مبنا شیفتی باز است؛ ابتدا وضعیت آن را بررسی کنید");
+      const [alreadyOpen] = await tx.select({ id: cashShifts.id }).from(cashShifts)
+        .where(and(eq(cashShifts.businessId, business.id), isNull(cashShifts.closedAt))).for("update").limit(1);
+      if (alreadyOpen) return record("conflict", 409, "در سرور شیفت صندوق دیگری باز شده است؛ نسخهٔ تازه را بررسی کنید");
+      const [created] = await tx.insert(cashShifts).values({
+        businessId: business.id, openedBy: terminal.createdBy, openedAt: occurredAt,
+        openingCash: Number(command.payload.openingCash), note: String(command.payload.note).trim(),
+      }).onConflictDoNothing().returning({ id: cashShifts.id });
+      if (!created) return record("conflict", 409, "هم‌زمان شیفت دیگری باز شد؛ نسخهٔ تازه را بررسی کنید");
+      return record("applied", 200, "", String(created.id));
+    }
+
+    let shiftId = Number(command.payload.shiftId ?? 0);
+    if (command.payload.openCommandId) {
+      const [openCommand] = await tx.select().from(offlineWorkspaceCommands).where(and(
+        eq(offlineWorkspaceCommands.id, String(command.payload.openCommandId)), eq(offlineWorkspaceCommands.terminalId, terminal.id),
+        eq(offlineWorkspaceCommands.businessId, business.id), eq(offlineWorkspaceCommands.module, "cash_shifts"),
+        eq(offlineWorkspaceCommands.action, "open"), eq(offlineWorkspaceCommands.state, "applied"),
+      )).for("update");
+      if (!openCommand || (openCommand.payload as Record<string, unknown>).baseSnapshotId !== command.baseSnapshotId || !/^\d+$/.test(openCommand.receipt)) {
+        return record("conflict", 409, "درخواست بازکردن شیفت هنوز در سرور تأیید نشده یا با این نسخه هم‌خوان نیست");
+      }
+      shiftId = Number(openCommand.receipt);
+      const openPayload = (openCommand.payload as Record<string, unknown>).payload as Record<string, unknown>;
+      if (!Number.isSafeInteger(shiftId) || Date.parse(String(openPayload?.occurredAt)) !== Date.parse(String(command.payload.expectedOpenedAt))) {
+        return record("conflict", 409, "زمان شیفت محلی با درخواست بازکردن تأییدشده هم‌خوان نیست");
+      }
+    } else if (!snapshotActive || snapshotActive.id !== shiftId || snapshotActive.openedAt !== command.payload.expectedOpenedAt) {
+      return record("conflict", 409, "شیفت از زمان دریافت نسخه تغییر کرده است؛ نسخهٔ تازه را بررسی کنید");
+    }
+
+    const [shift] = await tx.select().from(cashShifts).where(and(
+      eq(cashShifts.id, shiftId), eq(cashShifts.businessId, business.id),
+    )).for("update");
+    if (!shift || shift.closedAt || shift.openedAt.getTime() !== Date.parse(String(command.payload.expectedOpenedAt))) {
+      return record("conflict", 409, "شیفت باز پیدا نشد یا هم‌زمان بسته شده است");
+    }
+    const totals = await cashShiftTotals(tx as unknown as typeof db, business.id, shift.id);
+    const expectedCash = shift.openingCash + totals.cashSales;
+    const closingCash = Number(command.payload.closingCash);
+    const note = [shift.note, String(command.payload.note).trim()].filter(Boolean).join("\n").slice(0, 1000);
+    const [closed] = await tx.update(cashShifts).set({
+      closedBy: terminal.createdBy, closedAt: occurredAt, closingCash, expectedCash, cashDifference: closingCash - expectedCash, note,
+    }).where(and(eq(cashShifts.id, shift.id), eq(cashShifts.businessId, business.id), isNull(cashShifts.closedAt))).returning({ id: cashShifts.id });
+    if (!closed) return record("conflict", 409, "شیفت هم‌زمان بسته شد؛ نسخهٔ تازه را بررسی کنید");
+    return record("applied", 200, "", String(shift.id));
+  });
+
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, "error" in outcome.response && typeof outcome.response.error === "string" ? outcome.response.error : "همگام‌سازی شیفت صندوق انجام نشد");
   return outcome.response;
 }
 
