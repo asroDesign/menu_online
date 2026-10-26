@@ -14,6 +14,7 @@ const WORKSPACE_DATASETS: &[&str] = &[
     "inventory",
     "accounting",
     "receivables",
+    "cash_shifts",
     "cheques",
     "staff",
     "shifts",
