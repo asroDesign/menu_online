@@ -560,6 +560,12 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
     }))
 }
 #[tauri::command]
+pub fn offline_history(offset: i64, state: State<'_, OfflineState>) -> Result<Value> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    let (sales, has_more) = store.history_page(offset)?;
+    Ok(json!({"sales":sales,"hasMore":has_more}))
+}
+#[tauri::command]
 pub fn offline_workspace_menu(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     let mut snapshot = store.workspace_snapshot("menu")?;

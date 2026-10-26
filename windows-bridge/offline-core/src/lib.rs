@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::Path;
 pub type Result<T> = std::result::Result<T, String>;
-const LOCAL_SCHEMA_VERSION: i64 = 2;
+const LOCAL_SCHEMA_VERSION: i64 = 3;
 const WORKSPACE_DATASETS: &[&str] = &[
     "overview",
     "orders",
@@ -122,6 +122,12 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS workspace_commands_pending ON workspace_commands(state,retry_at,lease_until,sequence);
             PRAGMA user_version=2;
+            COMMIT;").map_err(err)?;
+        }
+        if version < 3 {
+            conn.execute_batch("BEGIN IMMEDIATE;
+            ALTER TABLE sales ADD COLUMN display_payload BLOB;
+            PRAGMA user_version=3;
             COMMIT;").map_err(err)?;
         }
         Ok(Self { conn })
@@ -783,6 +789,27 @@ impl Store {
         let (total, lines) = quote(&catalog, &sale)?;
         sale["total"] = json!(total);
         validate_tender(&sale["tender"], total, &catalog)?;
+        let subtotal: i64 = lines.iter().map(|line| line["amount"].as_i64().unwrap_or(0)).sum();
+        let tax = (subtotal as f64 * catalog["taxPercent"].as_f64().unwrap_or(0.0) / 100.0).round() as i64;
+        let service = (subtotal as f64 * catalog["servicePercent"].as_f64().unwrap_or(0.0) / 100.0).round() as i64;
+        let table_name = catalog["tables"].as_array().and_then(|tables| tables.iter().find(|table| table["id"] == sale["tableId"])).map(|table| table["name"].clone()).unwrap_or(Value::Null);
+        let terminals = catalog["terminals"].as_array().map(|terminals| terminals.iter().map(|terminal| json!({"id":terminal["id"],"name":terminal["name"]})).collect::<Vec<_>>()).unwrap_or_default();
+        let display_payload = json!({
+            "businessName": catalog["name"],
+            "occurredAt": sale["occurredAt"],
+            "type": sale["type"],
+            "tableId": sale["tableId"],
+            "tableName": table_name,
+            "customerName": sale["customerName"],
+            "customerPhone": sale["customerPhone"],
+            "note": sale["note"],
+            "items": lines,
+            "subtotal": subtotal,
+            "tax": tax,
+            "service": service,
+            "total": total,
+            "terminals": terminals
+        });
         let count: i64 = self
             .conn
             .query_row(
@@ -797,8 +824,8 @@ impl Store {
         let routes = self.get("routes")?.unwrap_or(json!([]));
         let tx = self.conn.transaction().map_err(err)?;
         tx.execute(
-            "INSERT INTO sales(id,payload,created_at) VALUES(?1,?2,?3)",
-            params![id, blob(&sale)?, sale["occurredAt"].as_str()],
+            "INSERT INTO sales(id,payload,created_at,display_payload) VALUES(?1,?2,?3,?4)",
+            params![id, blob(&sale)?, sale["occurredAt"].as_str(), blob(&display_payload)?],
         )
         .map_err(err)?;
         for route in routes.as_array().ok_or("مسیر چاپ معتبر نیست")? {
@@ -949,25 +976,49 @@ impl Store {
         Ok(())
     }
     pub fn history(&self) -> Result<Value> {
-        let mut q=self.conn.prepare("SELECT id,payload,state,error,server_number FROM sales ORDER BY created_at DESC LIMIT 100").map_err(err)?;
+        Ok(json!(self.history_page(0)?.0))
+    }
+    pub fn history_page(&self, offset: i64) -> Result<(Vec<Value>, bool)> {
+        let mut q=self.conn.prepare("SELECT id,payload,state,error,server_number,display_payload FROM sales ORDER BY created_at DESC LIMIT 101 OFFSET ?1").map_err(err)?;
         let rows = q
-            .query_map([], |r| {
+            .query_map([offset.max(0)], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, Vec<u8>>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, String>(3)?,
                     r.get::<_, Option<i64>>(4)?,
+                    r.get::<_, Option<Vec<u8>>>(5)?,
                 ))
             })
             .map_err(err)?;
         let mut result = Vec::new();
         for r in rows {
-            let (id, p, state, error, number) = r.map_err(err)?;
+            let (id, p, state, error, number, details) = r.map_err(err)?;
             let sale = value(p)?;
-            result.push(json!({"id":id,"total":sale["total"],"paid":!sale["tender"].is_null(),"state":state,"error":error,"number":number,"at":sale["occurredAt"]}));
+            let paid = !sale["tender"].is_null();
+            let mut details = match details.map(value).transpose()? {
+                Some(details) => details,
+                None => json!({
+                    "legacy": true,
+                    "occurredAt": sale["occurredAt"],
+                    "type": sale["type"],
+                    "tableId": sale["tableId"],
+                    "customerName": sale["customerName"],
+                    "customerPhone": sale["customerPhone"],
+                    "note": sale["note"],
+                    "items": sale["items"],
+                    "total": sale["total"]
+                }),
+            };
+            details["tender"] = sale["tender"].clone();
+            details["paid"] = json!(paid);
+            details["serverNumber"] = number.map_or(Value::Null, |value| json!(value));
+            result.push(json!({"id":id,"total":sale["total"],"paid":paid,"state":state,"error":error,"number":number,"at":sale["occurredAt"],"details":details}));
         }
-        Ok(json!(result))
+        let has_more = result.len() > 100;
+        result.truncate(100);
+        Ok((result, has_more))
     }
     pub fn counts(&self) -> Result<Value> {
         let pending: i64 = self
@@ -1112,6 +1163,7 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
             return Err("تعداد معتبر نیست".into());
         }
         let mut price = number(p, "price")?;
+        let base_price = price;
         if price <= 0 {
             return Err("محصول بدون قیمت قابل فروش نیست".into());
         }
@@ -1124,6 +1176,7 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
         }
         let mut valid = std::collections::HashSet::new();
         let mut labels = Vec::new();
+        let mut selected_options = Vec::new();
         for group in p["modifierGroups"]
             .as_array()
             .ok_or("گروه گزینه معتبر نیست")?
@@ -1143,6 +1196,7 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
                     count += 1;
                     price += number(option, "priceDelta")?;
                     labels.push(option["name"].as_str().unwrap_or(""));
+                    selected_options.push(json!({"name":option["name"],"priceDelta":option["priceDelta"]}));
                 }
             }
             if count < number(group, "min")? || count > number(group, "max")? {
@@ -1172,7 +1226,19 @@ pub fn quote(catalog: &Value, sale: &Value) -> Result<(i64, Vec<Value>)> {
             return Err("مبلغ قلم خارج از محدوده است".into());
         }
         subtotal += amount;
-        lines.push(json!({"name":format!("{} {}",p["name"].as_str().unwrap_or(""),labels.join("، ")),"quantity":qty,"amount":amount,"categoryId":p["categoryId"]}));
+        lines.push(json!({
+            "name":format!("{} {}",p["name"].as_str().unwrap_or(""),labels.join("، ")),
+            "productName":p["name"],
+            "optionNames":labels,
+            "options":selected_options,
+            "basePrice":base_price,
+            "unitPrice":price,
+            "quantity":qty,
+            "weightGrams":item["weightGrams"],
+            "tareGrams":item["tareGrams"],
+            "amount":amount,
+            "categoryId":p["categoryId"]
+        }));
     }
     let tax = (subtotal as f64 * catalog["taxPercent"].as_f64().ok_or("مالیات نامعتبر")? / 100.0)
         .round() as i64;
