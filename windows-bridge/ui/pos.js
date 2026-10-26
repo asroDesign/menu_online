@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceAccounting, workspaceAccountingLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceOrderHistorySyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceAccountingMetaKey='', workspaceAccountingSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, activeInventoryWasteItem=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
+  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceAccounting, workspaceAccountingLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceOrderHistorySyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceAccountingMetaKey='', workspaceAccountingSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, activeInventoryWasteItem=null, inventoryPaidEdited=false, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -81,7 +81,7 @@
       if(!$('inventory-app').hidden)renderWorkspaceInventoryWasteRequests();
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
       if(!$('customers-app').hidden&&(customerMetaChanged||customerSyncChanged||!workspaceCustomers))void loadWorkspaceCustomers();
-      if(!$('inventory-app').hidden&&(inventoryMetaChanged||inventorySyncChanged||!workspaceInventory))void loadWorkspaceInventory();
+      if(!$('inventory-app').hidden&&(inventoryMetaChanged||inventorySyncChanged||workspaceCommandsChanged||!workspaceInventory))void loadWorkspaceInventory();
       if(!$('pos-app').hidden&&(ordersMetaChanged||ordersSyncChanged||orderHistorySyncChanged||!workspaceOrdersLoaded))void loadWorkspaceOrders(0,Math.max(100,workspaceOrders?.payload?.orders?.length||0));
       if(!$('reservations-app').hidden&&(reservationsMetaChanged||reservationsSyncChanged||!workspaceReservationsLoaded))void loadWorkspaceReservations();
       if(!$('shifts-app').hidden&&(shiftsMetaChanged||shiftsSyncChanged||workspaceCommandsChanged||!workspaceShiftsLoaded))void loadWorkspaceShifts();
@@ -225,26 +225,71 @@
     const expiry=Date.parse(`${item.expiryDate}T00:00:00Z`),current=Date.parse(`${today}T00:00:00Z`);
     return Number.isFinite(expiry)&&Number.isFinite(current)?Math.ceil((expiry-current)/86400000):null;
   }
+  function inventoryProjectedState(item){
+    const stored=workspaceInventory?.localProjection?.[String(item.id)];if(stored)return {stock:Number(stored.stock)||0,cost:Number(stored.costPerUnit)||0,stale:stored.stale===true};
+    let stock=Number(item.stock)||0,cost=Number(item.costPerUnit)||0,stale=false;
+    const snapshotId=workspaceInventory?.snapshotId;
+    for(const entry of state?.workspaceInventoryCommands||[]){
+      if(entry.baseSnapshotId!==snapshotId||!['pending','synced'].includes(entry.state))continue;
+      const payload=entry.payload||{};
+      if(entry.action==='waste'&&Number(payload.itemId)===Number(item.id)){
+        const expected=Number(payload.expectedStock);
+        if(!Number.isFinite(expected)||Math.abs(expected-stock)>1e-8){stale=true;break;}
+        stock=Math.max(0,expected-Number(payload.quantity||0));
+      }else if(entry.action==='receive'){
+        const line=(payload.lines||[]).find(row=>Number(row.itemId)===Number(item.id));if(!line)continue;
+        if(Math.abs(Number(line.expectedStock)-stock)>1e-8||Number(line.expectedCostPerUnit)!==cost){stale=true;break;}
+        stock+=Number(line.quantity||0);cost=Number(line.resultCostPerUnit);
+      }
+    }
+    return {stock,cost,stale};
+  }
   function appendInventoryWasteActions(visible){
     const table=$('inventory-list').querySelector('table');if(!table)return;
     const header=table.querySelector('thead tr');if(header){const cell=document.createElement('th');cell.textContent='عملیات';header.append(cell);}
-    table.querySelectorAll('tbody tr').forEach((row,index)=>{const item=visible[index];if(!item)return;const cell=document.createElement('td'),button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='ثبت ضایعات';button.dataset.inventoryWaste=String(item.id);button.disabled=!item.isActive||!item.trackStock||Number(item.stock)<=0;cell.append(button);row.append(cell);});
+    table.querySelectorAll('tbody tr').forEach((row,index)=>{const item=visible[index];if(!item)return;const cell=document.createElement('td'),button=document.createElement('button'),projection=inventoryProjectedState(item);button.type='button';button.className='button secondary';button.textContent='ثبت ضایعات';button.dataset.inventoryWaste=String(item.id);button.disabled=!item.isActive||!item.trackStock||projection.stale||projection.stock<=0;if(projection.stale)button.title='فرمان قبلی متعارض است؛ ابتدا snapshot تازه بگیرید';cell.append(button);row.append(cell);});
   }
   function renderWorkspaceInventoryWasteRequests(){
-    const requests=state?.workspaceInventoryWasteRequests||[],reasons={spoilage:'خرابی یا فساد',expired:'انقضا',prep_loss:'پرت آماده‌سازی',quality:'افت کیفیت',damaged:'آسیب‌دیدگی',other:'سایر'},states={pending:'در انتظار همگام‌سازی',synced:'در سرور ثبت شد',conflict:'نیازمند بررسی',rejected:'رد شد'};
-    $('inventory-waste-requests').innerHTML=requests.length?requests.slice(0,30).map(row=>{const item=(workspaceInventory?.payload?.items||[]).find(candidate=>candidate.id===row.itemId);return `<div class="workspace-command-row"><span><b>ضایعات ${esc(item?.name||`کالای ${row.itemId}`)} · ${money(row.quantity)} ${esc(item?.unit||'')}</b><small>${reasons[row.wasteReason]||'سایر'} · ${esc(row.error||row.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(row.state)}">${states[row.state]||esc(row.state)}</strong></div>`}).join(''):'<p class="muted">درخواست ضایعاتی روی این دستگاه ثبت نشده است.</p>';
+    const requests=state?.workspaceInventoryCommands||[],items=workspaceInventory?.payload?.items||[],reasons={spoilage:'خرابی یا فساد',expired:'انقضا',prep_loss:'پرت آماده‌سازی',quality:'افت کیفیت',damaged:'آسیب‌دیدگی',other:'سایر'},states={pending:'در انتظار همگام‌سازی',synced:'در سرور ثبت شد',conflict:'نیازمند بررسی',rejected:'رد شد'};
+    $('inventory-waste-requests').innerHTML=requests.length?[...requests].reverse().slice(0,50).map(row=>{const p=row.payload||{},isReceive=row.action==='receive',detail=isReceive?(p.lines||[]).map(line=>{const item=items.find(candidate=>candidate.id===line.itemId);return `${item?.name||`کالای ${line.itemId}`} × ${money(line.quantity)} ${item?.unit||''}`}).join('، '):`${items.find(item=>item.id===p.itemId)?.name||`کالای ${p.itemId}`} × ${money(p.quantity)}`,title=isReceive?`ورود فاکتور ${p.invoiceNo?`#${p.invoiceNo}`:''} · ${money(p.total)} تومان`:`ضایعات · ${detail}`,subtitle=isReceive?`${detail} · ${new Date(row.createdAt).toLocaleString('fa-IR')}`:`${reasons[p.wasteReason]||'سایر'} · ${new Date(row.createdAt).toLocaleString('fa-IR')}`;return `<div class="workspace-command-row"><span><b>${esc(title)}</b><small>${esc(subtitle)}${row.error?` · ${esc(row.error)}`:''}</small></span><strong class="workspace-command-state ${esc(row.state)}">${states[row.state]||esc(row.state)}</strong></div>`}).join(''):'<p class="muted">گردش آفلاینی روی این دستگاه ثبت نشده است.</p>';
   }
   function openInventoryWaste(itemId){
     const item=(workspaceInventory?.payload?.items||[]).find(row=>row.id===itemId);if(!item)return;
-    activeInventoryWasteItem=item;$('inventory-waste-title').textContent=`ثبت ضایعات · ${item.name}`;$('inventory-waste-context').textContent=`موجودی ذخیره‌شده: ${money(item.stock)} ${item.unit} · بهای مبنا: ${money(item.costPerUnit)} تومان / ${item.unit}`;
-    $('inventory-waste-quantity').max=String(item.stock);$('inventory-waste-quantity').value='';$('inventory-waste-reason').value='spoilage';$('inventory-waste-note').value='';$('inventory-waste-pin').value='';$('inventory-waste-error').textContent='';$('inventory-waste-dialog').showModal();$('inventory-waste-quantity').focus();
+    const projected=inventoryProjectedState(item);if(projected.stale){notify('گردش‌های قبلی با snapshot فعلی سازگار نیستند؛ ابتدا نسخهٔ انبار را تازه کنید.',true);return;}
+    activeInventoryWasteItem=item;$('inventory-waste-title').textContent=`ثبت ضایعات · ${item.name}`;$('inventory-waste-context').textContent=`موجودی snapshot: ${money(item.stock)} ${item.unit} · موجودی محلی پس از درخواست‌های صف: ${money(projected.stock)} ${item.unit} · بهای مبنا: ${money(projected.cost)} تومان / ${item.unit}`;
+    $('inventory-waste-quantity').max=String(projected.stock);$('inventory-waste-quantity').value='';$('inventory-waste-reason').value='spoilage';$('inventory-waste-note').value='';$('inventory-waste-pin').value='';$('inventory-waste-error').textContent='';$('inventory-waste-dialog').showModal();$('inventory-waste-quantity').focus();
   }
+  function addInventoryReceiptLine(itemId=''){
+    const available=(workspaceInventory?.payload?.items||[]).filter(item=>item.isActive&&item.trackStock&&!inventoryProjectedState(item).stale),host=$('inventory-receipt-lines');
+    if(!available.length){notify('برای ثبت فاکتور، کالای فعال و قابل ردیابی در snapshot موجود نیست.',true);return;}
+    const selectedId=Number(itemId)||Number(available[0].id);
+    const row=document.createElement('div');row.className='inventory-receipt-row';
+    row.innerHTML=`<label>کالا<select data-receipt-item required>${available.map(item=>`<option value="${item.id}" ${Number(item.id)===selectedId?'selected':''}>${esc(item.name)} · ${esc(item.unit)}</option>`).join('')}</select></label><label>مقدار<input data-receipt-quantity type="number" min="0.000001" step="any" value="1" required></label><label>بهای خرید واحد (تومان)<input data-receipt-unit-cost inputmode="numeric" dir="ltr" required></label><span class="inventory-receipt-line-total">جمع: <b data-receipt-line-total>۰</b> تومان</span><button class="text-button" type="button" data-receipt-remove aria-label="حذف ردیف">حذف</button>`;
+    const selected=available.find(item=>Number(item.id)===selectedId);row.querySelector('[data-receipt-unit-cost]').value=money(selected?.lastPurchaseCost||selected?.costPerUnit||0);host.append(row);inventoryReceiptRecalculate();
+  }
+  function inventoryReceiptRecalculate(){
+    const rows=[...$('inventory-receipt-lines').children];let subtotal=0,valid=rows.length>0;
+    for(const row of rows){const quantity=Number(digits(row.querySelector('[data-receipt-quantity]').value)),unitCost=Number(digits(row.querySelector('[data-receipt-unit-cost]').value)),amount=Number.isFinite(quantity)&&Number.isFinite(unitCost)?Math.round(quantity*unitCost):0;if(!row.querySelector('[data-receipt-item]').value||quantity<=0||unitCost<=0||amount<=0)valid=false;subtotal+=amount;row.querySelector('[data-receipt-line-total]').textContent=money(amount);}
+    const discount=Number(digits($('inventory-receipt-discount').value)),extra=Number(digits($('inventory-receipt-extra').value)),shipping=Number(digits($('inventory-receipt-shipping').value)),tax=Number(digits($('inventory-receipt-tax').value)),invoiceTotal=subtotal-discount+extra+shipping+tax;
+    $('inventory-receipt-subtotal').textContent=money(subtotal);$('inventory-receipt-total').textContent=money(Number.isFinite(invoiceTotal)?invoiceTotal:0);
+    if(!inventoryPaidEdited||$('inventory-receipt-pay-from').value==='payable')$('inventory-receipt-paid').value=money($('inventory-receipt-pay-from').value==='payable'?0:Math.max(0,invoiceTotal));
+    return {rows,subtotal,total:invoiceTotal,discount,extra,shipping,tax,valid:valid&&Number.isSafeInteger(subtotal)&&Number.isSafeInteger(invoiceTotal)&&invoiceTotal>0&&discount<=subtotal};
+  }
+  function openInventoryReceipt(){
+    const snapshot=workspaceInventory,payload=snapshot?.payload,available=(payload?.items||[]).filter(item=>item.isActive&&item.trackStock);
+    if(!snapshot||snapshot.expired||!state?.localManagerPinConfigured||!available.length){notify('برای ثبت فاکتور، snapshot تازهٔ انبار، کالای قابل ردیابی و PIN مدیر لازم است.',true);return;}
+    $('inventory-receipt-date').value=tehranJalaliDateTime(new Date()).date;$('inventory-receipt-invoice').value='';
+    $('inventory-receipt-supplier').innerHTML='<option value="">بدون فروشنده</option>'+((payload.suppliers||[]).filter(item=>item.isActive).map(item=>`<option value="${item.id}">${esc(item.name)}${item.hasPayableAccount?' · حساب تفصیلی دارد':''}</option>`).join(''));
+    $('inventory-receipt-lines').innerHTML='';addInventoryReceiptLine();
+    $('inventory-receipt-discount').value='۰';$('inventory-receipt-extra').value='۰';$('inventory-receipt-shipping').value='۰';$('inventory-receipt-tax').value='۰';$('inventory-receipt-pay-from').value='cash';$('inventory-receipt-paid').value='۰';$('inventory-receipt-note').value='';$('inventory-receipt-pin').value='';$('inventory-receipt-error').textContent='';inventoryPaidEdited=false;inventoryReceiptRecalculate();$('inventory-receipt-dialog').showModal();
+  }
+  function inventoryReceiptDate(){return parseTehranJalaliDateTime($('inventory-receipt-date').value,'12:00');}
   function renderWorkspaceInventory(){
     const snapshot=workspaceInventory,payload=snapshot?.payload,sync=state?.workspaceInventorySync;
     if(!snapshot||!payload){
       $('inventory-sync').textContent=sync?.message||'داده‌ای دریافت نشده';$('inventory-sync').className='pos-status';
       $('inventory-state').textContent=sync?.message||'برای دریافت فهرست انبار، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
-      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';renderWorkspaceInventoryWasteRequests();return;
+      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';$('inventory-receipt-open').disabled=true;renderWorkspaceInventoryWasteRequests();return;
     }
     const items=Array.isArray(payload.items)?payload.items:[],warehouses=Array.isArray(payload.warehouses)?payload.warehouses:[],movements=Array.isArray(payload.movements)?payload.movements:[];
     const warehouseById=new Map(warehouses.map(warehouse=>[warehouse.id,warehouse.name]));
@@ -260,9 +305,10 @@
     const expiringIds=new Set(expiringItems.map(item=>item.id)),lowIds=new Set(lowItems.map(item=>item.id));
     $('inventory-sync').textContent=snapshot.expired?'نسخه منقضی · فقط مشاهده':`نسخه ${money(snapshot.revision)} · ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}`;
     $('inventory-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
+    $('inventory-receipt-open').disabled=snapshot.expired||!state?.localManagerPinConfigured||!items.some(item=>item.isActive&&item.trackStock&&!inventoryProjectedState(item).stale);
     $('inventory-state').textContent=`${money(payload.totalItems)} قلم کالا · ${money(visible.length)} نتیجه · ${money(movements.length)} گردش اخیر · آخرین دریافت ${new Date(snapshot.issuedAt).toLocaleString('fa-IR')}${sync?.message?` · ${sync.message}`:''}`;
     $('inventory-summary').innerHTML=`<article><span>کالاهای ثبت‌شده</span><b>${money(payload.totalItems)}</b></article><article><span>نیازمند تأمین</span><b>${money(lowItems.length)}</b></article><article><span>نزدیک انقضا / منقضی</span><b>${money(expiringItems.length)}</b></article>`;
-    $('inventory-list').innerHTML=visible.length?`<table class="pos-table inventory-table"><thead><tr><th>کالا</th><th>انبار</th><th>موجودی / حداقل</th><th>هشدار</th><th>انقضا</th><th>بهای واحد</th></tr></thead><tbody>${visible.map(item=>{const days=inventoryExpiryDays(item,today),isLow=lowIds.has(item.id),isExpiring=expiringIds.has(item.id),warning=isLow&&isExpiring?'کمبود · انقضا':isLow?'کمبود':isExpiring?'انقضا':item.isActive?'عادی':'غیرفعال';return `<tr><td><b>${esc(item.name)}</b><small>${esc(item.sku||'بدون کد')}</small></td><td>${esc(warehouseById.get(item.warehouseId)||'انبار اصلی')}</td><td>${money(item.stock)} ${esc(item.unit)}<small>حداقل ${money(item.minStock)} ${esc(item.unit)}</small></td><td><span class="inventory-badge ${isLow||isExpiring?'warning':item.isActive?'':'muted'}">${warning}</span></td><td>${item.expiryDate?`${new Date(`${item.expiryDate}T12:00:00Z`).toLocaleDateString('fa-IR',{timeZone:'Asia/Tehran'})}${days!==null&&days<=30?`<small>${days<0?'گذشته از تاریخ':days===0?'امروز':`${money(days)} روز مانده`}</small>`:''}`:'—'}</td><td>${money(item.costPerUnit)} تومان / ${esc(item.unit)}</td></tr>`}).join('')}</tbody></table>`:'<p class="muted">کالایی با این جست‌وجو یا فیلتر در نسخهٔ محلی پیدا نشد.</p>';
+    $('inventory-list').innerHTML=visible.length?`<table class="pos-table inventory-table"><thead><tr><th>کالا</th><th>انبار</th><th>موجودی / حداقل</th><th>هشدار</th><th>انقضا</th><th>بهای واحد</th></tr></thead><tbody>${visible.map(item=>{const days=inventoryExpiryDays(item,today),isLow=lowIds.has(item.id),isExpiring=expiringIds.has(item.id),projection=inventoryProjectedState(item),hasQueued=Math.abs(projection.stock-Number(item.stock))>1e-8,warning=projection.stale?'نیازمند snapshot تازه':isLow&&isExpiring?'کمبود · انقضا':isLow?'کمبود':isExpiring?'انقضا':item.isActive?'عادی':'غیرفعال';return `<tr><td><b>${esc(item.name)}</b><small>${esc(item.sku||'بدون کد')}</small></td><td>${esc(warehouseById.get(item.warehouseId)||'انبار اصلی')}</td><td>${money(item.stock)} ${esc(item.unit)}<small>حداقل ${money(item.minStock)} ${esc(item.unit)}</small>${projection.stale?'<small>فرمان قبلی متعارض/ردشده است</small>':hasQueued?`<small>با درخواست‌های صف: ${money(projection.stock)} ${esc(item.unit)}</small>`:''}</td><td><span class="inventory-badge ${projection.stale||isLow||isExpiring?'warning':item.isActive?'':'muted'}">${warning}</span></td><td>${item.expiryDate?`${new Date(`${item.expiryDate}T12:00:00Z`).toLocaleDateString('fa-IR',{timeZone:'Asia/Tehran'})}${days!==null&&days<=30?`<small>${days<0?'گذشته از تاریخ':days===0?'امروز':`${money(days)} روز مانده`}</small>`:''}`:'—'}</td><td>${money(item.costPerUnit)} تومان / ${esc(item.unit)}${projection.stale?'':hasQueued?`<small>پیش‌بینی صف: ${money(projection.cost)} تومان</small>`:''}</td></tr>`}).join('')}</tbody></table>`:'<p class="muted">کالایی با این جست‌وجو یا فیلتر در نسخهٔ محلی پیدا نشد.</p>';
     appendInventoryWasteActions(visible);
     const itemNameById=new Map(items.map(item=>[item.id,item.name]));
     const movementLabels={in:'ورود',out:'خروج',waste:'ضایعات',adjust:'اصلاح',sale:'مصرف فروش',transfer:'انتقال'};
@@ -399,6 +445,28 @@
   $('offline-attendance-form').onsubmit=async e=>{e.preventDefault();if(!attendanceIntent)return;const submit=$('offline-attendance-submit');submit.disabled=true;$('offline-attendance-error').textContent='';try{await call('offline_workspace_record_attendance',{scheduleId:attendanceIntent.scheduleId,action:attendanceIntent.action,occurredAt:new Date().toISOString(),managerPin:digits($('offline-attendance-pin').value)});$('offline-attendance-dialog').close();attendanceIntent=null;notify('درخواست حضور روی همین دستگاه ذخیره شد؛ پس از اتصال برای تأیید مدیر ارسال می‌شود.');await loadWorkspaceShifts();await refresh();}catch(error){$('offline-attendance-error').textContent=String(error);}finally{submit.disabled=false;}};
   $('inventory-list').onclick=e=>{const button=e.target.closest('[data-inventory-waste]');if(button&&!button.disabled)openInventoryWaste(Number(button.dataset.inventoryWaste));};
   $('inventory-waste-form').onsubmit=async e=>{e.preventDefault();if(!activeInventoryWasteItem)return;const submit=$('inventory-waste-submit'),quantity=Number(digits($('inventory-waste-quantity').value));submit.disabled=true;$('inventory-waste-error').textContent='';try{await call('offline_workspace_record_inventory_waste',{itemId:activeInventoryWaste.id,quantity,wasteReason:$('inventory-waste-reason').value,note:$('inventory-waste-note').value,managerPin:digits($('inventory-waste-pin').value)});$('inventory-waste-dialog').close();activeInventoryWasteItem=null;notify('درخواست ضایعات در پایگاه رمز‌شدهٔ همین دستگاه ذخیره شد؛ ثبت رسمی پس از همگام‌سازی انجام می‌شود.');await refresh();}catch(error){$('inventory-waste-error').textContent=String(error);}finally{submit.disabled=false;}};
+  $('inventory-receipt-open').onclick=openInventoryReceipt;
+  $('inventory-receipt-add-line').onclick=()=>addInventoryReceiptLine();
+  $('inventory-receipt-lines').addEventListener('click',event=>{const remove=event.target.closest('[data-receipt-remove]');if(remove){if($('inventory-receipt-lines').children.length<=1){notify('فاکتور باید دست‌کم یک قلم داشته باشد.',true);return;}remove.closest('.inventory-receipt-row').remove();inventoryReceiptRecalculate();}});
+  $('inventory-receipt-lines').addEventListener('change',event=>{if(event.target.matches('[data-receipt-item]')){const item=(workspaceInventory?.payload?.items||[]).find(row=>row.id===Number(event.target.value));const price=event.target.closest('.inventory-receipt-row').querySelector('[data-receipt-unit-cost]');price.value=money(item?.lastPurchaseCost||item?.costPerUnit||0);}inventoryReceiptRecalculate();});
+  $('inventory-receipt-lines').addEventListener('input',inventoryReceiptRecalculate);
+  for(const id of ['inventory-receipt-discount','inventory-receipt-extra','inventory-receipt-shipping','inventory-receipt-tax'])$(id).addEventListener('input',inventoryReceiptRecalculate);
+  $('inventory-receipt-paid').addEventListener('input',()=>{inventoryPaidEdited=true;});
+  $('inventory-receipt-pay-from').addEventListener('change',()=>{inventoryPaidEdited=false;inventoryReceiptRecalculate();});
+  $('inventory-receipt-form').onsubmit=async event=>{
+    event.preventDefault();const submit=$('inventory-receipt-submit'),calculation=inventoryReceiptRecalculate();$('inventory-receipt-error').textContent='';
+    try{
+      if(!calculation.valid)throw new Error('مقادیر اقلام و جمع فاکتور را بررسی کنید.');
+      const occurredAt=inventoryReceiptDate();if(!occurredAt)throw new Error('تاریخ شمسی فاکتور معتبر نیست.');
+      const lines=calculation.rows.map(row=>({itemId:Number(row.querySelector('[data-receipt-item]').value),quantity:Number(digits(row.querySelector('[data-receipt-quantity]').value)),unitCost:Number(digits(row.querySelector('[data-receipt-unit-cost]').value))}));
+      if(new Set(lines.map(line=>line.itemId)).size!==lines.length)throw new Error('هر کالا باید فقط در یک ردیف فاکتور باشد.');
+      const payFrom=$('inventory-receipt-pay-from').value,paidAmount=payFrom==='payable'?0:Number(digits($('inventory-receipt-paid').value));
+      if(!Number.isSafeInteger(paidAmount)||paidAmount<0||paidAmount>calculation.total)throw new Error('مبلغ پرداخت‌شده معتبر نیست.');
+      submit.disabled=true;
+      await call('offline_workspace_receive_inventory',{occurredAt:occurredAt.toISOString(),invoiceNo:$('inventory-receipt-invoice').value.trim(),supplierId:$('inventory-receipt-supplier').value?Number($('inventory-receipt-supplier').value):null,discount:calculation.discount,extraCost:calculation.extra,shippingCost:calculation.shipping,taxAmount:calculation.tax,total:calculation.total,paidAmount,payFrom,note:$('inventory-receipt-note').value.trim(),lines,managerPin:digits($('inventory-receipt-pin').value)});
+      $('inventory-receipt-dialog').close();$('inventory-receipt-pin').value='';notify('فاکتور در صف رمز‌شدهٔ دستگاه ثبت شد؛ موجودی و سند حسابداری پس از تأیید سرور قطعی می‌شوند.');await refresh();
+    }catch(error){$('inventory-receipt-error').textContent=String(error);}finally{submit.disabled=false;}
+  };
   function openMenuEditor(kind,id){
     const view=workspaceMenuView(),base=workspaceMenu?.payload;
     if(!view||!base||!canEditLocalMenu())return;

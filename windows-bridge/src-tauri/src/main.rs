@@ -271,7 +271,7 @@ fn main() {
             stop_bridge,
             clear_logs,
             set_autostart,
-            offline_status, offline_history, offline_workspace_menu, offline_workspace_customers, offline_workspace_inventory, offline_workspace_orders, offline_workspace_reservations, offline_workspace_shifts, offline_workspace_create_shift, offline_workspace_accounting, offline_workspace_create_accounting_document, offline_workspace_update_menu, offline_workspace_record_attendance, offline_workspace_request_leave, offline_workspace_request_shift_change, offline_workspace_record_inventory_waste, offline_reservation_create, offline_pair, offline_save, offline_pay, offline_retry,
+            offline_status, offline_history, offline_workspace_menu, offline_workspace_customers, offline_workspace_inventory, offline_workspace_orders, offline_workspace_reservations, offline_workspace_shifts, offline_workspace_create_shift, offline_workspace_accounting, offline_workspace_create_accounting_document, offline_workspace_update_menu, offline_workspace_record_attendance, offline_workspace_request_leave, offline_workspace_request_shift_change, offline_workspace_record_inventory_waste, offline_workspace_receive_inventory, offline_reservation_create, offline_pair, offline_save, offline_pay, offline_retry,
             offline_draft, offline_routes, offline_retry_print, offline_backup, offline_ring, offline_refresh, offline_quote
         ])
         .on_window_event(|window, event| {

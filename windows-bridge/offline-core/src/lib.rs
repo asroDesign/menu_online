@@ -660,7 +660,7 @@ impl Store {
         if note.chars().count() > 300 {
             return Err("توضیح ضایعات بیش از حد طولانی است".into());
         }
-        let snapshot = self.workspace_snapshot("inventory")?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        let snapshot = self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
         if snapshot["expired"].as_bool() == Some(true) {
             return Err("نسخهٔ موجودی منقضی است؛ برای ثبت ضایعات آن را به‌روز کنید".into());
         }
@@ -669,21 +669,13 @@ impl Store {
         if item["isActive"].as_bool() != Some(true) || item["trackStock"].as_bool() != Some(true) {
             return Err("ثبت ضایعات فقط برای کالای فعال و دارای ردیابی موجودی ممکن است".into());
         }
-        let stock = item["stock"].as_f64().ok_or("موجودی ذخیره‌شده معتبر نیست")?;
         let business_id = number(&snapshot, "businessId")?;
+        let projection = &snapshot["localProjection"][item_id.to_string()];
+        if projection["stale"].as_bool() == Some(true) { return Err("فرمان انبار قبلی با این نسخه سازگار نیست؛ ابتدا snapshot تازه بگیرید".into()); }
+        let stock = projection["stock"].as_f64().ok_or("موجودی پیش‌بینی‌شدهٔ انبار معتبر نیست")?;
+        let projected_cost = projection["costPerUnit"].as_i64().ok_or("بهای پیش‌بینی‌شدهٔ انبار معتبر نیست")?;
         let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?;
-        let mut query = self.conn.prepare("SELECT payload FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action='waste' AND base_snapshot_id=?2 AND state IN ('pending','synced')").map_err(err)?;
-        let rows = query.query_map(params![business_id,base_snapshot_id], |row| row.get::<_, Vec<u8>>(0)).map_err(err)?;
-        let mut queued_quantity = 0.0;
-        for row in rows {
-            let command = value(row.map_err(err)?)?;
-            if command["payload"]["itemId"].as_i64() == Some(item_id) {
-                queued_quantity += command["payload"]["quantity"].as_f64().unwrap_or(0.0);
-            }
-        }
-        drop(query);
-        let expected_stock = stock - queued_quantity;
-        if !queued_quantity.is_finite() || expected_stock < -1e-9 || quantity > expected_stock + 1e-9 {
+        if stock < -1e-9 || quantity > stock + 1e-9 {
             return Err("مقدار ضایعات از موجودی قابل استفادهٔ این نسخه بیشتر است".into());
         }
         let id = uuid::Uuid::new_v4().to_string();
@@ -691,12 +683,96 @@ impl Store {
             "schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory",
             "action":"waste","baseDataset":"inventory","baseSnapshotId":base_snapshot_id,
             "baseRevision":snapshot["revision"],"payload":{
-                "itemId":item_id,"quantity":quantity,"expectedStock":expected_stock.max(0.0),"wasteReason":waste_reason,
+                "itemId":item_id,"quantity":quantity,"expectedStock":stock,"expectedCostPerUnit":projected_cost,"wasteReason":waste_reason,
                 "note":note.trim(),"occurredAt":Utc::now().to_rfc3339()
             }
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":id,"state":"pending","itemId":item_id,"quantity":quantity}))
+    }
+
+    pub fn enqueue_inventory_receive_with_pin(
+        &mut self, pin: &str, occurred_at: &str, invoice_no: &str, supplier_id: Option<i64>,
+        discount: i64, extra_cost: i64, shipping_cost: i64, tax_amount: i64, paid_amount: i64,
+        pay_from: &str, note: &str, raw_lines: &Value,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if invoice_no.chars().count() > 40 || note.chars().count() > 300 || !["cash", "bank", "payable"].contains(&pay_from) {
+            return Err("شماره فاکتور، توضیح یا روش پرداخت معتبر نیست".into());
+        }
+        let occurred = DateTime::parse_from_rfc3339(occurred_at).map_err(err)?;
+        let snapshot = self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ انبار منقضی است؛ ابتدا موجودی را تازه کنید".into()); }
+        let issued_at = DateTime::parse_from_rfc3339(snapshot["issuedAt"].as_str().ok_or("زمان snapshot انبار پیدا نشد")?).map_err(err)?;
+        if occurred > Utc::now() + chrono::Duration::days(1) || occurred < issued_at - chrono::Duration::days(7) {
+            return Err("تاریخ فاکتور بیرون از بازهٔ مجاز نسخهٔ محلی است".into());
+        }
+        let suppliers = snapshot["payload"]["suppliers"].as_array().ok_or("فهرست فروشندگان در snapshot انبار موجود نیست")?;
+        let supplier = if let Some(id) = supplier_id {
+            Some(suppliers.iter().find(|row| row["id"].as_i64() == Some(id) && row["isActive"].as_bool() == Some(true)).ok_or("فروشنده در نسخهٔ محلی فعال نیست")?)
+        } else { None };
+        if pay_from == "payable" && (supplier.is_none() || supplier.map_or(true, |row| row["hasPayableAccount"].as_bool() != Some(true))) {
+            return Err("برای ثبت فاکتور نسیه، فروشندهٔ دارای حساب تفصیلی لازم است".into());
+        }
+        let lines = raw_lines.as_array().ok_or("اقلام فاکتور باید به شکل فهرست ارسال شوند")?;
+        if lines.is_empty() || lines.len() > 100 { return Err("فاکتور باید بین ۱ تا ۱۰۰ قلم داشته باشد".into()); }
+        let items = snapshot["payload"]["items"].as_array().ok_or("فهرست کالاهای snapshot انبار معتبر نیست")?;
+        let business_id = number(&snapshot, "businessId")?;
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?;
+        let mut parsed = Vec::with_capacity(lines.len());
+        let mut seen = std::collections::HashSet::new();
+        let mut subtotal = 0_i64;
+        for raw in lines {
+            let item_id = raw["itemId"].as_i64().ok_or("کالای فاکتور معتبر نیست")?;
+            let quantity = raw["quantity"].as_f64().ok_or("مقدار فاکتور معتبر نیست")?;
+            let unit_cost = raw["unitCost"].as_i64().ok_or("بهای خرید باید عدد صحیح تومان باشد")?;
+            if item_id < 1 || !seen.insert(item_id) || !quantity.is_finite() || quantity <= 0.0 || quantity > 1_000_000_000.0 || unit_cost <= 0 || unit_cost > 1_000_000_000 {
+                return Err("کالا، مقدار یا بهای خرید ردیف فاکتور نامعتبر است".into());
+            }
+            let gross = quantity * unit_cost as f64;
+            if !gross.is_finite() || gross <= 0.0 || gross > 1_000_000_000_000.0 { return Err("مبلغ ردیف فاکتور بیش از حد مجاز است".into()); }
+            let gross = gross.round() as i64;
+            if gross <= 0 { return Err("مبلغ هر قلم پس از گردکردن باید بیشتر از صفر باشد".into()); }
+            subtotal = subtotal.checked_add(gross).ok_or("جمع اقلام از سقف مجاز بیشتر است")?;
+            parsed.push((item_id, quantity, unit_cost, gross));
+        }
+        if discount < 0 || extra_cost < 0 || shipping_cost < 0 || tax_amount < 0 || paid_amount < 0 || [discount, extra_cost, shipping_cost, tax_amount].iter().any(|value| *value > 1_000_000_000_000) || discount > subtotal {
+            return Err("تخفیف، هزینه یا مبلغ پرداختی نامعتبر است".into());
+        }
+        let total = subtotal.checked_sub(discount).and_then(|value| value.checked_add(extra_cost)).and_then(|value| value.checked_add(shipping_cost)).and_then(|value| value.checked_add(tax_amount)).ok_or("جمع فاکتور از سقف مجاز بیشتر است")?;
+        if total <= 0 || total > 1_000_000_000_000 || paid_amount > total || (pay_from == "payable" && paid_amount != 0) || (total > paid_amount && supplier.map_or(true, |row| row["hasPayableAccount"].as_bool() != Some(true))) {
+            return Err("جمع فاکتور یا مبلغ پرداختی با فروشنده و روش پرداخت سازگار نیست".into());
+        }
+        parsed.sort_by_key(|line| line.0);
+        let mut cumulative = 0_i64;
+        let mut allocated_before = 0_i64;
+        let mut command_lines = Vec::with_capacity(parsed.len());
+        for (item_id, quantity, unit_cost, gross) in parsed {
+            cumulative += gross;
+            let allocated_next = (total as f64 * (cumulative as f64 / subtotal as f64)).round() as i64;
+            let allocated_amount = allocated_next - allocated_before;
+            allocated_before = allocated_next;
+            let item = items.iter().find(|row| row["id"].as_i64() == Some(item_id)).ok_or("کالا در نسخهٔ محلی انبار پیدا نشد")?;
+            if item["isActive"].as_bool() != Some(true) || item["trackStock"].as_bool() != Some(true) { return Err("ورود فقط برای کالای فعال و دارای ردیابی موجودی ممکن است".into()); }
+            let projection = &snapshot["localProjection"][item_id.to_string()];
+            if projection["stale"].as_bool() == Some(true) { return Err("فرمان انبار قبلی با این نسخه سازگار نیست؛ ابتدا snapshot تازه بگیرید".into()); }
+            let expected_stock = projection["stock"].as_f64().ok_or("موجودی پیش‌بینی‌شدهٔ کالا معتبر نیست")?;
+            let expected_cost = projection["costPerUnit"].as_i64().ok_or("بهای پیش‌بینی‌شدهٔ کالا معتبر نیست")?;
+            if expected_stock < 0.0 { return Err("موجودی منفی است؛ پیش از ثبت فاکتور snapshot و گردش انبار را بررسی کنید".into()); }
+            let cost_float = (expected_stock * expected_cost as f64 + allocated_amount as f64) / (expected_stock + quantity);
+            if !cost_float.is_finite() || cost_float > 2_147_483_647.0 { return Err("بهای میانگین کالا از سقف مجاز بیشتر است".into()); }
+            command_lines.push(json!({"itemId":item_id,"quantity":quantity,"unitCost":unit_cost,"expectedStock":expected_stock,"expectedCostPerUnit":expected_cost,"allocatedAmount":allocated_amount,"resultCostPerUnit":cost_float.round() as i64}));
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"inventory","action":"receive",
+            "baseDataset":"inventory","baseSnapshotId":snapshot_id,"baseRevision":snapshot["revision"],
+            "payload":{"occurredAt":occurred.to_rfc3339(),"invoiceNo":invoice_no.trim(),"supplierId":supplier_id,"note":note.trim(),
+                "discount":discount,"extraCost":extra_cost,"shippingCost":shipping_cost,"taxAmount":tax_amount,"total":total,
+                "paidAmount":paid_amount,"payFrom":pay_from,"lines":command_lines}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"receive","total":total,"lineCount":lines.len()}))
     }
 
     pub fn enqueue_accounting_document_with_pin(
@@ -763,19 +839,88 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"create_document","totalAmount":debit_total}))
     }
 
-    pub fn workspace_inventory_waste_requests(&self) -> Result<Value> {
+    pub fn workspace_inventory_snapshot(&self) -> Result<Option<Value>> {
+        let Some(mut snapshot) = self.workspace_snapshot("inventory")? else { return Ok(None); };
+        let business_id = number(&snapshot, "businessId")?;
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?.to_string();
+        let snapshot_issued_at = DateTime::parse_from_rfc3339(snapshot["issuedAt"].as_str().ok_or("زمان snapshot انبار پیدا نشد")?).map_err(err)?;
+        let rows = snapshot["payload"]["items"].as_array().cloned().unwrap_or_default();
+        let mut states = std::collections::HashMap::<i64, (f64, i64, bool)>::new();
+        for item in &rows {
+            if let Some(item_id) = item["id"].as_i64() {
+                states.insert(item_id, (item["stock"].as_f64().unwrap_or(0.0), item["costPerUnit"].as_i64().unwrap_or(0), false));
+            }
+        }
+        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste') AND base_snapshot_id=?2 ORDER BY sequence ASC").map_err(err)?;
+        let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Vec<u8>>(1)?,row.get::<_, String>(2)?))).map_err(err)?;
+        for row in commands {
+            let (state, payload, created_at) = row.map_err(err)?;
+            let command = value(payload)?;
+            let payload = &command["payload"];
+            if state == "conflict" || state == "rejected" {
+                let command_created_at = DateTime::parse_from_rfc3339(&created_at).map_err(err)?;
+                if command_created_at <= snapshot_issued_at { continue; }
+                match command["action"].as_str() {
+                    Some("waste") => if let Some(item_id) = payload["itemId"].as_i64() {
+                        if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
+                    },
+                    Some("receive") => if let Some(lines) = payload["lines"].as_array() {
+                        for line in lines {
+                            if let Some(item_id) = line["itemId"].as_i64() {
+                                if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
+                            }
+                        }
+                    },
+                    _ => {}
+                }
+                continue;
+            }
+            if state != "pending" && state != "synced" { continue; }
+            match command["action"].as_str() {
+                Some("waste") => if let Some(item_id) = payload["itemId"].as_i64() {
+                    if let Some((stock, _, stale)) = states.get_mut(&item_id) {
+                        let expected = payload["expectedStock"].as_f64().unwrap_or(f64::NAN);
+                        if *stale || !expected.is_finite() || (expected - *stock).abs() > 1e-9 { *stale = true; }
+                        else { *stock = (*stock - payload["quantity"].as_f64().unwrap_or(0.0)).max(0.0); }
+                    }
+                },
+                Some("receive") => if let Some(lines) = payload["lines"].as_array() {
+                    for line in lines {
+                        let Some(item_id) = line["itemId"].as_i64() else { continue; };
+                        if let Some((stock, cost, stale)) = states.get_mut(&item_id) {
+                            let expected_stock = line["expectedStock"].as_f64().unwrap_or(f64::NAN);
+                            let expected_cost = line["expectedCostPerUnit"].as_i64().unwrap_or(-1);
+                            if *stale || !expected_stock.is_finite() || (expected_stock - *stock).abs() > 1e-9 || expected_cost != *cost { *stale = true; }
+                            else {
+                                *stock += line["quantity"].as_f64().unwrap_or(0.0);
+                                *cost = line["resultCostPerUnit"].as_i64().unwrap_or(*cost);
+                            }
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        let mut projection = serde_json::Map::new();
+        for (item_id, (stock, cost, stale)) in states {
+            projection.insert(item_id.to_string(), json!({"stock":stock,"costPerUnit":cost,"stale":stale}));
+        }
+        snapshot["localProjection"] = Value::Object(projection);
+        Ok(Some(snapshot))
+    }
+
+    pub fn workspace_inventory_commands(&self) -> Result<Value> {
         let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else {
             return Ok(json!([]));
         };
-        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action='waste' ORDER BY sequence DESC LIMIT 50").map_err(err)?;
-        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?))).map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?, row.get::<_, Option<String>>(6)?))).map_err(err)?;
         rows.map(|row| {
-            let (id,state,error,payload,created_at) = row.map_err(err)?;
+            let (id,state,error,payload,created_at,sequence,base_snapshot_id) = row.map_err(err)?;
             let command = value(payload)?;
             Ok(json!({
                 "id":id,"state":state,"error":error,"createdAt":created_at,
-                "itemId":command["payload"]["itemId"],"quantity":command["payload"]["quantity"],
-                "wasteReason":command["payload"]["wasteReason"]
+                "sequence":sequence,"baseSnapshotId":base_snapshot_id,"action":command["action"],"payload":command["payload"]
             }))
         }).collect::<Result<Vec<_>>>().map(|items| json!(items))
     }

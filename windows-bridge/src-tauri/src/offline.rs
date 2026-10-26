@@ -911,7 +911,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceSync": s.get("workspace_sync")?,
         "workspaceCustomerSync": s.get("workspace_sync_customers")?,
         "workspaceInventorySync": s.get("workspace_sync_inventory")?,
-        "workspaceInventoryWasteRequests": s.workspace_inventory_waste_requests()?,
+        "workspaceInventoryCommands": s.workspace_inventory_commands()?,
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
         "workspaceOrderHistorySync": s.get("workspace_order_history_sync")?,
         "workspaceOrderHistoryError": s.get("workspace_sync_orders_history")?,
@@ -947,7 +947,7 @@ pub fn offline_workspace_customers(state: State<'_, OfflineState>) -> Result<Opt
 #[tauri::command]
 pub fn offline_workspace_inventory(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("inventory")
+    store.workspace_inventory_snapshot()
 }
 
 #[tauri::command]
@@ -1104,6 +1104,27 @@ pub fn offline_workspace_record_inventory_waste(
     state: State<'_, OfflineState>,
 ) -> Result<Value> {
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_waste_with_pin(&manager_pin, item_id, quantity, &waste_reason, &note)
+}
+#[tauri::command]
+pub fn offline_workspace_receive_inventory(
+    occurred_at: String,
+    invoice_no: String,
+    supplier_id: Option<i64>,
+    discount: i64,
+    extra_cost: i64,
+    shipping_cost: i64,
+    tax_amount: i64,
+    paid_amount: i64,
+    pay_from: String,
+    note: String,
+    lines: Value,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_receive_with_pin(
+        &manager_pin, &occurred_at, &invoice_no, supplier_id, discount, extra_cost, shipping_cost, tax_amount,
+        paid_amount, &pay_from, &note, &lines,
+    )
 }
 #[tauri::command]
 pub fn offline_workspace_create_accounting_document(
