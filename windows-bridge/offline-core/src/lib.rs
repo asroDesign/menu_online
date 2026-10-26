@@ -743,6 +743,65 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","itemId":item_id,"quantity":quantity}))
     }
 
+    pub fn enqueue_inventory_movement_with_pin(
+        &mut self,
+        pin: &str,
+        item_id: i64,
+        movement_type: &str,
+        quantity: f64,
+        note: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if item_id < 1 || !quantity.is_finite() || quantity < 0.0 || quantity > 1_000_000_000.0
+            || (movement_type == "out" && quantity <= 0.0)
+            || !["out", "adjust"].contains(&movement_type)
+        {
+            return Err("نوع گردش یا مقدار موجودی معتبر نیست".into());
+        }
+        if note.chars().count() > 300 {
+            return Err("توضیح گردش بیش از حد طولانی است".into());
+        }
+        let snapshot = self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ موجودی منقضی است؛ برای ثبت گردش آن را به‌روز کنید".into());
+        }
+        let items = snapshot["payload"]["items"].as_array().ok_or("فهرست محلی انبار معتبر نیست")?;
+        let item = items.iter().find(|row| row["id"].as_i64() == Some(item_id)).ok_or("کالا در نسخهٔ انبار این دستگاه پیدا نشد")?;
+        if item["isActive"].as_bool() != Some(true) || item["trackStock"].as_bool() != Some(true) {
+            return Err("گردش فقط برای کالای فعال و دارای ردیابی موجودی ممکن است".into());
+        }
+        let projection = &snapshot["localProjection"][item_id.to_string()];
+        if projection["stale"].as_bool() == Some(true) {
+            return Err("فرمان انبار قبلی با این نسخه سازگار نیست؛ ابتدا snapshot تازه بگیرید".into());
+        }
+        let stock = projection["stock"].as_f64().ok_or("موجودی پیش‌بینی‌شدهٔ انبار معتبر نیست")?;
+        let cost = projection["costPerUnit"].as_i64().ok_or("بهای پیش‌بینی‌شدهٔ انبار معتبر نیست")?;
+        if stock < -1e-9 || (movement_type == "out" && quantity > stock + 1e-9) {
+            return Err("موجودی قابل استفاده برای این خروج کافی نیست".into());
+        }
+        let delta = if movement_type == "out" { quantity } else { (quantity - stock).abs() };
+        if !delta.is_finite() || delta * cost.max(0) as f64 > 1_000_000_000_000.0 {
+            return Err("ارزش این گردش از سقف مجاز بیشتر است".into());
+        }
+        if movement_type == "adjust" && (quantity - stock).abs() <= 1e-9 {
+            return Err("موجودی شمارش‌شده با موجودی پیش‌بینی‌شده تفاوتی ندارد".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot انبار پیدا نشد")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory",
+            "action":"movement","baseDataset":"inventory","baseSnapshotId":base_snapshot_id,
+            "baseRevision":snapshot["revision"],"payload":{
+                "type":movement_type,"itemId":item_id,"quantity":quantity,
+                "expectedStock":stock,"expectedCostPerUnit":cost,"note":note.trim(),
+                "occurredAt":Utc::now().to_rfc3339()
+            }
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","itemId":item_id,"type":movement_type,"quantity":quantity}))
+    }
+
     pub fn enqueue_inventory_receive_with_pin(
         &mut self, pin: &str, occurred_at: &str, invoice_no: &str, supplier_id: Option<i64>,
         discount: i64, extra_cost: i64, shipping_cost: i64, tax_amount: i64, paid_amount: i64,
@@ -940,7 +999,7 @@ impl Store {
                 states.insert(item_id, (item["stock"].as_f64().unwrap_or(0.0), item["costPerUnit"].as_i64().unwrap_or(0), false));
             }
         }
-        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste') AND base_snapshot_id=?2 ORDER BY sequence ASC").map_err(err)?;
+        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement') AND base_snapshot_id=?2 ORDER BY sequence ASC").map_err(err)?;
         let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Vec<u8>>(1)?,row.get::<_, String>(2)?))).map_err(err)?;
         for row in commands {
             let (state, payload, created_at) = row.map_err(err)?;
@@ -951,6 +1010,9 @@ impl Store {
                 if command_created_at <= snapshot_issued_at { continue; }
                 match command["action"].as_str() {
                     Some("waste") => if let Some(item_id) = payload["itemId"].as_i64() {
+                        if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
+                    },
+                    Some("movement") => if let Some(item_id) = payload["itemId"].as_i64() {
                         if let Some((_, _, stale)) = states.get_mut(&item_id) { *stale = true; }
                     },
                     Some("receive") => if let Some(lines) = payload["lines"].as_array() {
@@ -971,6 +1033,25 @@ impl Store {
                         let expected = payload["expectedStock"].as_f64().unwrap_or(f64::NAN);
                         if *stale || !expected.is_finite() || (expected - *stock).abs() > 1e-9 { *stale = true; }
                         else { *stock = (*stock - payload["quantity"].as_f64().unwrap_or(0.0)).max(0.0); }
+                    }
+                },
+                Some("movement") => if let Some(item_id) = payload["itemId"].as_i64() {
+                    if let Some((stock, cost, stale)) = states.get_mut(&item_id) {
+                        let expected_stock = payload["expectedStock"].as_f64().unwrap_or(f64::NAN);
+                        let expected_cost = payload["expectedCostPerUnit"].as_i64().unwrap_or(-1);
+                        let quantity = payload["quantity"].as_f64().unwrap_or(f64::NAN);
+                        if *stale || !expected_stock.is_finite() || !quantity.is_finite()
+                            || (expected_stock - *stock).abs() > 1e-9 || expected_cost != *cost
+                        {
+                            *stale = true;
+                        } else if payload["type"].as_str() == Some("out") {
+                            if quantity <= 0.0 || quantity > *stock + 1e-9 { *stale = true; }
+                            else { *stock = (*stock - quantity).max(0.0); }
+                        } else if payload["type"].as_str() == Some("adjust") && quantity >= 0.0 {
+                            *stock = quantity;
+                        } else {
+                            *stale = true;
+                        }
                     }
                 },
                 Some("receive") => if let Some(lines) = payload["lines"].as_array() {
@@ -1002,7 +1083,7 @@ impl Store {
         let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else {
             return Ok(json!([]));
         };
-        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('receive','waste','movement') ORDER BY sequence DESC LIMIT 50").map_err(err)?;
         let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?, row.get::<_, Option<String>>(6)?))).map_err(err)?;
         rows.map(|row| {
             let (id,state,error,payload,created_at,sequence,base_snapshot_id) = row.map_err(err)?;

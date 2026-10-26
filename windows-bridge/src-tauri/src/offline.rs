@@ -1260,6 +1260,17 @@ pub fn offline_workspace_record_inventory_waste(
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_waste_with_pin(&manager_pin, item_id, quantity, &waste_reason, &note)
 }
 #[tauri::command]
+pub fn offline_workspace_record_inventory_movement(
+    item_id: i64,
+    movement_type: String,
+    quantity: f64,
+    note: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_movement_with_pin(&manager_pin, item_id, &movement_type, quantity, &note)
+}
+#[tauri::command]
 pub fn offline_workspace_receive_inventory(
     occurred_at: String,
     invoice_no: String,
