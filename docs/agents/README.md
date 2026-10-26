@@ -37,7 +37,7 @@
 
 ## اپلیکیشن ویندوز آفلاین کامل
 
-- [نقشهٔ تبدیل پنل رستوران به اپ آفلاین](modules/offline-full-dashboard.md) — قرارداد هویت، snapshot محلی، outbox، همگام‌سازی، سیاست تعارض، محدودهٔ اتصال‌های بیرونی و مراحل پوشش همهٔ ماژول‌ها. راهنمای فعلی POS آفلاین: [modules/offline-pos.md](modules/offline-pos.md).
+- [نقشهٔ تبدیل پنل رستوران به اپ آفلاین](modules/offline-full-dashboard.md) — وضعیت فعلی: SQLite foundation نسخهٔ ۲ برای snapshot tenant-scoped و outbox رمزگذاری‌شده اضافه شده، اما endpoint/replay و اتصال UI هنوز پیاده نشده‌اند؛ این سند قرارداد هویت، همگام‌سازی، تعارض‌ها و پوشش همهٔ ماژول‌ها را نگه می‌دارد. راهنمای فعلی صندوق POS: [modules/offline-pos.md](modules/offline-pos.md).
 
 ## ماژول‌های داشبورد
 

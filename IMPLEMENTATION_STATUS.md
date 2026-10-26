@@ -965,3 +965,7 @@ M12 صندوق آفلاین نیز اجرا نشده است. برای سفارش
 ## اصلاح متن معرفی صندوق ویندوز در صفحهٔ اصلی — ۲۰۲۶-۱۰-۲۶
 
 متن‌های فنی و صف همگام‌سازی از سکشن بازاریابی حذف/جایگزین شدند: پیام آرامش برای آشپزخانه و صندوق‌دار، ثبت بی‌دردسر سفارش، و اتصال چندکلیکی به منوی آنلاین. جزئیات در [گزارش اپ ویندوز](docs/updates/2026-10-26-offline-pos-desktop.md) ثبت شده است.
+
+## بنیاد محلی اپ ویندوزی پنل کامل — ۲۰۲۶-۱۰-۲۶
+
+SQLite پل ویندوز از user_version=1 به ۲ مهاجرت‌پذیر شد. جدول‌های tenant-scoped برای snapshotهای revisionدار و outbox فرمان‌های domain با idempotency، ترتیب محلی، payload رمزگذاری‌شده، lease/retry و وضعیت conflict/rejected/synced افزوده شدند. payload و mutation از JavaScript/Tauri UI در دسترس نیست تا احراز هویت محلی و worker معتبر پیاده شود؛ status فقط شمارنده‌های outbox را کنار شمارنده‌های صندوق می‌دهد. این مرحله هنوز endpoint دریافت snapshot، worker replay به سرور و اتصال صفحه‌های پنل را ندارد، پس پنل کامل آفلاین نشده است. جزئیات و قراردادها در [راهنمای اپ آفلاین کامل](docs/agents/modules/offline-full-dashboard.md) و [گزارش این مرحله](docs/updates/2026-10-26-offline-workspace-foundation.md) است.

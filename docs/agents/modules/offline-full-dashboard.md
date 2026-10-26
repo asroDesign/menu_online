@@ -7,7 +7,7 @@
 ## وضعیت فعلی کد
 
 - کلاینت فعلی Tauri/Rust نسخهٔ ۰٫۲، با رابط HTML محلی، صندوق POS آفلاین، تجهیزات و SQLite موجود در `windows-bridge/` است.
-- SQLite محلی فعلی فقط تنظیمات، فروش‌های POS و کارهای چاپ را نگه می‌دارد. داده‌های منو برای POS از snapshot سرور می‌آیند و عمر ۷ روزه دارند.
+- SQLite محلی POS، فروش و کارهای چاپ را نگه می‌دارد. در ۲۰۲۶-۱۰-۲۶ foundation نسخهٔ ۲ برای snapshotهای tenant-scoped و outbox فرمان‌های پنل اضافه شده؛ هنوز endpoint دریافت داده، replay سروری یا مصرف‌کنندهٔ UI برای آن ساخته نشده است.
 - پنل اصلی Next.js با Server Components و APIهای وابسته به PostgreSQL در سرور اجرا می‌شود. قراردادن URL سایت در WebView فقط پوستهٔ ویندوزی می‌سازد و هنگام قطع اینترنت پنل را فعال نمی‌کند.
 - در بازبینی ۲۰۲۶-۱۰-۲۶ تعداد ۱۱۸ جدول PostgreSQL و ۱۴۰ فایل route در `src/app/api` شمرده شد. اینها معادل تعداد ماژول‌های قابل آفلاین‌سازی نیستند؛ هر route باید از نظر مالکیت داده، side effect، اتصال خارجی و سیاست تعارض بررسی شود.
 
@@ -44,6 +44,15 @@
 - ویرایش هم‌زمان تنظیمات، منو، کارمند و مشتری با optimistic revision کنترل شود؛ overwrite بی‌صدا ممنوع است.
 - گزارش‌ها تا زمان sync، برچسب «محلی/ناقص» و زمان آخرین همگام‌سازی داشته باشند.
 
+### وضعیت foundation محلی نسخهٔ ۲
+
+- `workspace_snapshots` هر مجموعه را با کلید `(business_id,dataset)`، revision، نسخهٔ payload، UUID snapshot، مهلت اعتبار و payload رمزگذاری‌شده نگه می‌دارد. فقط datasetهای ثبت‌شده در allowlist Rust پذیرفته می‌شوند؛ شناسهٔ tenant باید با pairing فعلی برابر باشد، revision عقب‌گرد نمی‌کند و دو payload متفاوت با revision برابر رد می‌شوند. دریافت باید پیش از انقضا انجام شود؛ خواندن snapshot، فیلد `expired` را محاسبه می‌کند.
+- `workspace_commands` فرمان دامنه‌ای را با UUID idempotency، ترتیب محلی، tenant، module/action، `baseDataset`، `baseSnapshotId` و `baseRevision` ثبت می‌کند. در تراکنش Immediate، dataset مجاز برای همان module/action، revision/UUID snapshot موجود و مهلت آن دوباره بررسی می‌شود؛ بنابراین فرمان به snapshot دیگری نسبت داده نمی‌شود. payload رمزگذاری‌شده و وضعیت pending/conflict/rejected/synced نگه‌داری می‌شود. claim با lease دو دقیقه‌ای از برداشت هم‌زمان worker جلوگیری می‌کند. حالت synced بدون رسید سرور پذیرفته نمی‌شود و ثبت receipt تکراری idempotent است. اندازهٔ هر فرمان تا ۱ مگابایت و صف تا ۵۰٬۰۰۰ فرمان محدود است. چاپ و پیجر به‌عنوان side effect محلی از registry sync خارج‌اند.
+- payload داده و فرمان از تابع `blob()` استفاده می‌کند؛ در build ویندوز این تابع DPAPI را به‌کار می‌برد. کد غیر Windows payload را رمز نمی‌کند و فقط برای توسعه/کامپایل هسته است.
+- توابع Store برای ذخیره/خواندن snapshot، دیدن index، enqueue، claim با lease و ثبت نتیجه فقط در Rust crate هستند. فرمان‌های محلی یا payload به JavaScript/Tauri UI expose نشده‌اند تا احراز هویت محلی، scope نقش و worker معتبر پیاده شود.
+- این foundation به API سایت وصل نیست: `/api/offline-dashboard/*` وجود ندارد، worker فرمان‌ها را ارسال نمی‌کند، هیچ صفحه‌ای از Next API را از این store نمی‌خواند، و endpointی هنوز snapshotهای پنل را تولید نمی‌کند. تا انجام این اتصال، تمام پنل در قطعی اینترنت کار نمی‌کند. فرمان‌های domain در allowlist صرفاً قرارداد ذخیره‌سازی‌اند، نه قابلیت عملیاتی.
+- SQLite `user_version` از ۱ به ۲ مهاجرت می‌کند؛ نسخهٔ جدیدتر از برنامه رد می‌شود. جداول فروش/چاپ قبلی حذف یا بازنویسی نمی‌شوند.
+
 ## پوشش ماژول‌های رستوران
 
 همهٔ ماژول‌های داخل `NAV` در `src/components/dashboard-shell.tsx` باید یک ثبت پوشش داشته باشند: snapshot مورد نیاز، عملیات محلی، فرمان sync، side effect و سیاست تعارض. گروه‌های موردنظر عبارت‌اند از:
@@ -74,7 +83,8 @@
 | گروه | snapshot محلی | فرمان/نوشتن محلی | sync سمت سرور | conflict | وضعیت |
 |---|---|---|---|---|---|
 | صندوق و سفارش آفلاین | منوی نسخه‌دار POS | فروش/تسویه محلی | `/api/offline-pos/*` | مبلغ/سفارش ردشده در صف | پیاده‌سازی اولیهٔ v0.2؛ محدود به سفارش و POS |
-| پنل کامل رستوران | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
+| بنیاد پنل آفلاین | ذخیرهٔ محلی allowlist شده با revision/tenant | outbox domain با idempotency | هنوز ندارد | وضعیت‌های پایدار محلی، بدون حل سروری | v0.3 foundation؛ هنوز به UI/API متصل نشده |
+| پنل کامل رستوران | endpoint و مجموعه‌های هر ماژول تعریف/ساخته نشده | UI ماژول‌ها به outbox وصل نیست | replay سروری ندارد | سیاست نهایی برای هر ماژول پیاده نشده | انجام‌نشده |
 | انبار، تولید و recipe | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
 | حسابداری و حقوق | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
 | CRM، پشتیبانی و ارتباطات | تعریف نشده | تعریف نشده | تعریف نشده | تعریف نشده | انجام‌نشده |
@@ -88,6 +98,8 @@
 - `src/app/api/offline-pos/`: APIهای POS موجود.
 - `src/components/dashboard-shell.tsx`: منبع فهرست ماژول‌های رستوران برای ماتریس پوشش.
 - `src/db/migrations/0054_offline_pos.sql`: جداول دستگاه، snapshot صندوق و فروش آفلاین.
+- `windows-bridge/offline-core/src/lib.rs`: مهاجرت SQLite محلی به user_version=2 و store رمزگذاری‌شدهٔ snapshot/outbox.
+- `windows-bridge/src-tauri/src/offline.rs`: worker فعلی POS؛ Store پنل در Rust crate است و handler عمومی Tauri هنوز وجود ندارد.
 
 ## معیار تکمیل
 

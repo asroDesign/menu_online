@@ -4,6 +4,25 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::Path;
 pub type Result<T> = std::result::Result<T, String>;
+const LOCAL_SCHEMA_VERSION: i64 = 2;
+const WORKSPACE_DATASETS: &[&str] = &[
+    "overview",
+    "orders",
+    "menu",
+    "customers",
+    "reservations",
+    "inventory",
+    "accounting",
+    "receivables",
+    "cheques",
+    "staff",
+    "shifts",
+    "payroll",
+    "devices",
+    "settings",
+    "reports",
+    "loyalty",
+];
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -40,12 +59,399 @@ impl Store {
         let conn = Connection::open(path).map_err(err)?;
         conn.busy_timeout(std::time::Duration::from_secs(10))
             .map_err(err)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
-        CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value BLOB NOT NULL);
-        CREATE TABLE IF NOT EXISTS sales(id TEXT PRIMARY KEY, payload BLOB NOT NULL, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, server_number INTEGER, created_at TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS print_jobs(id INTEGER PRIMARY KEY, sale_id TEXT NOT NULL REFERENCES sales(id), code TEXT NOT NULL, content BLOB NOT NULL, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '');
-        PRAGMA user_version=1;").map_err(err)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+        )
+        .map_err(err)?;
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(err)?;
+        if version > LOCAL_SCHEMA_VERSION {
+            return Err(format!("نسخهٔ پایگاه محلی ({version}) از این برنامه جدیدتر است؛ برای جلوگیری از آسیب به داده‌ها برنامه را به‌روزرسانی کنید"));
+        }
+        if version == 0 {
+            conn.execute_batch("BEGIN IMMEDIATE;
+            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value BLOB NOT NULL);
+            CREATE TABLE IF NOT EXISTS sales(id TEXT PRIMARY KEY, payload BLOB NOT NULL, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, server_number INTEGER, created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS print_jobs(id INTEGER PRIMARY KEY, sale_id TEXT NOT NULL REFERENCES sales(id), code TEXT NOT NULL, content BLOB NOT NULL, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '');
+            PRAGMA user_version=1;
+            COMMIT;").map_err(err)?;
+        }
+        if version < 2 {
+            conn.execute_batch("BEGIN IMMEDIATE;
+            CREATE TABLE IF NOT EXISTS workspace_snapshots(
+                business_id INTEGER NOT NULL,
+                dataset TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 0),
+                schema_version INTEGER NOT NULL CHECK(schema_version > 0),
+                snapshot_id TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                valid_until TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                PRIMARY KEY(business_id,dataset)
+            );
+            CREATE TABLE IF NOT EXISTS workspace_commands(
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT NOT NULL UNIQUE,
+                business_id INTEGER NOT NULL,
+                module TEXT NOT NULL,
+                action TEXT NOT NULL,
+                base_dataset TEXT NOT NULL,
+                base_snapshot_id TEXT NOT NULL,
+                base_revision INTEGER NOT NULL CHECK(base_revision >= 0),
+                payload BLOB NOT NULL,
+                state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','conflict','rejected','synced')),
+                error TEXT NOT NULL DEFAULT '',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                retry_at INTEGER NOT NULL DEFAULT 0,
+                lease_until INTEGER NOT NULL DEFAULT 0,
+                server_receipt TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS workspace_commands_pending ON workspace_commands(state,retry_at,lease_until,sequence);
+            PRAGMA user_version=2;
+            COMMIT;").map_err(err)?;
+        }
         Ok(Self { conn })
+    }
+
+    fn paired_business_id(&self) -> Result<i64> {
+        self.get("pairing")?
+            .and_then(|pair| pair["businessId"].as_i64())
+            .filter(|id| *id > 0)
+            .ok_or_else(|| "ابتدا دستگاه را به کسب‌وکار متصل کنید".to_string())
+    }
+
+    pub fn save_workspace_snapshot(&mut self, snapshot: &Value) -> Result<()> {
+        if snapshot["schemaVersion"].as_i64() != Some(1) {
+            return Err("نسخهٔ دادهٔ محلی پشتیبانی نمی‌شود".into());
+        }
+        let business_id = number(snapshot, "businessId")?;
+        if business_id != self.paired_business_id()? {
+            return Err("این داده متعلق به کسب‌وکار متصل نیست".into());
+        }
+        let dataset = snapshot["dataset"]
+            .as_str()
+            .ok_or("نام مجموعهٔ داده لازم است")?;
+        if !WORKSPACE_DATASETS.contains(&dataset) {
+            return Err("این مجموعهٔ داده برای نگهداری محلی مجاز نیست".into());
+        }
+        let revision = number(snapshot, "revision")?;
+        if revision < 0 {
+            return Err("نسخهٔ داده نامعتبر است".into());
+        }
+        let snapshot_id = snapshot["snapshotId"]
+            .as_str()
+            .ok_or("شناسهٔ snapshot لازم است")?;
+        uuid::Uuid::parse_str(snapshot_id).map_err(err)?;
+        let issued = DateTime::parse_from_rfc3339(
+            snapshot["issuedAt"]
+                .as_str()
+                .ok_or("زمان snapshot لازم است")?,
+        )
+        .map_err(err)?;
+        let valid_until = DateTime::parse_from_rfc3339(
+            snapshot["validUntil"]
+                .as_str()
+                .ok_or("مهلت snapshot لازم است")?,
+        )
+        .map_err(err)?;
+        let now = Utc::now();
+        if issued > now + chrono::Duration::minutes(5)
+            || valid_until <= now
+            || valid_until <= issued
+            || valid_until > issued + chrono::Duration::days(90)
+        {
+            return Err("بازهٔ اعتبار snapshot معتبر نیست".into());
+        }
+        if !snapshot["payload"].is_object() && !snapshot["payload"].is_array() {
+            return Err("محتوای snapshot معتبر نیست".into());
+        }
+        let payload = serde_json::to_vec(&snapshot["payload"]).map_err(err)?;
+        if payload.len() > 10_000_000 {
+            return Err("اندازهٔ مجموعهٔ داده از سقف ۱۰ مگابایت بیشتر است".into());
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        let current: Option<(i64, String, Vec<u8>)> = tx.query_row(
+            "SELECT revision,snapshot_id,payload FROM workspace_snapshots WHERE business_id=?1 AND dataset=?2",
+            params![business_id,dataset], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+        ).optional().map_err(err)?;
+        if let Some((current_revision, current_id, current_payload)) = current {
+            if revision < current_revision {
+                return Err("snapshot قدیمی‌تر از دادهٔ ذخیره‌شده است".into());
+            }
+            if revision == current_revision {
+                if current_id == snapshot_id && value(current_payload)? == snapshot["payload"] {
+                    return Ok(());
+                }
+                return Err("دو snapshot متفاوت با نسخهٔ یکسان دریافت شد".into());
+            }
+        }
+        tx.execute("INSERT INTO workspace_snapshots(business_id,dataset,revision,schema_version,snapshot_id,issued_at,valid_until,payload)
+            VALUES(?1,?2,?3,1,?4,?5,?6,?7) ON CONFLICT(business_id,dataset) DO UPDATE SET revision=excluded.revision,schema_version=excluded.schema_version,snapshot_id=excluded.snapshot_id,issued_at=excluded.issued_at,valid_until=excluded.valid_until,payload=excluded.payload",
+            params![business_id,dataset,revision,snapshot_id,issued.to_rfc3339(),valid_until.to_rfc3339(),blob(&snapshot["payload"])?]).map_err(err)?;
+        tx.commit().map_err(err)
+    }
+
+    pub fn workspace_snapshot(&self, dataset: &str) -> Result<Option<Value>> {
+        if !WORKSPACE_DATASETS.contains(&dataset) {
+            return Err("این مجموعهٔ داده برای خواندن محلی مجاز نیست".into());
+        }
+        let business_id = self.paired_business_id()?;
+        let row: Option<(i64,i64,String,String,String,Vec<u8>)> = self.conn.query_row(
+            "SELECT revision,schema_version,snapshot_id,issued_at,valid_until,payload FROM workspace_snapshots WHERE business_id=?1 AND dataset=?2",
+            params![business_id,dataset], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)),
+        ).optional().map_err(err)?;
+        row.map(|(revision,schema_version,snapshot_id,issued_at,valid_until,payload)| Ok(json!({
+            "businessId":business_id,"dataset":dataset,"revision":revision,"schemaVersion":schema_version,
+            "snapshotId":snapshot_id,"issuedAt":issued_at,"validUntil":valid_until,
+            "expired":DateTime::parse_from_rfc3339(&valid_until).map_err(err)? < Utc::now(),"payload":value(payload)?
+        }))).transpose()
+    }
+
+    pub fn workspace_snapshot_index(&self) -> Result<Value> {
+        let Some(business_id) = self
+            .get("pairing")?
+            .and_then(|pair| pair["businessId"].as_i64())
+        else {
+            return Ok(json!([]));
+        };
+        let mut q = self.conn.prepare("SELECT dataset,revision,schema_version,snapshot_id,issued_at,valid_until FROM workspace_snapshots WHERE business_id=?1 ORDER BY dataset").map_err(err)?;
+        let rows = q.query_map([business_id], |r| Ok(json!({"dataset":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"schemaVersion":r.get::<_,i64>(2)?,"snapshotId":r.get::<_,String>(3)?,"issuedAt":r.get::<_,String>(4)?,"validUntil":r.get::<_,String>(5)?}))).map_err(err)?;
+        Ok(json!(rows
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)?))
+    }
+
+    pub fn enqueue_workspace_command(&mut self, command: &Value) -> Result<()> {
+        if command["schemaVersion"].as_i64() != Some(1) {
+            return Err("نسخهٔ فرمان محلی پشتیبانی نمی‌شود".into());
+        }
+        let business_id = number(command, "businessId")?;
+        if business_id != self.paired_business_id()? {
+            return Err("فرمان متعلق به کسب‌وکار متصل نیست".into());
+        }
+        let id = command["id"].as_str().ok_or("شناسهٔ فرمان لازم است")?;
+        uuid::Uuid::parse_str(id).map_err(err)?;
+        let module = command["module"].as_str().ok_or("نام ماژول لازم است")?;
+        let action = command["action"].as_str().ok_or("نوع عملیات لازم است")?;
+        let allowed = match module {
+            "orders" => ["create", "change_status", "record_payment"].contains(&action),
+            "menu" => [
+                "create_product",
+                "update_product",
+                "archive_product",
+                "update_category",
+            ]
+            .contains(&action),
+            "customers" => ["create", "update"].contains(&action),
+            "reservations" => ["create", "update_status"].contains(&action),
+            "inventory" => ["receive", "movement", "waste", "transfer"].contains(&action),
+            "accounting" => ["create_document", "reverse_document"].contains(&action),
+            "staff" => ["attendance", "leave_request", "shift_change"].contains(&action),
+            "payroll" => ["adjustment", "settlement"].contains(&action),
+            "settings" => ["update"].contains(&action),
+            "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
+            _ => false,
+        };
+        if !allowed {
+            return Err("این فرمان آفلاین در فهرست مجاز نیست".into());
+        }
+        let base_dataset = match (module, action) {
+            ("orders", "create") => "menu",
+            ("orders", _) => "orders",
+            ("menu", _) => "menu",
+            ("customers", _) => "customers",
+            ("reservations", _) => "reservations",
+            ("inventory", _) => "inventory",
+            ("accounting", _) => "accounting",
+            ("staff", _) => "staff",
+            ("payroll", _) => "payroll",
+            ("settings", _) => "settings",
+            ("loyalty", _) => "loyalty",
+            _ => return Err("برای این ماژول snapshot پایه تعریف نشده است".into()),
+        };
+        if command["baseDataset"].as_str() != Some(base_dataset) {
+            return Err("مجموعهٔ دادهٔ پایهٔ فرمان با ماژول/عملیات هم‌خوان نیست".into());
+        }
+        let base_snapshot_id = command["baseSnapshotId"]
+            .as_str()
+            .ok_or("شناسهٔ snapshot پایه لازم است")?;
+        uuid::Uuid::parse_str(base_snapshot_id).map_err(err)?;
+        let base_revision = number(command, "baseRevision")?;
+        if base_revision < 0 {
+            return Err("نسخهٔ پایهٔ فرمان معتبر نیست".into());
+        }
+        if !command["payload"].is_object() {
+            return Err("محتوای فرمان باید یک شیء JSON باشد".into());
+        }
+        let payload_json = serde_json::to_vec(command).map_err(err)?;
+        if payload_json.len() > 1_000_000 {
+            return Err("اندازهٔ فرمان از سقف یک مگابایت بیشتر است".into());
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        let existing: Option<(String, String, Vec<u8>)> = tx
+            .query_row(
+                "SELECT module,action,payload FROM workspace_commands WHERE id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .map_err(err)?;
+        if let Some((old_module, old_action, old_payload)) = existing {
+            if old_module == module && old_action == action && value(old_payload)? == *command {
+                return Ok(());
+            }
+            return Err("شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است".into());
+        }
+        let base: Option<(i64, String, String)> = tx
+            .query_row(
+                "SELECT revision,snapshot_id,valid_until FROM workspace_snapshots WHERE business_id=?1 AND dataset=?2",
+                params![business_id,base_dataset],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+            )
+            .optional()
+            .map_err(err)?;
+        let Some((snapshot_revision, snapshot_id, valid_until)) = base else {
+            return Err("snapshot پایهٔ این ماژول دریافت نشده است".into());
+        };
+        if snapshot_revision != base_revision || snapshot_id != base_snapshot_id {
+            return Err("فرمان بر مبنای snapshot جاری ساخته نشده است".into());
+        }
+        if DateTime::parse_from_rfc3339(&valid_until).map_err(err)? <= Utc::now() {
+            return Err("اعتبار snapshot پایان یافته؛ هنگام اتصال منو را به‌روز کنید".into());
+        }
+        let count: i64 = tx
+            .query_row(
+                "SELECT count(*) FROM workspace_commands WHERE state!='synced'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        if count >= 50_000 {
+            return Err("صف تغییرات محلی پر شده؛ ابتدا همگام‌سازی را انجام دهید".into());
+        }
+        tx.execute("INSERT INTO workspace_commands(id,business_id,module,action,base_dataset,base_snapshot_id,base_revision,payload,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,business_id,module,action,base_dataset,base_snapshot_id,base_revision,blob(command)?,Utc::now().to_rfc3339()]).map_err(err)?;
+        tx.commit().map_err(err)
+    }
+
+    pub fn claim_workspace_commands(&mut self) -> Result<Vec<Value>> {
+        let business_id = self.paired_business_id()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        let rows = {
+            let mut q = tx.prepare("SELECT sequence,id,module,action,state,error,attempts,payload,created_at FROM workspace_commands WHERE business_id=?1 AND state='pending' AND retry_at<=unixepoch() AND lease_until<=unixepoch() ORDER BY sequence LIMIT 20").map_err(err)?;
+            let mapped = q
+                .query_map([business_id], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, i64>(6)?,
+                        r.get::<_, Vec<u8>>(7)?,
+                        r.get::<_, String>(8)?,
+                    ))
+                })
+                .map_err(err)?;
+            let collected = mapped
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(err)?;
+            collected
+        };
+        let mut claimed = Vec::new();
+        for row in rows {
+            let changed = tx.execute("UPDATE workspace_commands SET lease_until=unixepoch()+120 WHERE sequence=?1 AND state='pending' AND lease_until<=unixepoch()",[row.0]).map_err(err)?;
+            if changed == 1 {
+                claimed.push(row);
+            }
+        }
+        tx.commit().map_err(err)?;
+        claimed.into_iter().map(|(sequence,id,module,action,state,error,attempts,payload,created_at)| Ok(json!({"sequence":sequence,"id":id,"module":module,"action":action,"state":state,"error":error,"attempts":attempts,"command":value(payload)?,"createdAt":created_at}))).collect()
+    }
+
+    pub fn finish_workspace_command(
+        &self,
+        id: &str,
+        receipt: Option<&str>,
+        error: Option<&str>,
+        failure_kind: &str,
+    ) -> Result<()> {
+        uuid::Uuid::parse_str(id).map_err(err)?;
+        let business_id = self.paired_business_id()?;
+        let message = error.unwrap_or("").chars().take(500).collect::<String>();
+        let receipt = receipt.unwrap_or("").chars().take(1000).collect::<String>();
+        if error.is_none() && receipt.is_empty() {
+            return Err("تأیید همگام‌سازی بدون رسید سرور پذیرفته نمی‌شود".into());
+        }
+        let (state, retry_sql) = if error.is_none() {
+            ("synced", "retry_at=0")
+        } else {
+            match failure_kind {
+                "transient" => (
+                    "pending",
+                    "retry_at=unixepoch()+min(900,5*(1<<min(attempts,7)))",
+                ),
+                "conflict" => ("conflict", "retry_at=0"),
+                "rejected" => ("rejected", "retry_at=0"),
+                _ => return Err("نوع نتیجهٔ فرمان معتبر نیست".into()),
+            }
+        };
+        let sql = format!("UPDATE workspace_commands SET state=?1,error=?2,server_receipt=?3,attempts=attempts+CASE WHEN ?1='synced' THEN 0 ELSE 1 END,lease_until=0,{retry_sql} WHERE id=?4 AND business_id=?5 AND state='pending'");
+        let changed = self
+            .conn
+            .execute(&sql, params![state, message, receipt, id, business_id])
+            .map_err(err)?;
+        if changed == 0 {
+            let existing: Option<(String, String)> = self
+                .conn
+                .query_row(
+                    "SELECT state,server_receipt FROM workspace_commands WHERE id=?1 AND business_id=?2",
+                    params![id,business_id],
+                    |r| Ok((r.get(0)?,r.get(1)?)),
+                )
+                .optional()
+                .map_err(err)?;
+            if error.is_none()
+                && existing.is_some_and(|(old_state, old_receipt)| {
+                    old_state == "synced" && old_receipt == receipt
+                })
+            {
+                return Ok(());
+            }
+            return Err(
+                "فرمان در انتظار همگام‌سازی پیدا نشد یا نتیجه با رسید قبلی متفاوت است".into(),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn workspace_command_summary(&self) -> Result<Value> {
+        let Some(business_id) = self
+            .get("pairing")?
+            .and_then(|pair| pair["businessId"].as_i64())
+        else {
+            return Ok(json!({"pending":0,"conflicts":0,"rejected":0,"synced":0,"recent":[]}));
+        };
+        let counts: (i64,i64,i64,i64) = self.conn.query_row(
+            "SELECT sum(state='pending'),sum(state='conflict'),sum(state='rejected'),sum(state='synced') FROM workspace_commands WHERE business_id=?1",
+            [business_id], |r| Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?.unwrap_or(0),r.get::<_,Option<i64>>(3)?.unwrap_or(0))),
+        ).map_err(err)?;
+        let mut q = self.conn.prepare("SELECT sequence,id,module,action,state,error,attempts,created_at FROM workspace_commands WHERE business_id=?1 ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let rows = q.query_map([business_id],|r|Ok(json!({"sequence":r.get::<_,i64>(0)?,"id":r.get::<_,String>(1)?,"module":r.get::<_,String>(2)?,"action":r.get::<_,String>(3)?,"state":r.get::<_,String>(4)?,"error":r.get::<_,String>(5)?,"attempts":r.get::<_,i64>(6)?,"createdAt":r.get::<_,String>(7)?}))).map_err(err)?;
+        Ok(
+            json!({"pending":counts.0,"conflicts":counts.1,"rejected":counts.2,"synced":counts.3,"recent":rows.collect::<std::result::Result<Vec<_>,_>>().map_err(err)?}),
+        )
     }
     pub fn recover_prints(&self) -> Result<()> {
         self.conn.execute("UPDATE print_jobs SET state='unknown', error='برنامه هنگام ارسال بسته شد؛ قبل از چاپ مجدد خروج کاغذ را بررسی کنید' WHERE state='sending'", []).map_err(err)?;
@@ -347,7 +753,17 @@ impl Store {
                 |r| r.get(0),
             )
             .map_err(err)?;
-        Ok(json!({"pending":pending,"conflict":conflict}))
+        let business_id = self.get("pairing")?.and_then(|p| p["businessId"].as_i64());
+        let (workspace_pending, workspace_conflicts, workspace_rejected) = if let Some(id) =
+            business_id
+        {
+            self.conn.query_row("SELECT sum(state='pending'),sum(state='conflict'),sum(state='rejected') FROM workspace_commands WHERE business_id=?1",[id],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?.unwrap_or(0)))).map_err(err)?
+        } else {
+            (0, 0, 0)
+        };
+        Ok(
+            json!({"pending":pending,"conflict":conflict,"workspacePending":workspace_pending,"workspaceConflicts":workspace_conflicts,"workspaceRejected":workspace_rejected}),
+        )
     }
     pub fn print_jobs(&self) -> Result<Value> {
         let mut q = self
