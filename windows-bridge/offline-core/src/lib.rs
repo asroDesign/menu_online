@@ -292,6 +292,20 @@ impl Store {
         }))).transpose()
     }
 
+    pub fn delete_workspace_snapshot(&mut self, dataset: &str) -> Result<()> {
+        if !WORKSPACE_DATASETS.contains(&dataset) {
+            return Err("این مجموعهٔ داده برای حذف محلی مجاز نیست".into());
+        }
+        let business_id = self.paired_business_id()?;
+        self.conn
+            .execute(
+                "DELETE FROM workspace_snapshots WHERE business_id=?1 AND dataset=?2",
+                params![business_id, dataset],
+            )
+            .map_err(err)?;
+        Ok(())
+    }
+
     pub fn workspace_snapshot_index(&self) -> Result<Value> {
         let Some(business_id) = self
             .get("pairing")?

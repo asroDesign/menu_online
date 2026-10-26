@@ -320,6 +320,82 @@ impl OfflineState {
                                 workspace_refresh = Instant::now() - Duration::from_secs(540);
                             }
                         }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/customers"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("customers")
+                                    && snapshot["businessId"].as_i64()
+                                        == pair["businessId"].as_i64()
+                                    && snapshot["revision"]
+                                        .as_i64()
+                                        .is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"]
+                                        .as_str()
+                                        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                                        .is_some()
+                                    && snapshot["payload"]["customers"].is_array()
+                                    && snapshot["payload"]["totalCustomers"].as_i64().is_some() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => {
+                                            let _ = store.set(
+                                                "workspace_sync_customers",
+                                                &json!({
+                                                    "ok": true,
+                                                    "dataset": "customers",
+                                                    "revision": snapshot["revision"],
+                                                    "checkedAt": chrono::Utc::now().to_rfc3339()
+                                                }),
+                                            );
+                                        }
+                                        Err(_) => {
+                                            let _ = store.set(
+                                                "workspace_sync_customers",
+                                                &json!({
+                                                    "ok": false,
+                                                    "dataset": "customers",
+                                                    "message": "ذخیرهٔ نسخهٔ محلی مشتریان انجام نشد"
+                                                }),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((status, data)) => {
+                                if let Ok(mut store) = state.store.lock() {
+                                    if status == 401 || status == 403 {
+                                        let _ = store.delete_workspace_snapshot("customers");
+                                    }
+                                    let _ = store.set(
+                                        "workspace_sync_customers",
+                                        &json!({
+                                            "ok": false,
+                                            "dataset": "customers",
+                                            "message": data["error"]
+                                                .as_str()
+                                                .unwrap_or("دریافت نسخهٔ محلی مشتریان ناموفق بود")
+                                        }),
+                                    );
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.set(
+                                        "workspace_sync_customers",
+                                        &json!({
+                                            "ok": false,
+                                            "dataset": "customers",
+                                            "message": "ارتباط فهرست مشتریان در دسترس نیست"
+                                        }),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
                 if backup.elapsed() >= Duration::from_secs(86400) {
@@ -399,6 +475,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "draft": s.get("draft")?,
         "workspaceSnapshots": s.workspace_snapshot_index()?,
         "workspaceSync": s.get("workspace_sync")?,
+        "workspaceCustomerSync": s.get("workspace_sync_customers")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -411,6 +488,12 @@ pub fn offline_workspace_menu(state: State<'_, OfflineState>) -> Result<Option<V
         snapshot["localChanges"] = store.workspace_menu_pending_changes()?;
     }
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn offline_workspace_customers(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("customers")
 }
 
 #[tauri::command]
