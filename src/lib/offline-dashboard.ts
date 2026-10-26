@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -14,6 +14,7 @@ import { startOfDayTehran } from "@/lib/jalali";
 import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
 import { normalizeProductOptionGroups } from "@/lib/product-options";
 import { parseOfflineCustomerCommand, type OfflineCustomerCommand } from "@/lib/offline-customer-core";
+import { projectOfflinePayslipLines, projectOfflinePayslipStaff } from "@/lib/offline-payroll-core";
 import { nextOfflineOrderStatus, parseOfflineOrderStatusCommand, type OfflineOrderCommand } from "@/lib/offline-order-status-core";
 import { queuePrintJobs, recordOrderEvents, settingsOf } from "@/lib/orders";
 
@@ -118,6 +119,24 @@ type ChequesPayload = {
   banks: string[];
   purposes: string[];
   totalCheques: number;
+};
+type PayrollPayload = {
+  businessName: string;
+  runs: {
+    id: number; jalaliYear: number; jalaliMonth: number; status: string; salaryDocumentId: number | null;
+    createdAt: string; approvedAt: string | null;
+    totals: { gross: number; employeeInsurance: number; employerInsurance: number; tax: number; penalty: number; net: number };
+    items: {
+      id: number; staffId: number; staffSnapshot: Record<string, unknown>; workMinutes: number; overtimeMinutes: number;
+      fridayMinutes: number; holidayMinutes: number; nightMinutes: number; leaveMinutes: number; unpaidLeaveMinutes: number;
+      shortMinutes: number; earnings: { key: string; label: string; amountToman: number; taxable: boolean; insurable: boolean }[];
+      deductions: { key: string; label: string; amountToman: number; accounting: boolean }[]; grossToman: number;
+      employeeInsuranceToman: number; employerInsuranceToman: number; incomeTaxToman: number; penaltyToman: number; netToman: number;
+    }[];
+    settlements: { kind: string; amountToman: number; paidAt: string }[];
+  }[];
+  totalRuns: number;
+  totalItems: number;
 };
 
 type OrderHistoryCursor = { createdAt: string; id: number };
@@ -237,7 +256,7 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports" && dataset !== "cheques") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports" && dataset !== "cheques" && dataset !== "payroll") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
@@ -250,6 +269,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "cash_shifts" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت شیفت‌های صندوق به مجوز صندوق نیاز دارد");
   if (dataset === "reports" && (!hasAny(features, "cashier_pos") || !hasAny(features, "sales_reports"))) throw new HttpError(403, "گزارش آفلاین به مجوز صندوق و گزارش فروش نیاز دارد");
   if (dataset === "cheques" && (!hasAny(features, "cashier_pos") || !hasAny(features, "cheque_register") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت دفتر چک آفلاین به مجوز صندوق، دفتر چک و حسابداری نیاز دارد");
+  if (dataset === "payroll" && (!hasAny(features, "cashier_pos") || !hasAny(features, "payroll"))) throw new HttpError(403, "دریافت اطلاعات حقوق به مجوز صندوق آفلاین و حقوق و دستمزد نیاز دارد");
   if (dataset === "accounting") await Accounting.ensureAccounting(business);
   if (dataset === "cheques") await Accounting.ensureChequeAccountingAccounts(business);
 
@@ -261,7 +281,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | SalesReportsPayload | ChequesPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | SalesReportsPayload | ChequesPayload | PayrollPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -497,6 +517,58 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         byProduct: byProductRows.map((row) => ({ name: row.name, quantity: Number(row.quantity), revenue: Number(row.revenue) })),
         statuses: statusRows.map((row) => ({ status: row.status, paymentStatus: row.paymentStatus, orders: Number(row.orders), amount: Number(row.amount) })),
       };
+    } else if (dataset === "payroll") {
+      const [businessRow] = await tx.select({ name: businesses.name }).from(businesses).where(eq(businesses.id, business.id)).limit(1);
+      const runRows = await tx.select({
+        id: payrollRuns.id, jalaliYear: payrollRuns.jalaliYear, jalaliMonth: payrollRuns.jalaliMonth, status: payrollRuns.status,
+        salaryDocumentId: payrollRuns.salaryDocumentId, createdAt: payrollRuns.createdAt, approvedAt: payrollRuns.approvedAt,
+      }).from(payrollRuns).where(eq(payrollRuns.businessId, business.id))
+        .orderBy(desc(payrollRuns.jalaliYear), desc(payrollRuns.jalaliMonth), desc(payrollRuns.id)).limit(12);
+      const runIds = runRows.map((row) => row.id);
+      const itemRows = runIds.length ? await tx.select({
+        id: payrollItems.id, runId: payrollItems.runId, staffId: payrollItems.staffId, staffSnapshot: payrollItems.staffSnapshot,
+        workMinutes: payrollItems.workMinutes, overtimeMinutes: payrollItems.overtimeMinutes, fridayMinutes: payrollItems.fridayMinutes,
+        holidayMinutes: payrollItems.holidayMinutes, nightMinutes: payrollItems.nightMinutes, leaveMinutes: payrollItems.leaveMinutes,
+        unpaidLeaveMinutes: payrollItems.unpaidLeaveMinutes, shortMinutes: payrollItems.shortMinutes, earnings: payrollItems.earnings,
+        deductions: payrollItems.deductions, grossToman: payrollItems.grossToman, employeeInsuranceToman: payrollItems.employeeInsuranceToman,
+        employerInsuranceToman: payrollItems.employerInsuranceToman, incomeTaxToman: payrollItems.incomeTaxToman,
+        penaltyToman: payrollItems.penaltyToman, netToman: payrollItems.netToman,
+      }).from(payrollItems).where(and(eq(payrollItems.businessId, business.id), inArray(payrollItems.runId, runIds))).orderBy(asc(payrollItems.runId), asc(payrollItems.id)) : [];
+      if (itemRows.length > 3_000) throw new HttpError(413, "آرشیو حقوق برای این دستگاه بیش از ۳٬۰۰۰ ردیف است؛ برای دریافت آفلاین باید دوره‌بندی شود");
+      const settlementRows = runIds.length ? await tx.select({
+        runId: payrollSettlements.runId, kind: payrollSettlements.kind, amountToman: payrollSettlements.amountToman,
+        paidAt: payrollSettlements.paidAt,
+      }).from(payrollSettlements).where(and(eq(payrollSettlements.businessId, business.id), inArray(payrollSettlements.runId, runIds))).orderBy(asc(payrollSettlements.id)) : [];
+      const asItems = (runId: number) => itemRows.filter((item) => item.runId === runId).map((item) => {
+        // Only payslip fields leave the server. The device encrypts the snapshot
+        // with DPAPI and its read command requires the local manager PIN.
+        const staffSnapshot = projectOfflinePayslipStaff(item.staffSnapshot);
+        const { earnings, deductions } = projectOfflinePayslipLines(item.earnings, item.deductions);
+        return {
+          id: item.id, staffId: item.staffId, staffSnapshot, workMinutes: item.workMinutes,
+          overtimeMinutes: item.overtimeMinutes, fridayMinutes: item.fridayMinutes, holidayMinutes: item.holidayMinutes,
+          nightMinutes: item.nightMinutes, leaveMinutes: item.leaveMinutes, unpaidLeaveMinutes: item.unpaidLeaveMinutes,
+          shortMinutes: item.shortMinutes, earnings, deductions, grossToman: item.grossToman,
+          employeeInsuranceToman: item.employeeInsuranceToman, employerInsuranceToman: item.employerInsuranceToman,
+          incomeTaxToman: item.incomeTaxToman, penaltyToman: item.penaltyToman, netToman: item.netToman,
+        };
+      });
+      payload = {
+        businessName: businessRow?.name ?? "",
+        runs: runRows.map((run) => {
+          const items = asItems(run.id);
+          return {
+            ...run, createdAt: run.createdAt.toISOString(), approvedAt: run.approvedAt?.toISOString() ?? null,
+            totals: items.reduce((total, item) => ({
+              gross: total.gross + item.grossToman, employeeInsurance: total.employeeInsurance + item.employeeInsuranceToman,
+              employerInsurance: total.employerInsurance + item.employerInsuranceToman, tax: total.tax + item.incomeTaxToman,
+              penalty: total.penalty + item.penaltyToman, net: total.net + item.netToman,
+            }), { gross: 0, employeeInsurance: 0, employerInsurance: 0, tax: 0, penalty: 0, net: 0 }),
+            items, settlements: settlementRows.filter((row) => row.runId === run.id).map((row) => ({ kind: row.kind, amountToman: row.amountToman, paidAt: row.paidAt.toISOString() })),
+          };
+        }),
+        totalRuns: runRows.length, totalItems: itemRows.length,
+      };
     } else if (dataset === "receivables") {
       const rows = await tx.select({
         id: receivables.id, accountId: receivables.accountId, accountName: receivableAccounts.name,
@@ -588,7 +660,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "receivables" ? "اطلاعات مطالبات برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "cash_shifts" ? "اطلاعات شیفت صندوق برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reports" ? "گزارش فروش برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "shifts" ? "برنامهٔ شیفت برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "accounting" ? "اطلاعات حسابداری برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "receivables" ? "اطلاعات مطالبات برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "cash_shifts" ? "اطلاعات شیفت صندوق برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reports" ? "گزارش فروش برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "payroll" ? "آرشیو فیش‌های حقوق برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
       throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");
@@ -599,13 +671,13 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     if (latest?.payloadHash === payloadHash) {
       const [refreshed] = await tx.update(offlineWorkspaceSnapshots).set({ issuedAt: now, validUntil }).where(and(eq(offlineWorkspaceSnapshots.id, latest.id), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id))).returning();
       if (!refreshed) throw new HttpError(409, "تمدید نسخهٔ دادهٔ آفلاین انجام نشد");
-      if (dataset === "reservations" || dataset === "shifts") await tx.delete(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset), lt(offlineWorkspaceSnapshots.revision, refreshed.revision)));
+      if (dataset === "reservations" || dataset === "shifts" || dataset === "payroll") await tx.delete(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset), lt(offlineWorkspaceSnapshots.revision, refreshed.revision)));
       return responseShape(refreshed);
     }
 
     const [saved] = await tx.insert(offlineWorkspaceSnapshots).values({ id: randomUUID(), terminalId: terminal.id, businessId: business.id, dataset, revision: (latest?.revision ?? 0) + 1, schemaVersion: 1, payloadHash, payload, issuedAt: now, validUntil }).returning();
     if (!saved) throw new HttpError(500, "ذخیرهٔ نسخهٔ دادهٔ آفلاین انجام نشد");
-    if (dataset === "reservations" || dataset === "shifts") await tx.delete(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset), lt(offlineWorkspaceSnapshots.revision, saved.revision)));
+    if (dataset === "reservations" || dataset === "shifts" || dataset === "payroll") await tx.delete(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset), lt(offlineWorkspaceSnapshots.revision, saved.revision)));
     return responseShape(saved);
   }, { isolationLevel: "repeatable read" });
 }

@@ -709,6 +709,7 @@ impl OfflineState {
                         refresh_receivables_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_cash_shifts_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_reports_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
+                        refresh_payroll_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                     }
                 }
                 // Keep recent orders and their details cached while online. Catch up the older
@@ -982,6 +983,44 @@ fn refresh_reports_snapshot(
     }
 }
 
+fn refresh_payroll_snapshot(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    match decode(client.get(format!("{server}/api/offline-dashboard/snapshots/payroll")).bearer_auth(token).send()) {
+        Ok((200, snapshot))
+            if snapshot["schemaVersion"] == 1
+                && snapshot["dataset"].as_str() == Some("payroll")
+                && snapshot["businessId"].as_i64() == Some(business_id)
+                && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                && snapshot["payload"]["runs"].as_array().is_some_and(|runs| runs.len() <= 12)
+                && snapshot["payload"]["totalItems"].as_u64().is_some_and(|count| count <= 3_000)
+                && snapshot["payload"]["runs"].as_array().is_some_and(|runs| runs.iter().all(|run| run["items"].is_array() && run["settlements"].is_array() && run["totals"].is_object())) =>
+        {
+            if let Ok(mut store) = state.store.lock() {
+                match store.save_workspace_snapshot(&snapshot) {
+                    Ok(()) => { let _ = store.set("workspace_sync_payroll", &json!({"ok":true,"dataset":"payroll","revision":snapshot["revision"],"checkedAt":chrono::Utc::now().to_rfc3339()})); }
+                    Err(error) => { let _ = store.set("workspace_sync_payroll", &json!({"ok":false,"dataset":"payroll","message":error})); }
+                }
+            }
+        }
+        Ok((status, data)) => {
+            if let Ok(mut store) = state.store.lock() {
+                if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("payroll"); }
+                let _ = store.set("workspace_sync_payroll", &json!({"ok":false,"dataset":"payroll","message":data["error"].as_str().unwrap_or("دریافت آرشیو حقوق ناموفق بود")}));
+            }
+        }
+        Err(_) => {
+            if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_payroll", &json!({"ok":false,"dataset":"payroll","message":"ارتباط آرشیو حقوق در دسترس نیست"})); }
+        }
+    }
+}
+
 fn sync_order_history_batch(
     state: &OfflineState,
     client: &reqwest::blocking::Client,
@@ -1078,6 +1117,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceReceivablesSync": s.get("workspace_sync_receivables")?,
         "workspaceCashShiftsSync": s.get("workspace_sync_cash_shifts")?,
         "workspaceReportsSync": s.get("workspace_sync_reports")?,
+        "workspacePayrollSync": s.get("workspace_sync_payroll")?,
         "workspaceChequesSync": s.get("workspace_sync_cheques")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
@@ -1242,6 +1282,13 @@ pub fn offline_workspace_cash_shifts(state: State<'_, OfflineState>) -> Result<O
 pub fn offline_workspace_reports(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("reports")
+}
+
+#[tauri::command]
+pub fn offline_workspace_payroll(manager_pin: String, state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let mut store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.verify_local_manager_pin(&manager_pin)?;
+    store.workspace_snapshot("payroll")
 }
 
 #[tauri::command]
