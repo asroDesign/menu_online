@@ -518,6 +518,7 @@ export const orders = pgTable(
   },
   (t) => [
     index("orders_business_idx").on(t.businessId, t.createdAt),
+    index("orders_business_updated_history_idx").on(t.businessId, t.updatedAt, t.id),
     index("orders_customer_paid_analytics_idx").on(t.businessId, t.customerId, t.createdAt).where(sql`${t.status} = 'paid' AND ${t.paymentStatus} = 'paid' AND ${t.deletedAt} IS NULL AND ${t.customerId} IS NOT NULL`),
     uniqueIndex("orders_tracking_token_hash_idx").on(t.trackingTokenHash),
     uniqueIndex("orders_business_number_idx").on(t.businessId, t.number),

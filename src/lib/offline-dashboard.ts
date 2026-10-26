@@ -154,10 +154,27 @@ type PayrollPayload = {
 };
 
 type OrderHistoryCursor = { createdAt: string; id: number };
+type OrderHistoryChangeCursor = { updatedAt: string; id: number };
 const ORDER_HISTORY_PAGE_SIZE = 50;
 const ORDER_HISTORY_CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 function encodeOrderHistoryCursor(cursor: OrderHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function parseOrderHistoryChangeCursor(value: string | null): OrderHistoryChangeCursor | null {
+  if (value === null) return null;
+  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new HttpError(400, "نشانگر تغییرات سفارش معتبر نیست");
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (Object.keys(decoded).length !== 2 || typeof decoded.updatedAt !== "string" || !ORDER_HISTORY_CURSOR_TIME.test(decoded.updatedAt) || !Number.isSafeInteger(decoded.id) || Number(decoded.id) < 1 || !Number.isFinite(Date.parse(decoded.updatedAt))) throw new Error("invalid cursor");
+    return { updatedAt: decoded.updatedAt, id: Number(decoded.id) };
+  } catch {
+    throw new HttpError(400, "نشانگر تغییرات سفارش معتبر نیست");
+  }
+}
+
+function encodeOrderHistoryChangeCursor(cursor: OrderHistoryChangeCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
@@ -245,6 +262,93 @@ export async function offlineOrderHistoryPage(req: Request) {
       nextCursor: hasMore && last ? encodeOrderHistoryCursor({ createdAt: last.createdAtCursor, id: last.id }) : null,
       hasMore,
       issuedAt,
+      orders: ordersPage,
+    };
+  }, { isolationLevel: "repeatable read" });
+}
+
+export async function offlineOrderHistoryChangesPage(req: Request) {
+  const url = new URL(req.url);
+  const sinceValue = url.searchParams.get("since");
+  const cursorValue = url.searchParams.get("cursor");
+  const cursor = parseOrderHistoryChangeCursor(cursorValue);
+  if (!sinceValue || !ORDER_HISTORY_CURSOR_TIME.test(sinceValue) || !Number.isFinite(Date.parse(sinceValue))) throw new HttpError(400, "زمان شروع دریافت تغییرات سفارش معتبر نیست");
+  if (cursor && cursor.updatedAt < sinceValue) throw new HttpError(400, "نشانگر تغییرات سفارش پیش از نقطهٔ شروع صفحه قرار دارد");
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت تغییرات تاریخچهٔ سفارش به مجوز صندوق آفلاین نیاز دارد");
+  return db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این صندوق لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const sinceTimestamp = sql`${sinceValue}::timestamptz`;
+    const cursorTimestamp = cursor ? sql`${cursor.updatedAt}::timestamptz` : undefined;
+    const cursorPredicate = cursor && cursorTimestamp ? or(
+      gt(orders.updatedAt, cursorTimestamp),
+      and(eq(orders.updatedAt, cursorTimestamp), gt(orders.id, cursor.id)),
+    ) : undefined;
+    const pageRows = await tx.select({
+      id: orders.id, number: orders.number, tableId: orders.tableId, tableName: diningTables.name,
+      customerName: orders.customerName, customerPhone: orders.customerPhone, type: orders.type, source: orders.source,
+      status: orders.status, note: orders.note, address: orders.address, deliveryFee: orders.deliveryFee,
+      discountCode: orders.discountCode, discountAmount: orders.discountAmount, membershipDiscount: orders.membershipDiscount,
+      cashbackUsed: orders.cashbackUsed, scheduledFor: orders.scheduledFor, deliveryStatus: orders.deliveryStatus,
+      subtotal: orders.subtotal, tax: orders.tax, service: orders.service, total: orders.total,
+      paymentMethod: orders.paymentMethod, paymentStatus: orders.paymentStatus, paymentBreakdown: orders.paymentBreakdown,
+      createdAt: orders.createdAt,
+      deletedAt: orders.deletedAt,
+      updatedAt: sql<string>`to_char(${orders.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      updatedAtCursor: sql<string>`to_char(${orders.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    }).from(orders).leftJoin(diningTables, and(eq(diningTables.id, orders.tableId), eq(diningTables.businessId, business.id)))
+      .where(and(eq(orders.businessId, business.id), gte(orders.updatedAt, sinceTimestamp), cursorPredicate))
+      .orderBy(asc(orders.updatedAt), asc(orders.id)).limit(ORDER_HISTORY_PAGE_SIZE + 1);
+    const hasMore = pageRows.length > ORDER_HISTORY_PAGE_SIZE;
+    const rows = hasMore ? pageRows.slice(0, ORDER_HISTORY_PAGE_SIZE) : pageRows;
+    const activeRows = rows.filter((row) => row.deletedAt === null);
+    const cashierConfirmations = activeRows.length ? await tx.select({ orderId: orderStatusEvents.orderId, createdAt: orderStatusEvents.createdAt })
+      .from(orderStatusEvents).where(and(eq(orderStatusEvents.businessId, business.id), eq(orderStatusEvents.kind, "cashier_confirmation"), inArray(orderStatusEvents.orderId, activeRows.map((row) => row.id)))) : [];
+    const cashierConfirmationByOrder = new Map(cashierConfirmations.map((row) => [row.orderId, row.createdAt.toISOString()]));
+    const itemRows = activeRows.length ? await tx.select({
+      id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, name: orderItems.name,
+      price: orderItems.price, quantity: orderItems.quantity, weightGrams: orderItems.weightGrams,
+      tareGrams: orderItems.tareGrams, lineTotal: orderItems.lineTotal, note: orderItems.note,
+      optionSnapshot: orderItems.optionSnapshot,
+    }).from(orderItems).where(inArray(orderItems.orderId, activeRows.map((row) => row.id))).orderBy(asc(orderItems.id)) : [];
+    const itemsByOrder = new Map<number, typeof itemRows>();
+    for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), item]);
+    const ordersPage = rows.map((row) => {
+      if (row.deletedAt) return { id: row.id, number: row.number, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt, deleted: true, updatedAtCursor: row.updatedAtCursor };
+      const { updatedAtCursor: _updatedAtCursor, ...order } = row;
+      return {
+        ...order,
+        deleted: false,
+        deletedAt: undefined,
+        createdAt: order.createdAt.toISOString(),
+        scheduledFor: order.scheduledFor?.toISOString() ?? null,
+        cashierConfirmedAt: cashierConfirmationByOrder.get(order.id) ?? null,
+        paymentBreakdown: order.paymentBreakdown ? (() => {
+          const payment = order.paymentBreakdown as Record<string, unknown>;
+          return {
+            cashAmount: payment.cashAmount, bankAmount: payment.bankAmount, bankAccountName: payment.bankAccountName,
+            posAmount: payment.posAmount, posDeviceName: payment.posDeviceName, posBankAccountName: payment.posBankAccountName,
+            posTerminalNumber: payment.posTerminalNumber, posRefNo: payment.posRefNo, creditAmount: payment.creditAmount,
+            settledAt: payment.settledAt,
+          };
+        })() : null,
+        items: itemsByOrder.get(order.id) ?? [],
+      };
+    });
+    if (Buffer.byteLength(JSON.stringify(ordersPage), "utf8") > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "صفحهٔ تغییرات سفارش از سقف دریافت آفلاین بیشتر است");
+    const last = rows.at(-1);
+    return {
+      schemaVersion: 1,
+      dataset: "orders-history-changes",
+      businessId: business.id,
+      requestSince: sinceValue,
+      requestCursor: cursorValue,
+      nextCursor: hasMore && last ? encodeOrderHistoryChangeCursor({ updatedAt: last.updatedAtCursor, id: last.id }) : null,
+      hasMore,
+      issuedAt: new Date().toISOString(),
       orders: ordersPage,
     };
   }, { isolationLevel: "repeatable read" });

@@ -423,6 +423,10 @@ impl Store {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
         for order in orders {
             let order_id = number(order, "id")?;
+            if order["deleted"].as_bool() == Some(true) {
+                tx.execute("DELETE FROM offline_order_history WHERE business_id=?1 AND order_id=?2", params![business_id,order_id]).map_err(err)?;
+                continue;
+            }
             let order_number = number(order, "number")?;
             let created_at = order["createdAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان سفارش صفحه معتبر نیست")?;
             tx.execute("INSERT INTO offline_order_history(business_id,order_id,order_number,created_at,payload) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(business_id,order_id) DO UPDATE SET order_number=excluded.order_number,created_at=excluded.created_at,payload=excluded.payload",
@@ -452,7 +456,85 @@ impl Store {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
         tx.execute("DELETE FROM workspace_snapshots WHERE business_id=?1 AND dataset='orders'", [business_id]).map_err(err)?;
         tx.execute("DELETE FROM offline_order_history WHERE business_id=?1", [business_id]).map_err(err)?;
-        tx.execute("DELETE FROM settings WHERE key IN ('workspace_order_history_sync','workspace_sync_orders','workspace_sync_orders_history')", []).map_err(err)?;
+        tx.execute("DELETE FROM settings WHERE key IN ('workspace_order_history_sync','workspace_sync_orders','workspace_sync_orders_history','workspace_order_history_changes_sync','workspace_sync_orders_changes')", []).map_err(err)?;
+        tx.commit().map_err(err)
+    }
+
+    pub fn next_order_history_changes_request(&mut self) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let mut sync = self.get("workspace_order_history_changes_sync")?
+            .filter(|state| state["businessId"].as_i64() == Some(business_id))
+            .unwrap_or_else(|| json!({"businessId":business_id,"watermark":null,"batchSince":null,"cursor":null,"complete":true}));
+        if sync["watermark"].as_str().is_none() {
+            let oldest: Option<String> = self.conn.query_row(
+                "SELECT MIN(created_at) FROM offline_order_history WHERE business_id=?1",
+                [business_id],
+                |row| row.get(0),
+            ).map_err(err)?;
+            let watermark = oldest
+                .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
+                .map(|value| value.with_timezone(&Utc))
+                .unwrap_or_else(|| Utc::now() - chrono::Duration::minutes(10))
+                .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+            sync = json!({"businessId":business_id,"watermark":watermark,"batchSince":null,"cursor":null,"complete":true,"checkedAt":null});
+        }
+        if sync["complete"].as_bool() == Some(true) {
+            let watermark = DateTime::parse_from_rfc3339(sync["watermark"].as_str().ok_or("نقطهٔ شروع تغییرات سفارش معتبر نیست")?).map_err(err)?;
+            let batch_since = (watermark - chrono::Duration::minutes(10))
+                .with_timezone(&Utc)
+                .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+            sync["batchSince"] = json!(batch_since);
+            sync["cursor"] = Value::Null;
+            sync["complete"] = json!(false);
+        }
+        self.set("workspace_order_history_changes_sync", &sync)?;
+        Ok(sync)
+    }
+
+    pub fn save_order_history_changes_page(&mut self, page: &Value, requested_since: &str, requested_cursor: Option<&str>) -> Result<()> {
+        let business_id = number(page, "businessId")?;
+        if business_id != self.paired_business_id()? || page["dataset"].as_str() != Some("orders-history-changes") || page["schemaVersion"].as_i64() != Some(1) {
+            return Err("صفحهٔ تغییرات تاریخچه متعلق به صندوق یا نسخهٔ دیگری است".into());
+        }
+        if page["requestSince"].as_str() != Some(requested_since) || page["requestCursor"].as_str() != requested_cursor {
+            return Err("نشانگر صفحهٔ تغییرات با درخواست هم‌خوان نیست".into());
+        }
+        let sync = self.get("workspace_order_history_changes_sync")?.ok_or("وضعیت همگام‌سازی تغییرات سفارش پیدا نشد")?;
+        if sync["businessId"].as_i64() != Some(business_id) || sync["batchSince"].as_str() != Some(requested_since) || sync["cursor"].as_str() != requested_cursor || sync["complete"].as_bool() != Some(false) {
+            return Err("وضعیت دریافت تغییرات سفارش هم‌زمان تغییر کرده است".into());
+        }
+        let has_more = page["hasMore"].as_bool().ok_or("وضعیت صفحهٔ تغییرات سفارش معتبر نیست")?;
+        let next_cursor = page["nextCursor"].as_str();
+        if (has_more && (next_cursor.is_none() || next_cursor == requested_cursor)) || (!has_more && next_cursor.is_some()) {
+            return Err("ادامهٔ صفحه‌بندی تغییرات سفارش معتبر نیست".into());
+        }
+        let orders = page["orders"].as_array().ok_or("فهرست تغییرات سفارش معتبر نیست")?;
+        if orders.len() > 50 || (has_more && orders.is_empty()) { return Err("اندازهٔ صفحهٔ تغییرات سفارش معتبر نیست".into()); }
+        let issued_at = page["issuedAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان صفحهٔ تغییرات سفارش معتبر نیست")?;
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        for order in orders {
+            let order_id = number(order, "id")?;
+            if order["deleted"].as_bool() == Some(true) {
+                tx.execute("DELETE FROM offline_order_history WHERE business_id=?1 AND order_id=?2", params![business_id,order_id]).map_err(err)?;
+                continue;
+            }
+            let order_number = number(order, "number")?;
+            let created_at = order["createdAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان سفارش تغییرکرده معتبر نیست")?;
+            tx.execute("INSERT INTO offline_order_history(business_id,order_id,order_number,created_at,payload) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(business_id,order_id) DO UPDATE SET order_number=excluded.order_number,created_at=excluded.created_at,payload=excluded.payload",
+                params![business_id,order_id,order_number,created_at,blob(order)?]).map_err(err)?;
+        }
+        let cached_orders: i64 = tx.query_row("SELECT count(*) FROM offline_order_history WHERE business_id=?1", [business_id], |row| row.get(0)).map_err(err)?;
+        let watermark = if has_more { sync["watermark"].clone() } else {
+            let parsed = DateTime::parse_from_rfc3339(issued_at).map_err(err)?;
+            json!(parsed.with_timezone(&Utc).to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+        };
+        let next_state = if has_more {
+            json!({"businessId":business_id,"watermark":watermark,"batchSince":requested_since,"cursor":next_cursor,"complete":false,"cachedOrders":cached_orders,"checkedAt":issued_at})
+        } else {
+            json!({"businessId":business_id,"watermark":watermark,"batchSince":null,"cursor":null,"complete":true,"cachedOrders":cached_orders,"checkedAt":issued_at})
+        };
+        tx.execute("INSERT INTO settings(key,value) VALUES('workspace_order_history_changes_sync',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [blob(&next_state)?]).map_err(err)?;
+        tx.execute("INSERT INTO settings(key,value) VALUES('workspace_sync_orders_changes',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [blob(&json!({"ok":true,"checkedAt":issued_at,"message":null}))?]).map_err(err)?;
         tx.commit().map_err(err)
     }
 

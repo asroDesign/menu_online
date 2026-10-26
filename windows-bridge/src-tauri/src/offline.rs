@@ -734,6 +734,7 @@ impl OfflineState {
                         let business_id = pair["businessId"].as_i64().unwrap_or(0);
                         refresh_order_snapshot(&state, &client, server, token, business_id);
                         sync_order_history_batch(&state, &client, server, token, business_id);
+                        sync_order_history_changes_batch(&state, &client, server, token, business_id);
                     }
                     order_history_refresh = Instant::now();
                 }
@@ -1248,6 +1249,67 @@ fn sync_order_history_batch(
     }
 }
 
+fn sync_order_history_changes_batch(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    for _ in 0..20 {
+        let request_state = match state.store.lock().ok().and_then(|mut store| store.next_order_history_changes_request().ok()) {
+            Some(value) if value["businessId"].as_i64() == Some(business_id) => value,
+            Some(_) => break,
+            None => {
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.set("workspace_sync_orders_changes", &json!({"ok":false,"message":"وضعیت دریافت تغییرات تاریخچهٔ سفارش معتبر نیست"}));
+                }
+                break;
+            }
+        };
+        let since = match request_state["batchSince"].as_str() {
+            Some(value) => value.to_owned(),
+            None => break,
+        };
+        let cursor = request_state["cursor"].as_str().map(str::to_owned);
+        let mut url = format!("{server}/api/offline-dashboard/order-history/changes?since={since}");
+        if let Some(value) = cursor.as_deref() { url.push_str(&format!("&cursor={value}")); }
+        match decode(client.get(url).bearer_auth(token).send()) {
+            Ok((200, page))
+                if page["schemaVersion"] == 1
+                    && page["dataset"].as_str() == Some("orders-history-changes")
+                    && page["businessId"].as_i64() == Some(business_id)
+                    && page["requestSince"].as_str() == Some(since.as_str())
+                    && page["requestCursor"].as_str() == cursor.as_deref()
+                    && page["orders"].as_array().is_some_and(|orders| orders.len() <= 50)
+                    && page["hasMore"].as_bool().is_some() =>
+            {
+                if let Ok(mut store) = state.store.lock() {
+                    if let Err(error) = store.save_order_history_changes_page(&page, &since, cursor.as_deref()) {
+                        let _ = store.set("workspace_sync_orders_changes", &json!({"ok":false,"message":error}));
+                        break;
+                    }
+                }
+                if page["hasMore"].as_bool() != Some(true) { break; }
+            }
+            Ok((status, data)) => {
+                if let Ok(mut store) = state.store.lock() {
+                    if status == 401 || status == 403 { let _ = store.delete_workspace_order_history(); }
+                    let _ = store.set("workspace_sync_orders_changes", &json!({"ok":false,"message":data["error"].as_str().unwrap_or("دریافت تغییرات تاریخچهٔ سفارش ناموفق بود")}));
+                }
+                break;
+            }
+            Err(_) => {
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.set("workspace_sync_orders_changes", &json!({"ok":false,"message":"ارتباط دریافت تغییرات تاریخچهٔ سفارش در دسترس نیست"}));
+                }
+                break;
+            }
+        }
+    }
+}
+
 fn sync_reservation_history_batch(
     state: &OfflineState,
     client: &reqwest::blocking::Client,
@@ -1316,6 +1378,8 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
         "workspaceOrderHistorySync": s.get("workspace_order_history_sync")?,
         "workspaceOrderHistoryError": s.get("workspace_sync_orders_history")?,
+        "workspaceOrderHistoryChangesSync": s.get("workspace_order_history_changes_sync")?,
+        "workspaceOrderHistoryChangesError": s.get("workspace_sync_orders_changes")?,
         "workspaceReservationHistorySync": s.get("workspace_reservation_history_sync")?,
         "workspaceReservationHistoryError": s.get("workspace_sync_reservations_history")?,
         "workspaceReservationsSync": s.get("workspace_sync_reservations")?,
