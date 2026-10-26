@@ -39,7 +39,7 @@ export async function offlineCatalog(req: Request) {
   if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "صندوق در اشتراک فعلی فعال نیست");
   const [items, tables, cats, terminals] = await Promise.all([
     db.select({ id: products.id, name: products.name, price: products.price, categoryId: products.categoryId, sellingMode: products.sellingMode, yieldRatio: products.yieldRatio, modifierGroups: products.modifierGroups }).from(products).where(and(eq(products.businessId, business.id), eq(products.isAvailable, true))),
-    db.select({ id: diningTables.id, name: diningTables.name }).from(diningTables).where(eq(diningTables.businessId, business.id)),
+    db.select({ id: diningTables.id, name: diningTables.name, capacity: diningTables.capacity, operationalStatus: diningTables.operationalStatus }).from(diningTables).where(eq(diningTables.businessId, business.id)),
     db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.businessId, business.id)),
     db.select({ id: devices.id, name: devices.name, settlementBankAccountId: devices.settlementBankAccountId }).from(devices).where(and(eq(devices.businessId, business.id), eq(devices.kind, "pos"), eq(devices.cashierEnabled, true))),
   ]);

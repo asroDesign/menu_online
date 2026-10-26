@@ -13,6 +13,7 @@ import {
   doublePrecision,
   bigint,
   date,
+  check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -1914,10 +1915,17 @@ export const reservations = pgTable(
     depositStatus: text("deposit_status").notNull().default("not_required"), // not_required | pending | paid | waived
     depositMethod: text("deposit_method").notNull().default(""),
     note: text("note").notNull().default(""),
+    sourceCommandId: text("source_command_id"),
+    sourceCommandHash: text("source_command_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("reservations_business_start_idx").on(t.businessId, t.startsAt), index("reservations_table_start_idx").on(t.tableId, t.startsAt)],
+  (t) => [
+    index("reservations_business_start_idx").on(t.businessId, t.startsAt),
+    index("reservations_table_start_idx").on(t.tableId, t.startsAt),
+    uniqueIndex("reservations_source_command_uq").on(t.businessId, t.sourceCommandId),
+    check("reservations_source_command_pair_check", sql`(source_command_id IS NULL AND source_command_hash IS NULL) OR (source_command_id IS NOT NULL AND source_command_hash IS NOT NULL AND source_command_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' AND source_command_hash ~* '^[0-9a-f]{64}$')`),
+  ],
 );
 
 export const apiRateLimits = pgTable("api_rate_limits", {

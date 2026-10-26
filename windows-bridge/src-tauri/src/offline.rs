@@ -149,13 +149,12 @@ impl OfflineState {
                             }
                         }
                     }
-                    let workspace_commands = state
-                        .store
-                        .lock()
-                        .ok()
-                        .and_then(|mut store| store.claim_workspace_commands("menu").ok())
+                    'workspace_modules: for module in ["menu", "reservations"] {
+                      let workspace_commands = state
+                        .store.lock().ok()
+                        .and_then(|mut store| store.claim_workspace_commands(module).ok())
                         .unwrap_or_default();
-                    for job in workspace_commands {
+                      for job in workspace_commands {
                         let command_id = job["id"].as_str().unwrap_or("").to_string();
                         let command = job["command"].clone();
                         if uuid::Uuid::parse_str(&command_id).is_err() || !command.is_object() {
@@ -169,8 +168,9 @@ impl OfflineState {
                             }
                             continue;
                         }
+                        let route = if module == "reservations" { "reservations" } else { "commands" };
                         let request = client
-                            .post(format!("{server}/api/offline-dashboard/commands"))
+                            .post(format!("{server}/api/offline-dashboard/{route}"))
                             .bearer_auth(token)
                             .json(&command)
                             .send();
@@ -189,7 +189,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    let _ = store.set("workspace_refresh", &json!(true));
+                                    if module == "menu" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -210,12 +210,12 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 {
+                                    if status == 409 && module == "menu" {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
                                 if status == 401 || status == 403 || status == 404 || status == 429 || status >= 500 {
-                                    break;
+                                    break 'workspace_modules;
                                 }
                             }
                             Err(_) => {
@@ -227,9 +227,10 @@ impl OfflineState {
                                         "transient",
                                     );
                                 }
-                                break;
+                                break 'workspace_modules;
                             }
                         }
+                      }
                     }
 
                     if workspace_refresh.elapsed() >= Duration::from_secs(600)
@@ -465,6 +466,10 @@ pub fn offline_workspace_update_menu(
         .lock()
         .map_err(|_| "پایگاه محلی مشغول است")?
         .enqueue_menu_update_with_pin(&manager_pin, &action, target_id, patch)
+}
+#[tauri::command]
+pub fn offline_reservation_create(payload: Value, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_reservation_request(payload)
 }
 #[tauri::command]
 pub fn offline_save(sale: Value, state: State<'_, OfflineState>) -> Result<Value> {

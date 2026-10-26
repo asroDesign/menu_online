@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { diningTables, reservations } from "@/db/schema";
 import { HttpError, type Business } from "@/lib/auth";
@@ -44,17 +44,29 @@ export async function getAvailableReservationTables(biz: Business, startsAt: Dat
   }));
 }
 
-export async function createReservation(biz: Business, input: { name: string; phone: string; guestCount: number; startsAt: Date; note: string; reservationType: "normal" | "occasion" | "business"; tableId?: number }) {
-  const settings = (biz.settings ?? {}) as Settings;
-  const { config, durationMinutes } = reservationConfig(biz);
-  const depositRequired = !!config.requireDeposit;
-  const depositPerGuest = Math.max(0, config.depositPerGuest ?? 0);
-  if (depositPerGuest * input.guestCount > 2_147_483_647) throw new HttpError(400, "مبلغ پیش‌پرداخت این رزرو از سقف مجاز بیشتر است.");
-  if (!isOpenForDuration(settings, input.startsAt, durationMinutes)) throw new HttpError(400, "زمان انتخاب‌شده با ساعت کاری رستوران هم‌خوانی ندارد.");
-
-  const endAt = new Date(input.startsAt.getTime() + durationMinutes * 60_000);
-  const checkFrom = new Date(input.startsAt.getTime() - 8 * 60 * 60_000);
+export async function createReservation(biz: Business, input: { name: string; phone: string; guestCount: number; startsAt: Date; note: string; reservationType: "normal" | "occasion" | "business"; tableId?: number }, sourceCommand?: { id: string; hash: string }) {
+  if (sourceCommand && (!/^[0-9a-f-]{36}$/i.test(sourceCommand.id) || !/^[0-9a-f]{64}$/i.test(sourceCommand.hash))) throw new HttpError(400, "شناسهٔ درخواست رزرو آفلاین معتبر نیست");
   return db.transaction(async (tx) => {
+    if (sourceCommand) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`offline-reservation:${biz.id}:${sourceCommand.id}`}, 0))`);
+      const [existing] = await tx.select().from(reservations).where(and(eq(reservations.businessId, biz.id), eq(reservations.sourceCommandId, sourceCommand.id))).for("update");
+      if (existing) {
+        if (existing.sourceCommandHash !== sourceCommand.hash) throw new HttpError(409, "شناسهٔ درخواست رزرو قبلاً با اطلاعات دیگری ثبت شده است");
+        return existing;
+      }
+      const now = Date.now();
+      if (input.startsAt.getTime() <= now) throw new HttpError(409, "زمان رزرو در زمان همگام‌سازی گذشته است؛ درخواست را با زمان تازه بررسی کنید");
+      if (input.startsAt.getTime() > now + 90 * 86_400_000) throw new HttpError(422, "زمان رزرو بیش از ۹۰ روز آینده است");
+    }
+    const settings = (biz.settings ?? {}) as Settings;
+    const { config, durationMinutes } = reservationConfig(biz);
+    const depositRequired = !!config.requireDeposit;
+    const depositPerGuest = Math.max(0, config.depositPerGuest ?? 0);
+    if (depositPerGuest * input.guestCount > 2_147_483_647) throw new HttpError(400, "مبلغ پیش‌پرداخت این رزرو از سقف مجاز بیشتر است.");
+    if (!isOpenForDuration(settings, input.startsAt, durationMinutes)) throw new HttpError(400, "زمان انتخاب‌شده با ساعت کاری رستوران هم‌خوانی ندارد.");
+
+    const endAt = new Date(input.startsAt.getTime() + durationMinutes * 60_000);
+    const checkFrom = new Date(input.startsAt.getTime() - 8 * 60 * 60_000);
     const tables = await tx.select({ id: diningTables.id, capacity: diningTables.capacity, operationalStatus: diningTables.operationalStatus })
       .from(diningTables)
       .where(eq(diningTables.businessId, biz.id))
@@ -89,6 +101,7 @@ export async function createReservation(biz: Business, input: { name: string; ph
       depositAmount,
       depositStatus: depositRequired ? "pending" : "not_required",
       note: input.note,
+      ...(sourceCommand ? { sourceCommandId: sourceCommand.id, sourceCommandHash: sourceCommand.hash } : {}),
     }).returning();
     return row;
   });

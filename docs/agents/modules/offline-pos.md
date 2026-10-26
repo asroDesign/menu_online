@@ -17,9 +17,9 @@
 | هماهنگ‌کننده | `windows-bridge/src-tauri/src/offline.rs` | فرمان‌های Tauri، workerهای ارسال و چاپ، HTTP محدود، وضعیت اتصال |
 | عمر برنامه | `windows-bridge/src-tauri/src/main.rs` | single instance، tray، مخفی‌شدن هنگام بستن پنجره، شروع workerها پس از راه‌اندازی |
 | سخت‌افزار | `windows-bridge/src-tauri/src/bridge.rs` | چاپ مستقیم با درایور Windows/TCP/serial و ارسال فرمان پیجر طبق تنظیم دستگاه |
-| رابط صندوق | `windows-bridge/ui/index.html`, `pos.js`, `style.css` | کاتالوگ، جست‌وجو، گزینه‌ها/وزن، سبد، دریافت وجه، سوابق، خطاها، مسیر چاپ، تب منوی محلی و ویرایش PINدار محدود محصول/دسته |
+| رابط صندوق | `windows-bridge/ui/index.html`, `pos.js`, `style.css` | کاتالوگ، جست‌وجو، گزینه‌ها/وزن، سبد، دریافت وجه، سوابق، خطاها، مسیر چاپ، تب منوی محلی و ویرایش PINدار محصول/دسته، و فرم درخواست رزرو آفلاین با تاریخ شمسی |
 | قرارداد و قواعد | `src/lib/offline-pos-core.ts` | ساختار نسخه ۱، کنترل UUID، مبالغ، شماره پیگیری و بازه اعتبار snapshot |
-| سرویس سرور | `src/lib/offline-pos.ts` | احراز دستگاه، snapshot متعلق به همان دستگاه، idempotency و تراکنش مشترک سفارش/تسویه |
+| سرویس سرور | `src/lib/offline-pos.ts`, `src/lib/reservations.ts`, `src/app/api/offline-dashboard/reservations/route.ts` | احراز دستگاه، snapshot متعلق به همان دستگاه، تراکنش سفارش/تسویه، و بازاعتبارسنجی/idempotency درخواست رزرو |
 | مدیریت دستگاه | `src/app/dashboard/settings/offline-pos/page.tsx` | ساخت کلید، دریافت فایل اتصال، لغو دسترسی، ۵۰ فروش اخیر |
 | معرفی محصول | `src/components/marketing/offline-desktop.*` | معرفی مزیت ادامه فروش در قطعی، با ذکر حدود واقعی قابلیت |
 
@@ -47,11 +47,21 @@ PIN هویت جداگانهٔ کارمند نیست و audit سرور فرمان
 
 جدول `offline_workspace_snapshots` از migration `0055_offline_workspace_snapshots.sql` است و rollback تا زمانی که نسخهٔ سرور دارد عمداً متوقف می‌شود.
 
+## درخواست رزرو در حالت آفلاین
+
+تب «رزروها» در برنامه ویندوز فرم نام، موبایل، تعداد مهمان، تاریخ شمسی، ساعت، میز اختیاری، نوع رزرو و توضیح دارد. SQLite فرمان را همراه UUID و payload رمز‌شده نگه می‌دارد. این عمل به snapshot منو یا snapshot رزرو وابسته نیست؛ روی دستگاه درخواست ثبت می‌شود، اما به مشتری/کارمند اعلام نمی‌شود که رزرو قطعی است.
+
+Worker module reservations را به POST /api/offline-dashboard/reservations می‌فرستد. API با Bearer ترمینال، tenant، entitlement صندوق و رزرو، اندازه/نوع فیلدها و زمان را بررسی می‌کند؛ سپس از createReservation مشترک استفاده می‌کند تا تنظیم فعال رزرو، ساعت کاری، ظرفیت، وضعیت میز و تداخل رزروهای requested و confirmed با قفل دیتابیس دوباره بررسی شوند. رزرو موفق با وضعیت requested ساخته می‌شود؛ پیش‌پرداخت در صورت الزام pending می‌ماند و دریافت/تأیید خودکار انجام نمی‌شود. درخواست قدیمی، زمان گذشته، میز پر یا تنظیم غیرفعال به‌صورت conflict/rejected در صف محلی می‌ماند و نباید به رزرو تأییدشده تعبیر شود.
+
+دو ستون nullable reservations.source_command_id و reservations.source_command_hash با migration 0057_offline_reservation_idempotency.sql و unique index tenant-scoped، یک فرمان را در retry/ارسال هم‌زمان فقط یک بار ثبت می‌کنند. قفل advisory فرمان، بررسی hash و درج رزرو در transaction مشترک است؛ پاسخ گم‌شده با همان hash، receipt همان رزرو را برمی‌گرداند، و استفادهٔ دوباره از UUID برای payload متفاوت conflict است. migration down در صورت باقی‌بودن هر رزرو حاصل از فرمان آفلاین عمداً rollback را متوقف می‌کند تا کلیدهای idempotency از بین نروند.
+
+این قابلیت فقط ثبت درخواست رزرو جدید از صندوق ویندوز را آفلاین می‌کند. فهرست/ویرایش/تأیید، ثبت پیش‌پرداخت، لغو، مدیریت میز، reservation availability عمومی و اعلان‌های push/SMS همچنان نیاز به اتصال سرور دارند. محدودیت‌های این مرحله از پوشش کامل ماژول رزرو یا کل پنل جدا هستند.
+
 ## Outbox فرمان‌های پنل — محدود به منو
 
 `POST /api/offline-dashboard/commands` فقط با Bearer token دستگاه جفت‌شده کار می‌کند و پس از tenant/entitlement check، snapshot پایه را روی همان terminal بررسی می‌کند. در transaction قفل‌شده، تغییر فیلدهای patch شده را با snapshot مقایسه می‌کند؛ تغییر هم‌زمان به‌جای overwrite بی‌صدا conflict می‌شود. migration `0056_offline_workspace_commands.sql` ledger نتیجه و idempotency را نگه می‌دارد و rollback تا زمان وجود receipt عمداً متوقف می‌شود. actor از `offlineTerminals.createdBy` گرفته می‌شود.
 
-Worker Tauri فقط module `menu` را relay می‌کند. مجازها: `update_product` با `name`, `description`, `price`, `isAvailable` و `update_category` با `name`, `description`, `isActive`, `sortOrder`. SQLite outbox generic lease/receipt محلی دارد؛ رابط محلی پس از بررسی PIN همین دو نوع فرمان را با درج اتمی در outbox enqueue می‌کند، overlay pending نشان می‌دهد و وضعیت pending/conflict/rejected/synced را در صف منو نمایش می‌دهد. این vertical slice هنوز ساخت/حذف محصول، بارگذاری فایل، گزینه‌ها، فرمول مواد، قیمت‌گذاری هوشمند، سایر ماژول‌ها یا جریان‌های دارای side effect را آفلاین نمی‌کند.
+Worker Tauri moduleهای `menu` و `reservations` را relay می‌کند. مسیر منو فقط `update_product` با `name`, `description`, `price`, `isAvailable` و `update_category` با `name`, `description`, `isActive`, `sortOrder` را می‌پذیرد؛ mutation منو PIN مدیر محلی می‌خواهد. مسیر رزرو فقط `create` را می‌پذیرد و با منطق idempotency migration `0057` اعمال می‌شود. SQLite outbox generic lease/receipt، وضعیت pending/conflict/rejected/synced را نگه می‌دارد. این vertical slice هنوز ساخت/حذف محصول، بارگذاری فایل، گزینه‌ها، فرمول مواد، قیمت‌گذاری هوشمند، ویرایش یا تأیید رزرو، سایر ماژول‌ها یا جریان‌های دارای side effect را آفلاین نمی‌کند.
 
 ## قرارداد سفارش و دریافت وجه
 

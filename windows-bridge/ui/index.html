@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-menu">منوی محلی</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
+    <nav class="desktop-tabs" aria-label="بخش‌های برنامه"><strong>MenuPeak <small>Desktop</small></strong><button id="tab-pos" class="selected">صندوق فروش</button><button id="tab-menu">منوی محلی</button><button id="tab-reservations">رزروها</button><button id="tab-hardware">تجهیزات و اتصال</button></nav>
     <main id="pos-app" class="pos-app">
       <header class="pos-top"><div><span class="pos-eyebrow">فروش ادامه دارد</span><h1 id="pos-name">صندوق محلی MenuPeak</h1></div><div><span id="pos-health" class="pos-status">در حال آماده‌سازی</span><button id="pos-refresh" class="button secondary">به‌روزرسانی منو</button><button id="pos-pair-toggle" class="button secondary">مدیریت اتصال</button></div></header>
       <section id="pos-pair-card" class="card"><h2>اتصال امن به رستوران</h2><p>در سایت، تنظیمات ← صندوق آفلاین ویندوز، فایل اتصال را مدیر بسازد و در این دستگاه وارد کند.</p><div class="pos-form-row"><label>PIN مدیر محلی (۸ تا ۱۲ رقم)<input id="pos-pair-pin" type="password" inputmode="numeric" dir="ltr" minlength="8" maxlength="12" autocomplete="new-password" required placeholder="فقط مدیر وارد کند"></label><label class="button primary pair-file-button">انتخاب فایل اتصال<input id="pos-pair" type="file" accept=".json" hidden></label></div><p class="muted">PIN روی همین ویندوز به‌صورت رمز‌شده نگه‌داری می‌شود و برای هر ویرایش آفلاین منو لازم است. اطلاعات صندوق با حساب Windows محافظت می‌شود.</p></section>
@@ -23,6 +23,20 @@
       <section class="card"><div class="section-heading"><div><h2>دسته‌بندی‌ها</h2><p class="muted">تغییرهای آفلاین با نسخهٔ محلی مقایسه و پس از اتصال ارسال می‌شوند.</p></div></div><div id="workspace-menu-categories" class="workspace-menu-categories"></div></section>
       <section class="card"><div class="section-heading"><div><h2>وضعیت تغییرهای منو</h2><p id="workspace-menu-command-counts" class="muted">—</p></div></div><div id="workspace-menu-commands" class="workspace-menu-commands"></div></section>
       <p class="pos-footer">ویرایش نیازمند PIN مدیر محلی است؛ تغییرها ابتدا روی این دستگاه ذخیره و پس از اتصال با کنترل تعارض ارسال می‌شوند.</p>
+    </main>
+    <main id="reservations-app" class="pos-app" hidden>
+      <header class="pos-top"><div><span class="pos-eyebrow">درخواست رزرو روی دستگاه</span><h1>ثبت رزرو هنگام قطعی اینترنت</h1></div><span id="reservation-connection" class="pos-status">ذخیرهٔ محلی</span></header>
+      <section class="card"><div class="section-heading"><div><h2>درخواست تازه</h2><p class="muted">در نبود اینترنت درخواست روی همین ویندوز می‌ماند؛ تأیید نهایی پس از بررسی ظرفیت و ساعت کاری در سرور انجام می‌شود.</p></div></div>
+        <form id="reservation-form" class="reservation-form">
+          <div class="pos-form-row"><label>نام مشتری<input id="reservation-name" required maxlength="80" autocomplete="name"></label><label>شماره موبایل<input id="reservation-phone" required maxlength="15" inputmode="tel" dir="ltr" autocomplete="tel"></label></div>
+          <div class="pos-form-row"><label>تعداد مهمان<input id="reservation-guests" type="number" min="1" max="30" value="2" required></label><label>تاریخ شمسی<input id="reservation-date" type="text" inputmode="numeric" dir="ltr" placeholder="۱۴۰۵/۰۸/۰۵" pattern="[0-9۰-۹٠-٩]{4}[/-][0-9۰-۹٠-٩]{1,2}[/-][0-9۰-۹٠-٩]{1,2}" required></label><label>ساعت<input id="reservation-time" type="time" required></label></div>
+          <div class="pos-form-row"><label>میز درخواستی<select id="reservation-table"><option value="">انتخاب میز هنگام بررسی سرور</option></select></label><label>نوع رزرو<select id="reservation-type"><option value="normal">عادی</option><option value="occasion">مناسبت</option><option value="business">کاری</option></select></label></div>
+          <label>توضیح<textarea id="reservation-note" rows="2" maxlength="300" placeholder="توضیح اختیاری برای تیم رستوران"></textarea></label>
+          <p id="reservation-error" class="reservation-error" role="alert"></p><button id="reservation-submit" class="button primary" type="submit">ذخیره درخواست روی این دستگاه</button>
+        </form>
+      </section>
+      <section class="card"><div class="section-heading"><div><h2>درخواست‌های همین دستگاه</h2><p id="reservation-counts" class="muted">—</p></div></div><div id="reservation-commands" class="workspace-menu-commands"></div></section>
+      <p class="pos-footer">درخواست آفلاین به‌معنی رزرو قطعی نیست. پس از اتصال، زمان، ساعت کاری، پیش‌پرداخت و ظرفیت میز توسط سرور بررسی می‌شود؛ موارد ناسازگار برای رسیدگی در صف می‌مانند.</p>
     </main>
     <main id="hardware-app" class="shell" hidden>
       <header class="topbar">

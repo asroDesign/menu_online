@@ -21,6 +21,7 @@
       const nextWorkspaceCommands=JSON.stringify(state.workspaceCommands||null);
       const workspaceCommandsChanged=nextWorkspaceCommands!==workspaceCommandsKey;workspaceCommandsKey=nextWorkspaceCommands;
       renderWorkspaceCommands();
+      renderWorkspaceReservations();
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
       if(next&&(!catalog||catalog.snapshotId!==next.snapshotId)){
         catalog=next;$('pos-name').textContent=catalog.name;
@@ -29,6 +30,7 @@
         $('pos-table').innerHTML='<option value="">بدون میز</option>'+catalog.tables.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');$('pos-table').value=table;
         $('pos-terminal').innerHTML=catalog.terminals.filter(t=>t.settlementBankAccountId).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');renderProducts();
       }
+      if(next)renderReservationTables();
       if(!ready){
         ready=true;if(state.draft?.items){cart=state.draft.items;draftId=state.draft.id||crypto.randomUUID();$('pos-type').value=state.draft.type||'dine_in';$('pos-table').value=state.draft.tableId||'';$('pos-customer').value=state.draft.customerName||'';$('pos-phone').value=state.draft.customerPhone||'';$('pos-note').value=state.draft.note||'';} await renderCart();await routes();
       }
@@ -61,6 +63,21 @@
     $('workspace-menu-command-counts').textContent=`${money(summary.pending||0)} در صف · ${money(summary.conflicts||0)} نیازمند بررسی · ${money(summary.rejected||0)} ردشده`;
     const labels={update_product:'ویرایش محصول',update_category:'ویرایش دسته‌بندی'},states={pending:'در صف ارسال',conflict:'نیازمند بررسی',rejected:'ردشده',synced:'همگام شد'};
     $('workspace-menu-commands').innerHTML=recent.length?recent.slice(0,20).map(item=>`<div class="workspace-command-row"><span><b>${labels[item.action]||esc(item.action)} · ${esc(item.id.slice(0,8))}</b><small>${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`).join(''):'<p class="muted">تغییر محلی در صف نیست.</p>';
+  }
+  function renderWorkspaceReservations(){
+    const summary=state?.workspaceCommands||{},recent=(summary.recent||[]).filter(item=>item.module==='reservations');
+    const counts=recent.reduce((result,item)=>{result[item.state]=(result[item.state]||0)+1;return result;},{});
+    $('reservation-counts').textContent=`${money(counts.pending||0)} در انتظار همگام‌سازی · ${money(counts.conflict||0)} نیازمند بررسی · ${money(counts.rejected||0)} ردشده · درخواست آفلاین تا تأیید سرور قطعی نیست`;
+    $('reservation-connection').textContent=state?.health?.online?'متصل · بررسی پس از همگام‌سازی':'ذخیرهٔ محلی';
+    $('reservation-connection').className=`pos-status ${state?.health?.online?'online':''}`;
+    $('reservation-submit').disabled=!state?.paired;
+    const states={pending:'در انتظار اتصال · غیرقطعی',synced:'درخواست در سرور ثبت شد',conflict:'نیازمند بررسی',rejected:'ثبت نشد'};
+    $('reservation-commands').innerHTML=recent.length?recent.slice(0,30).map(item=>`<div class="workspace-command-row"><span><b>درخواست رزرو · ${esc(item.id.slice(0,8))}</b><small>${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`).join(''):'<p class="muted">درخواستی در صف این دستگاه وجود ندارد.</p>';
+  }
+  function renderReservationTables(){
+    const selected=$('reservation-table').value,tables=(catalog?.tables||[]).filter(table=>!table.operationalStatus||table.operationalStatus==='available');
+    $('reservation-table').innerHTML='<option value="">انتخاب میز هنگام بررسی سرور</option>'+tables.map(table=>`<option value="${table.id}">${esc(table.name)}</option>`).join('');
+    $('reservation-table').value=selected;
   }
   let editingMenu=null;
   function openMenuEditor(kind,id){
@@ -120,15 +137,41 @@
   $('pos-history').onclick=async e=>{try{const pay=e.target.closest('[data-pay]'),retry=e.target.closest('[data-retry]');if(pay)checkout(pay.dataset.pay);if(retry){await call('offline_retry',{id:retry.dataset.retry});await refresh();}}catch(error){notify(error,true);}};
   $('pos-prints').onclick=async e=>{const b=e.target.closest('[data-print]');if(b&&confirm('ممکن است فیش قبلاً چاپ شده باشد. پس از بررسی خروج کاغذ، دوباره ارسال شود؟')){try{await call('offline_retry_print',{id:Number(b.dataset.print)});await refresh();}catch(error){notify(error,true);}}};
   $('pos-search').oninput=renderProducts;$('pos-category').onchange=renderProducts;$('pos-method').onchange=paymentFields;$('pos-cash').oninput=()=>{const n=digits($('pos-cash').value);$('pos-cash').value=/^\d*$/.test(n)?Number(n||0).toLocaleString('en-US'):n;paymentFields();};$('pos-checkout').onclick=()=>checkout();
+  const jalaliFormatter=new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn',{year:'numeric',month:'numeric',day:'numeric',timeZone:'UTC'});
+  const jalaliLocalFormatter=new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn',{year:'numeric',month:'numeric',day:'numeric'});
+  function jalaliToGregorian(value){
+    const parts=digits(value).split(/[/-]/).map(Number);if(parts.length!==3)return null;
+    const [year,month,day]=parts;if(year<1300||year>1500||month<1||month>12||day<1||day>31)return null;
+    const target=[year,month,day],dayMs=86400000;
+    const compare=ordinal=>{const values={};for(const part of jalaliFormatter.formatToParts(new Date(ordinal*dayMs)))if(part.type==='year'||part.type==='month'||part.type==='day')values[part.type]=Number(part.value);const current=[values.year,values.month,values.day];for(let i=0;i<3;i++){if(current[i]!==target[i])return current[i]<target[i]?-1:1;}return 0;};
+    let low=Math.floor(Date.UTC(year+620,0,1)/dayMs),high=Math.floor(Date.UTC(year+623,0,1)/dayMs);
+    while(low<=high){const middle=Math.floor((low+high)/2),order=compare(middle);if(order===0){const date=new Date(middle*dayMs);return {year:date.getUTCFullYear(),month:date.getUTCMonth()+1,day:date.getUTCDate()};}if(order<0)low=middle+1;else high=middle-1;}
+    return null;
+  }
+  function setReservationDefaults(){
+    const suggested=new Date(Date.now()+90*60*1000);suggested.setMinutes(0,0,0);const parts={};for(const part of jalaliLocalFormatter.formatToParts(suggested))if(part.type==='year'||part.type==='month'||part.type==='day')parts[part.type]=part.value;
+    $('reservation-date').value=parts.year+'/'+String(parts.month).padStart(2,'0')+'/'+String(parts.day).padStart(2,'0');$('reservation-time').value=String(suggested.getHours()).padStart(2,'0')+':'+String(suggested.getMinutes()).padStart(2,'0');
+  }
+  setReservationDefaults();
+  $('reservation-form').onsubmit=async event=>{
+    event.preventDefault();const button=$('reservation-submit');if(button.disabled)return;button.disabled=true;$('reservation-error').textContent='';
+    const phone=digits($('reservation-phone').value).replace(/\D/g,''),jalali=jalaliToGregorian($('reservation-date').value),time=$('reservation-time').value.split(':').map(Number);
+    const startsAt=jalali&&time.length===2?new Date(jalali.year,jalali.month-1,jalali.day,time[0],time[1]):new Date(NaN);
+    if(phone.length<10||phone.length>15||!Number.isFinite(startsAt.getTime())||startsAt.getTime()<Date.now()+30*60*1000||startsAt.getTime()>Date.now()+90*86400000){$('reservation-error').textContent='شماره موبایل یا تاریخ و ساعت شمسی معتبر نیست؛ زمان باید از ۳۰ دقیقهٔ آینده تا ۹۰ روز بعد باشد.';button.disabled=false;return;}
+    const payload={name:$('reservation-name').value.trim(),phone,guestCount:Number($('reservation-guests').value),startsAt:startsAt.toISOString(),note:$('reservation-note').value.trim(),reservationType:$('reservation-type').value,tableId:$('reservation-table').value?Number($('reservation-table').value):null};
+    try{await call('offline_reservation_create',{payload});$('reservation-form').reset();$('reservation-guests').value='2';setReservationDefaults();notify('درخواست روی همین دستگاه ذخیره شد؛ رزرو پس از اتصال و بررسی سرور تأیید می‌شود.');await refresh();}
+    catch(error){$('reservation-error').textContent=String(error);}
+    finally{button.disabled=!state?.paired;}
+  };
   $('pos-clear').onclick=async()=>{if(cart.length&&confirm('سبد جاری خالی شود؟')){cart=[];draftId=crypto.randomUUID();await renderCart();}};
   ['pos-type','pos-table','pos-customer','pos-phone','pos-note'].forEach(id=>$(id).addEventListener('input',()=>{persist();}));
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
   function selectDesktopTab(tab){
-    const selected={pos:'pos-app',menu:'workspace-menu-app',hardware:'hardware-app'};
+    const selected={pos:'pos-app',menu:'workspace-menu-app',reservations:'reservations-app',hardware:'hardware-app'};
     Object.entries(selected).forEach(([key,id])=>{$(id).hidden=key!==tab;$(`tab-${key}`).classList.toggle('selected',key===tab);});
-    if(tab==='pos')void routes();if(tab==='menu')void loadWorkspaceMenu();
+    if(tab==='pos')void routes();if(tab==='menu')void loadWorkspaceMenu();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();}
   }
-  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
+  $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
   $('workspace-menu-refresh').onclick=async()=>{try{await call('offline_refresh');$('workspace-menu-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق در دسترس می‌ماند.';}catch(error){notify(error,true);}};$('workspace-menu-search').oninput=renderWorkspaceMenu;$('workspace-menu-category').onchange=renderWorkspaceMenu;
   void refresh();setInterval(()=>void refresh(),5000);
 })();

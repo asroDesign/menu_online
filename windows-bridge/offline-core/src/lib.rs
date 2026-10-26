@@ -328,7 +328,7 @@ impl Store {
             ]
             .contains(&action),
             "customers" => ["create", "update"].contains(&action),
-            "reservations" => ["create", "update_status"].contains(&action),
+            "reservations" => ["create"].contains(&action),
             "inventory" => ["receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
             "staff" => ["attendance", "leave_request", "shift_change"].contains(&action),
@@ -360,10 +360,17 @@ impl Store {
         let base_snapshot_id = command["baseSnapshotId"]
             .as_str()
             .ok_or("شناسهٔ snapshot پایه لازم است")?;
-        uuid::Uuid::parse_str(base_snapshot_id).map_err(err)?;
         let base_revision = number(command, "baseRevision")?;
         if base_revision < 0 {
             return Err("نسخهٔ پایهٔ فرمان معتبر نیست".into());
+        }
+        let snapshotless_reservation = module == "reservations" && action == "create";
+        if snapshotless_reservation {
+            if base_snapshot_id != "" || base_revision != 0 {
+                return Err("رزرو آفلاین نباید snapshot منو را مبنا قرار دهد".into());
+            }
+        } else {
+            uuid::Uuid::parse_str(base_snapshot_id).map_err(err)?;
         }
         if !command["payload"].is_object() {
             return Err("محتوای فرمان باید یک شیء JSON باشد".into());
@@ -390,22 +397,24 @@ impl Store {
             }
             return Err("شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است".into());
         }
-        let base: Option<(i64, String, String)> = tx
-            .query_row(
-                "SELECT revision,snapshot_id,valid_until FROM workspace_snapshots WHERE business_id=?1 AND dataset=?2",
-                params![business_id,base_dataset],
-                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
-            )
-            .optional()
-            .map_err(err)?;
-        let Some((snapshot_revision, snapshot_id, valid_until)) = base else {
-            return Err("snapshot پایهٔ این ماژول دریافت نشده است".into());
-        };
-        if snapshot_revision != base_revision || snapshot_id != base_snapshot_id {
-            return Err("فرمان بر مبنای snapshot جاری ساخته نشده است".into());
-        }
-        if DateTime::parse_from_rfc3339(&valid_until).map_err(err)? <= Utc::now() {
-            return Err("اعتبار snapshot پایان یافته؛ هنگام اتصال منو را به‌روز کنید".into());
+        if !snapshotless_reservation {
+            let base: Option<(i64, String, String)> = tx
+                .query_row(
+                    "SELECT revision,snapshot_id,valid_until FROM workspace_snapshots WHERE business_id=?1 AND dataset=?2",
+                    params![business_id,base_dataset],
+                    |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+                )
+                .optional()
+                .map_err(err)?;
+            let Some((snapshot_revision, snapshot_id, valid_until)) = base else {
+                return Err("snapshot پایهٔ این ماژول دریافت نشده است".into());
+            };
+            if snapshot_revision != base_revision || snapshot_id != base_snapshot_id {
+                return Err("فرمان بر مبنای snapshot جاری ساخته نشده است".into());
+            }
+            if DateTime::parse_from_rfc3339(&valid_until).map_err(err)? <= Utc::now() {
+                return Err("اعتبار snapshot پایان یافته؛ هنگام اتصال منو را به‌روز کنید".into());
+            }
         }
         let count: i64 = tx
             .query_row(
@@ -419,6 +428,44 @@ impl Store {
         }
         tx.execute("INSERT INTO workspace_commands(id,business_id,module,action,base_dataset,base_snapshot_id,base_revision,payload,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,business_id,module,action,base_dataset,base_snapshot_id,base_revision,blob(command)?,Utc::now().to_rfc3339()]).map_err(err)?;
         tx.commit().map_err(err)
+    }
+
+    pub fn enqueue_reservation_request(&mut self, payload: Value) -> Result<Value> {
+        let Some(fields) = payload.as_object() else { return Err("اطلاعات رزرو معتبر نیست".into()) };
+        let allowed = ["name", "phone", "guestCount", "startsAt", "note", "reservationType", "tableId"];
+        if fields.keys().any(|key| !allowed.contains(&key.as_str())) {
+            return Err("درخواست رزرو فیلد ناشناخته دارد".into());
+        }
+        let name = payload["name"].as_str().ok_or("نام مشتری لازم است")?.trim();
+        if name.chars().count() < 2 || name.chars().count() > 80 { return Err("نام مشتری باید بین ۲ تا ۸۰ نویسه باشد".into()); }
+        let phone = payload["phone"].as_str().ok_or("شمارهٔ موبایل لازم است")?;
+        if !(10..=15).contains(&phone.len()) || !phone.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err("شمارهٔ موبایل را با رقم وارد کنید".into());
+        }
+        let guests = payload["guestCount"].as_i64().ok_or("تعداد مهمان معتبر نیست")?;
+        if !(1..=30).contains(&guests) { return Err("تعداد مهمان باید بین ۱ تا ۳۰ نفر باشد".into()); }
+        let starts_at = payload["startsAt"].as_str().ok_or("زمان رزرو لازم است")?;
+        let starts_at = DateTime::parse_from_rfc3339(starts_at).map_err(err)?;
+        if starts_at <= Utc::now() || starts_at > Utc::now() + chrono::Duration::days(90) {
+            return Err("زمان رزرو باید تا ۹۰ روز آینده باشد".into());
+        }
+        let note = payload["note"].as_str().ok_or("توضیح رزرو معتبر نیست")?;
+        if note.chars().count() > 300 { return Err("توضیح رزرو بیش از حد طولانی است".into()); }
+        if !["normal", "occasion", "business"].contains(&payload["reservationType"].as_str().unwrap_or("")) {
+            return Err("نوع رزرو معتبر نیست".into());
+        }
+        if !payload["tableId"].is_null() && (!payload["tableId"].is_i64() || payload["tableId"].as_i64().unwrap_or(0) < 1) {
+            return Err("میز انتخاب‌شده معتبر نیست".into());
+        }
+        let business_id = self.paired_business_id()?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"reservations",
+            "action":"create","baseDataset":"reservations","baseSnapshotId":"","baseRevision":0,
+            "payload":payload
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending"}))
     }
 
     pub fn enqueue_menu_update_with_pin(
@@ -511,7 +558,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu"].contains(&module) {
+        if !["menu", "reservations"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;

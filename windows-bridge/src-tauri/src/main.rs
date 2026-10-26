@@ -271,7 +271,7 @@ fn main() {
             stop_bridge,
             clear_logs,
             set_autostart,
-            offline_status, offline_workspace_menu, offline_workspace_update_menu, offline_pair, offline_save, offline_pay, offline_retry,
+            offline_status, offline_workspace_menu, offline_workspace_update_menu, offline_reservation_create, offline_pair, offline_save, offline_pay, offline_retry,
             offline_draft, offline_routes, offline_retry_print, offline_backup, offline_ring, offline_refresh, offline_quote
         ])
         .on_window_event(|window, event| {

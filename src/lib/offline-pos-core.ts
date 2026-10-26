@@ -4,7 +4,7 @@ export type OfflineProduct = { id: number; name: string; price: number; category
 export type OfflineCatalog = {
   version: 1; snapshotId: string; businessId: number; name: string; issuedAt: string; validUntil: string;
   taxPercent: number; servicePercent: number; products: OfflineProduct[];
-  tables: { id: number; name: string }[]; categories: { id: number; name: string }[];
+  tables: { id: number; name: string; capacity?: number; operationalStatus?: string }[]; categories: { id: number; name: string }[];
   terminals: { id: number; name: string; settlementBankAccountId: number | null }[];
 };
 export type OfflineSale = {

@@ -17,7 +17,7 @@
 
 ## داده و API
 
-GET /api/r/reservations؛ PATCH /api/r/reservations/:id؛ GET /api/business برای slug؛ مسیر عمومی `GET/POST /api/public/:slug/reservations`. GET عمومی زمان و ظرفیت را می‌گیرد و میزهای `available` با ظرفیت کافی را پس از بررسی رزروهای `requested` و `confirmed` برمی‌گرداند. POST نوع رزرو و میز انتخابی را دریافت می‌کند؛ قفل و بررسی نهایی تداخل در transaction است.
+GET /api/r/reservations؛ PATCH /api/r/reservations/:id؛ GET /api/business برای slug؛ مسیر عمومی `GET/POST /api/public/:slug/reservations`. GET عمومی زمان و ظرفیت را می‌گیرد و میزهای `available` با ظرفیت کافی را پس از بررسی رزروهای `requested` و `confirmed` برمی‌گرداند. POST نوع رزرو و میز انتخابی را دریافت می‌کند؛ قفل و بررسی نهایی تداخل در transaction است. صندوق Windows درخواست تازه را به `POST /api/offline-dashboard/reservations` می‌فرستد؛ این مسیر با Bearer دستگاه، tenant و entitlementهای صندوق/رزرو محدود می‌شود.
 
 ## قواعدی که بازنویسی باید حفظ کند
 
@@ -49,6 +49,14 @@ Reservation fields: customerName/Phone, guestCount, startsAt, durationMinutes, t
 - رزرو نمونه دیگر با slug guard در صفحه یا endpoint قطع نمی‌شود. لینک رزرو در قالب‌های منوی نمونه نمایش داده می‌شود و availability/submit همچنان entitlement `reservations`، تنظیم `settings.reservations.enabled`، rate limit، ساعت کاری، ظرفیت، تداخل و قفل تراکنشی میز را enforce می‌کنند. سفارش و checkout منوی نمونه read-only باقی می‌مانند.
 - در تجربهٔ سه‌مرحله‌ای، کاربر اطلاعات/زمان/مهمان را وارد می‌کند، میز آزاد را می‌بیند و خلاصهٔ رزرو را تأیید می‌کند؛ UI بر اساس permission ذخیره‌شدهٔ همان کسب‌وکار تصمیم می‌گیرد CTA رزرو را نمایش دهد.
 - اعتبارسنجی: `npm run typecheck`, ESLint هدفمند و build production بررسی شدند؛ تست خودکار و ثبت رزرو در دادهٔ واقعی انجام نشده است. بررسی نهایی لینک زنده پس از deploy لازم است.
+
+### درخواست رزرو از صندوق Windows هنگام قطعی اینترنت — ۲۰۲۶-۱۰-۲۶
+
+- تب رزرو برنامهٔ Tauri نام، موبایل، تعداد مهمان، تاریخ شمسی، ساعت، میز درخواستی اختیاری، نوع رزرو و توضیح را در outbox رمز‌شده SQLite ذخیره می‌کند. درخواست با وضعیت محلی «در انتظار اتصال؛ غیرقطعی» نشان داده می‌شود؛ پیش‌پرداخت یا تأیید رزرو از دستگاه انجام نمی‌شود.
+- فرمان sync دارای UUID تصادفی است و payload در سرور hash می‌شود. دو ستون source_command_id/hash و unique index tenant-scoped در migration 0057، به‌علاوهٔ advisory lock، تکرار retry/ارسال هم‌زمان را به همان reservation پیوند می‌دهند. reuse شناسه با payload متفاوت conflict است.
+- سرور در زمان sync plan/settings، ساعت کاری، میز فعال، ظرفیت و تداخل زمانی را با همان منطق createReservation دوباره می‌سنجد؛ رزرو موفق فقط requested است. زمان گذشته یا میز/ظرفیت نامعتبر در صف دستگاه برای بررسی باقی می‌ماند.
+- down migration در حضور هر reservation دارای source command خطا می‌دهد تا idempotency پاک نشود. این جریان درخواست تازه را پوشش می‌دهد؛ فهرست/تأیید/رد/پرداخت پیش‌پرداخت و عملیات میز هنوز آنلاین‌اند.
+- اعتبارسنجی: TypeScript typecheck، ESLint هدفمند، node --check برای رابط و git diff --check اجرا شدند؛ تست و اجرای migration روی دیتابیس انجام نشد. Rust در این محیط به علت نبود cargo/rustc کامپایل نشد.
 
 ## مرجع بازسازی
 
