@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, products, stockMovements, warehouses } from "@/db/schema";
+import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, stockMovements, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -25,6 +25,17 @@ type InventoryPayload = {
   movements: { id: number; itemId: number; type: string; delta: number; balanceAfter: number; unitCost: number; invoiceNo: string; amount: number; createdAt: string }[];
   totalItems: number;
 };
+type OrdersPayload = {
+  orders: {
+    id: number; number: number; tableId: number | null; tableName: string | null; customerName: string; customerPhone: string;
+    type: string; source: string; status: string; note: string; address: string; deliveryFee: number; discountCode: string;
+    discountAmount: number; membershipDiscount: number; cashbackUsed: number; scheduledFor: string | null; deliveryStatus: string;
+    subtotal: number; tax: number; service: number; total: number;
+    paymentMethod: string | null; paymentStatus: string; paymentBreakdown: unknown; createdAt: string;
+    items: { id: number; productId: number | null; name: string; price: number; quantity: number; weightGrams: number | null; tareGrams: number; lineTotal: number; note: string; optionSnapshot: unknown }[];
+  }[];
+  totalOrders: number;
+};
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -46,11 +57,12 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
   if (dataset === "inventory" && (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory"))) throw new HttpError(403, "صندوق آفلاین و انبار باید در اشتراک فعال باشند");
+  if (dataset === "orders" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت تاریخچهٔ سفارش به مجوز صندوق آفلاین نیاز دارد");
 
   return db.transaction(async (tx) => {
     const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
@@ -60,7 +72,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -76,7 +88,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         customers: customerRows.map((row) => ({ ...row, lastOrderAt: row.lastOrderAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString() })),
         totalCustomers: customerRows.length,
       };
-    } else {
+    } else if (dataset === "inventory") {
       const itemRows = await tx.select({
         id: inventoryItems.id, warehouseId: inventoryItems.warehouseId, categoryId: inventoryItems.categoryId,
         name: inventoryItems.name, sku: inventoryItems.sku, unit: inventoryItems.unit, recipeUnit: inventoryItems.recipeUnit,
@@ -99,9 +111,48 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         movements: movementRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
         totalItems: itemRows.length,
       };
+    } else {
+      const orderRows = await tx.select({
+        id: orders.id, number: orders.number, tableId: orders.tableId, tableName: diningTables.name,
+        customerName: orders.customerName, customerPhone: orders.customerPhone, type: orders.type, source: orders.source,
+        status: orders.status, note: orders.note, address: orders.address, deliveryFee: orders.deliveryFee,
+        discountCode: orders.discountCode, discountAmount: orders.discountAmount, membershipDiscount: orders.membershipDiscount,
+        cashbackUsed: orders.cashbackUsed, scheduledFor: orders.scheduledFor, deliveryStatus: orders.deliveryStatus,
+        subtotal: orders.subtotal, tax: orders.tax, service: orders.service,
+        total: orders.total, paymentMethod: orders.paymentMethod, paymentStatus: orders.paymentStatus,
+        paymentBreakdown: orders.paymentBreakdown, createdAt: orders.createdAt,
+      }).from(orders).leftJoin(diningTables, and(eq(diningTables.id, orders.tableId), eq(diningTables.businessId, business.id)))
+        .where(and(eq(orders.businessId, business.id), isNull(orders.deletedAt)))
+        .orderBy(desc(orders.createdAt), desc(orders.id)).limit(100);
+      const itemRows = orderRows.length ? await tx.select({
+        id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, name: orderItems.name,
+        price: orderItems.price, quantity: orderItems.quantity, weightGrams: orderItems.weightGrams,
+        tareGrams: orderItems.tareGrams, lineTotal: orderItems.lineTotal, note: orderItems.note,
+        optionSnapshot: orderItems.optionSnapshot,
+      }).from(orderItems).where(inArray(orderItems.orderId, orderRows.map((row) => row.id))).orderBy(asc(orderItems.id)) : [];
+      const itemsByOrder = new Map<number, typeof itemRows>();
+      for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), item]);
+      payload = {
+        orders: orderRows.map((row) => ({
+          ...row,
+          createdAt: row.createdAt.toISOString(),
+          scheduledFor: row.scheduledFor?.toISOString() ?? null,
+          paymentBreakdown: row.paymentBreakdown ? (() => {
+            const payment = row.paymentBreakdown as Record<string, unknown>;
+            return {
+              cashAmount: payment.cashAmount, bankAmount: payment.bankAmount, bankAccountName: payment.bankAccountName,
+              posAmount: payment.posAmount, posDeviceName: payment.posDeviceName, posBankAccountName: payment.posBankAccountName,
+              posTerminalNumber: payment.posTerminalNumber, posRefNo: payment.posRefNo, creditAmount: payment.creditAmount,
+              settledAt: payment.settledAt,
+            };
+          })() : null,
+          items: itemsByOrder.get(row.id) ?? [],
+        })),
+        totalOrders: orderRows.length,
+      };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
       throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");
