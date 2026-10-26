@@ -711,10 +711,16 @@ impl OfflineState {
                         refresh_reports_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                     }
                 }
-                // Keep the recent-order window fresh even after the initial archive is complete.
-                // Otherwise orders newer than the one-time history cursor would only be refreshed
-                // every ten-minute workspace cycle.
-                let order_history_interval = 60;
+                // Keep recent orders and their details cached while online. Catch up the older
+                // archive more frequently until it is complete, so a network outage is less
+                // likely to happen before a large part of the restaurant's history is local.
+                let order_history_complete = state
+                    .store
+                    .lock()
+                    .ok()
+                    .and_then(|store| store.get("workspace_order_history_sync").ok().flatten())
+                    .and_then(|sync| sync["complete"].as_bool());
+                let order_history_interval = if order_history_complete == Some(true) { 60 } else { 30 };
                 if order_history_refresh.elapsed() >= Duration::from_secs(order_history_interval) {
                     if let Some(pair) = state.store.lock().ok().and_then(|store| store.get("pairing").ok().flatten()) {
                         let server = pair["server"].as_str().unwrap_or("").trim_end_matches('/');
