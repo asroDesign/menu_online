@@ -429,7 +429,7 @@ impl Store {
             "reservations" => ["create"].contains(&action),
             "inventory" => ["receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
-            "staff" => ["attendance", "leave_request", "shift_change"].contains(&action),
+            "staff" => ["attendance", "create_shift", "leave_request", "shift_change"].contains(&action),
             "payroll" => ["adjustment", "settlement"].contains(&action),
             "settings" => ["update"].contains(&action),
             "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
@@ -863,6 +863,65 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":id,"state":"pending","action":action,"scheduleId":schedule_id}))
+    }
+
+    pub fn enqueue_staff_shift_create_with_pin(
+        &mut self,
+        manager_pin: &str,
+        staff_id: i64,
+        starts_at: &str,
+        ends_at: &str,
+        location: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(manager_pin)?;
+        if staff_id < 1 || location.chars().count() > 100 {
+            return Err("اطلاعات شیفت معتبر نیست".into());
+        }
+        let starts = DateTime::parse_from_rfc3339(starts_at).map_err(err)?;
+        let ends = DateTime::parse_from_rfc3339(ends_at).map_err(err)?;
+        if ends <= starts || ends - starts > chrono::Duration::hours(24) {
+            return Err("مدت شیفت باید بیشتر از صفر و حداکثر ۲۴ ساعت باشد".into());
+        }
+        let snapshot = self.workspace_snapshot("shifts")?.ok_or_else(|| "نسخهٔ محلی کارکنان دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ برنامهٔ کارکنان منقضی است؛ ابتدا آن را تازه کنید".into());
+        }
+        let roster = snapshot["payload"]["staff"].as_array().ok_or("فهرست کارکنان محلی معتبر نیست")?;
+        if !roster.iter().any(|row| row["id"].as_i64() == Some(staff_id)) {
+            return Err("کارمند فعال در نسخهٔ محلی پیدا نشد".into());
+        }
+        let from = DateTime::parse_from_rfc3339(snapshot["payload"]["range"]["from"].as_str().ok_or("ابتدای بازهٔ کارکنان پیدا نشد")?).map_err(err)?;
+        let to = DateTime::parse_from_rfc3339(snapshot["payload"]["range"]["to"].as_str().ok_or("انتهای بازهٔ کارکنان پیدا نشد")?).map_err(err)?;
+        if starts < from || ends > to {
+            return Err("زمان شیفت باید داخل بازهٔ snapshot برنامهٔ کارکنان باشد".into());
+        }
+        let schedules = snapshot["payload"]["schedules"].as_array().ok_or("فهرست شیفت‌های محلی معتبر نیست")?;
+        if schedules.iter().any(|row| {
+            if row["staffId"].as_i64() != Some(staff_id) || row["status"].as_str() != Some("scheduled") { return false; }
+            let existing_start = row["startsAt"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            let existing_end = row["endsAt"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            existing_start.is_some_and(|value| value < ends) && existing_end.is_some_and(|value| value > starts)
+        }) {
+            return Err("کارمند در snapshot این بازه شیفت دیگری دارد".into());
+        }
+        let leaves = snapshot["payload"]["leaveRequests"].as_array().ok_or("فهرست مرخصی‌های محلی معتبر نیست")?;
+        if leaves.iter().any(|row| {
+            if row["staffId"].as_i64() != Some(staff_id) || row["status"].as_str() != Some("approved") { return false; }
+            let leave_start = row["startsAt"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            let leave_end = row["endsAt"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            leave_start.is_some_and(|value| value < ends) && leave_end.is_some_and(|value| value > starts)
+        }) {
+            return Err("برای این بازه مرخصی تأییدشده ثبت شده است".into());
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"staff","action":"create_shift",
+            "baseDataset":"shifts","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"staffId":staff_id,"startsAt":starts.to_rfc3339(),"endsAt":ends.to_rfc3339(),"location":location.trim()}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"create_shift","staffId":staff_id}))
     }
 
     pub fn enqueue_staff_leave_request_with_pin(

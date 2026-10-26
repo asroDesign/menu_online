@@ -987,6 +987,20 @@ pub fn offline_workspace_shifts(state: State<'_, OfflineState>) -> Result<Option
 }
 
 #[tauri::command]
+pub fn offline_workspace_create_shift(
+    staff_id: i64,
+    starts_at: String,
+    ends_at: String,
+    location: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_shift_create_with_pin(
+        &manager_pin, staff_id, &starts_at, &ends_at, &location,
+    )
+}
+
+#[tauri::command]
 pub fn offline_workspace_accounting(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("accounting")

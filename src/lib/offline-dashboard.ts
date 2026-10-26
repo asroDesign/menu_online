@@ -533,7 +533,7 @@ type StaffCommand = {
   id: string;
   businessId: number;
   module: "staff";
-  action: "leave_request" | "shift_change";
+  action: "create_shift" | "leave_request" | "shift_change";
   baseDataset: "shifts";
   baseSnapshotId: string;
   baseRevision: number;
@@ -541,13 +541,15 @@ type StaffCommand = {
 };
 
 function parseStaffCommand(raw: unknown): StaffCommand {
-  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["leave_request", "shift_change"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
+  if (!isRecord(raw) || raw.schemaVersion !== 1 || raw.module !== "staff" || !["create_shift", "leave_request", "shift_change"].includes(String(raw.action))) throw new HttpError(400, "قالب درخواست آفلاین کارکنان معتبر نیست");
   const allowedCommandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
   if (Object.keys(raw).some((key) => !allowedCommandKeys.includes(key))) throw new HttpError(400, "فرمان کارکنان فیلد ناشناخته دارد");
   if (typeof raw.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id)) throw new HttpError(400, "شناسهٔ درخواست معتبر نیست");
   if (!Number.isSafeInteger(raw.businessId) || Number(raw.businessId) < 1 || raw.baseDataset !== "shifts" || typeof raw.baseSnapshotId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.baseSnapshotId) || !Number.isSafeInteger(raw.baseRevision) || Number(raw.baseRevision) < 1 || !isRecord(raw.payload)) throw new HttpError(400, "شناسه یا نسخهٔ مبنای درخواست کارکنان معتبر نیست");
   const payload = raw.payload;
-  if (raw.action === "leave_request") {
+  if (raw.action === "create_shift") {
+    if (Object.keys(payload).some((key) => !["staffId", "startsAt", "endsAt", "location"].includes(key)) || !Number.isSafeInteger(payload.staffId) || Number(payload.staffId) < 1 || !isIsoTimestamp(payload.startsAt) || !isIsoTimestamp(payload.endsAt) || Date.parse(payload.endsAt) <= Date.parse(payload.startsAt) || Date.parse(payload.endsAt) - Date.parse(payload.startsAt) > 24 * 60 * 60_000 || typeof payload.location !== "string" || payload.location.length > 100) throw new HttpError(400, "اطلاعات شیفت جدید معتبر نیست");
+  } else if (raw.action === "leave_request") {
     if (Object.keys(payload).some((key) => !["staffId", "startsAt", "endsAt", "kind", "reason"].includes(key)) || !Number.isSafeInteger(payload.staffId) || Number(payload.staffId) < 1 || !isIsoTimestamp(payload.startsAt) || !isIsoTimestamp(payload.endsAt) || Date.parse(payload.endsAt) <= Date.parse(payload.startsAt) || Date.parse(payload.endsAt) - Date.parse(payload.startsAt) > 31 * 86_400_000 || !["personal", "sick", "unpaid"].includes(String(payload.kind)) || typeof payload.reason !== "string" || payload.reason.length > 500) throw new HttpError(400, "اطلاعات درخواست مرخصی معتبر نیست");
   } else if (Object.keys(payload).some((key) => !["scheduleId", "targetStaffId", "reason"].includes(key)) || !Number.isSafeInteger(payload.scheduleId) || Number(payload.scheduleId) < 1 || !Number.isSafeInteger(payload.targetStaffId) || Number(payload.targetStaffId) < 1 || typeof payload.reason !== "string" || payload.reason.length > 300) {
     throw new HttpError(400, "اطلاعات درخواست تعویض شیفت معتبر نیست");
@@ -573,12 +575,38 @@ async function syncOfflineStaffRequest(req: Request, command: StaffCommand) {
     const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "shifts"), eq(offlineWorkspaceSnapshots.revision, command.baseRevision))).for("update");
     const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "", details: Record<string, unknown> = {}) => {
       const response = { commandId: command.id, state, receipt, ...details, ...(error ? { error } : {}) };
-      const ledgerPayload = { ...command, payload: { ...command.payload, reason: "" } };
+      const ledgerPayload = command.action === "create_shift" ? command : { ...command, payload: { ...command.payload, reason: "" } };
       await tx.insert(offlineWorkspaceCommands).values({ id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy, module: "staff", action: command.action, payloadHash, payload: ledgerPayload as unknown as Record<string, unknown>, state, httpStatus, error, receipt, result: response });
       return { httpStatus, response };
     };
     if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ برنامهٔ کارکنان پیدا نشد یا اعتبارش پایان یافته است؛ ابتدا نسخهٔ تازه را دریافت کنید");
     const snapshotStaff = (snapshot.payload.staff as Record<string, unknown>[] | undefined) ?? [];
+    if (command.action === "create_shift") {
+      const staffId = Number(command.payload.staffId);
+      const startsAt = new Date(String(command.payload.startsAt)), endsAt = new Date(String(command.payload.endsAt));
+      if (!snapshotStaff.some((row) => row.id === staffId)) return record("conflict", 409, "کارمند در نسخهٔ مبنای برنامه حضور ندارد");
+      const range = snapshot.payload.range as Record<string, unknown> | undefined;
+      const from = new Date(String(range?.from ?? "")), to = new Date(String(range?.to ?? ""));
+      if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || startsAt < from || endsAt > to) return record("conflict", 409, "زمان شیفت بیرون از محدودهٔ نسخهٔ ذخیره‌شده است؛ برنامه را به‌روز کنید");
+      const [member] = await tx.select({ id: staff.id, isActive: staff.isActive }).from(staff)
+        .where(and(eq(staff.id, staffId), eq(staff.businessId, business.id))).for("update");
+      if (!member?.isActive) return record("conflict", 409, "کارمند حذف یا غیرفعال شده است");
+      const [overlap] = await tx.select({ id: staffSchedules.id }).from(staffSchedules).where(and(
+        eq(staffSchedules.businessId, business.id), eq(staffSchedules.staffId, staffId), eq(staffSchedules.status, "scheduled"),
+        lt(staffSchedules.startsAt, endsAt), gt(staffSchedules.endsAt, startsAt),
+      )).limit(1);
+      if (overlap) return record("conflict", 409, "کارمند در این بازه شیفت دیگری دارد");
+      const [leave] = await tx.select({ id: staffLeaveRequests.id }).from(staffLeaveRequests).where(and(
+        eq(staffLeaveRequests.businessId, business.id), eq(staffLeaveRequests.staffId, staffId), eq(staffLeaveRequests.status, "approved"),
+        lt(staffLeaveRequests.startsAt, endsAt), gt(staffLeaveRequests.endsAt, startsAt),
+      )).limit(1);
+      if (leave) return record("conflict", 409, "برای این بازه مرخصی تأییدشده ثبت شده است");
+      const [created] = await tx.insert(staffSchedules).values({
+        businessId: business.id, staffId, startsAt, endsAt, location: String(command.payload.location).trim().slice(0, 100),
+        createdBy: terminal.createdBy, updatedBy: terminal.createdBy,
+      }).returning({ id: staffSchedules.id });
+      return record("applied", 200, "", randomUUID(), { scheduleId: created.id });
+    }
     if (command.action === "leave_request") {
       const staffId = Number(command.payload.staffId);
       if (!snapshotStaff.some((row) => row.id === staffId)) return record("conflict", 409, "کارمند در نسخهٔ مبنای این درخواست حضور ندارد");
