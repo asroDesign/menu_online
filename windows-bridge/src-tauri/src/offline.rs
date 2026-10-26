@@ -150,7 +150,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "reservations", "staff", "inventory", "accounting", "receivables"] {
+                    'workspace_modules: for module in ["menu", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -197,7 +197,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    if module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" { let _ = store.set("workspace_refresh", &json!(true)); }
+                                    if module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -218,7 +218,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 && (module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables") {
+                                    if status == 409 && (module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
@@ -673,6 +673,39 @@ impl OfflineState {
                                 }
                             }
                         }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/cheques"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("cheques")
+                                    && snapshot["businessId"].as_i64() == pair["businessId"].as_i64()
+                                    && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                                    && snapshot["payload"]["cheques"].is_array()
+                                    && snapshot["payload"]["beneficiaries"].is_array()
+                                    && snapshot["payload"]["events"].is_array()
+                                    && snapshot["payload"]["accounts"].is_array() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => { let _ = store.set("workspace_sync_cheques", &json!({"ok":true,"dataset":"cheques","revision":snapshot["revision"],"checkedAt":chrono::Utc::now().to_rfc3339()})); }
+                                        Err(error) => { let _ = store.set("workspace_sync_cheques", &json!({"ok":false,"dataset":"cheques","message":error})); }
+                                    }
+                                }
+                            }
+                            Ok((status, data)) => {
+                                if let Ok(mut store) = state.store.lock() {
+                                    if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("cheques"); }
+                                    let _ = store.set("workspace_sync_cheques", &json!({"ok":false,"dataset":"cheques","message":data["error"].as_str().unwrap_or("دریافت دفتر چک ناموفق بود")}));
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_cheques", &json!({"ok":false,"dataset":"cheques","message":"ارتباط دفتر چک در دسترس نیست"})); }
+                            }
+                        }
                         refresh_receivables_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_cash_shifts_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                         refresh_reports_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
@@ -1039,6 +1072,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceReceivablesSync": s.get("workspace_sync_receivables")?,
         "workspaceCashShiftsSync": s.get("workspace_sync_cash_shifts")?,
         "workspaceReportsSync": s.get("workspace_sync_reports")?,
+        "workspaceChequesSync": s.get("workspace_sync_cheques")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -1135,6 +1169,26 @@ pub fn offline_workspace_create_shift(
 pub fn offline_workspace_accounting(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("accounting")
+}
+
+#[tauri::command]
+pub fn offline_workspace_cheques(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    let mut snapshot = store.workspace_snapshot("cheques")?;
+    if let Some(snapshot) = snapshot.as_mut() {
+        snapshot["localChanges"] = store.workspace_command_summary()?;
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn offline_workspace_register_cheque(payload: Value, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_cheque_register_with_pin(&manager_pin, &payload)
+}
+
+#[tauri::command]
+pub fn offline_workspace_set_cheque_status(cheque_id: i64, status: String, note: String, status_account_id: i64, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_cheque_status_with_pin(&manager_pin, cheque_id, &status, &note, status_account_id)
 }
 
 #[tauri::command]

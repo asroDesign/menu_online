@@ -1,15 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
 import * as Accounting from "@/lib/accounting";
 import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
+import { syncOfflineChequeCommand } from "@/lib/offline-cheques";
 import { outstandingAmount, receivableState } from "@/lib/receivables-core";
 import { cashShiftTotalsByShift } from "@/lib/cash-shifts";
 import { startOfDayTehran } from "@/lib/jalali";
+import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -96,6 +98,20 @@ type SalesReportsPayload = {
   series: { date: string; revenue: number; orders: number }[];
   byProduct: { name: string; quantity: number; revenue: number }[];
   statuses: { status: string; paymentStatus: string; orders: number; amount: number }[];
+};
+type ChequesPayload = {
+  cheques: {
+    id: number; beneficiaryId: number | null; direction: string; status: string; partnerName: string; amount: number;
+    issueDate: string; dueDate: string; chequeNumber: string; serialNumber: string; bank: string; branch: string;
+    expensePurpose: string; sayadIdentifier: string; note: string; accountingAccountId: number | null;
+    accountingDocumentId: number | null; createdAt: string; updatedAt: string;
+  }[];
+  beneficiaries: { id: number; fullName: string; nationalId: string; phone: string }[];
+  events: { id: number; chequeId: number; requestKey: string; fromStatus: string | null; toStatus: string; note: string; accountingAccountId: number | null; reversalDocumentId: number | null; accountingDocumentId: number | null; createdAt: string }[];
+  accounts: { id: number; code: string; name: string; level: string; isActive: boolean }[];
+  banks: string[];
+  purposes: string[];
+  totalCheques: number;
 };
 
 type OrderHistoryCursor = { createdAt: string; id: number };
@@ -210,7 +226,7 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations" && dataset !== "shifts" && dataset !== "accounting" && dataset !== "receivables" && dataset !== "cash_shifts" && dataset !== "reports" && dataset !== "cheques") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
@@ -222,7 +238,9 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "receivables" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "مطالبات آفلاین به مجوز صندوق و حسابداری نیاز دارد");
   if (dataset === "cash_shifts" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت شیفت‌های صندوق به مجوز صندوق نیاز دارد");
   if (dataset === "reports" && (!hasAny(features, "cashier_pos") || !hasAny(features, "sales_reports"))) throw new HttpError(403, "گزارش آفلاین به مجوز صندوق و گزارش فروش نیاز دارد");
+  if (dataset === "cheques" && (!hasAny(features, "cashier_pos") || !hasAny(features, "cheque_register") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت دفتر چک آفلاین به مجوز صندوق، دفتر چک و حسابداری نیاز دارد");
   if (dataset === "accounting") await Accounting.ensureAccounting(business);
+  if (dataset === "cheques") await Accounting.ensureChequeAccountingAccounts(business);
 
   return db.transaction(async (tx) => {
     const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
@@ -232,7 +250,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | SalesReportsPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload | ShiftsPayload | AccountingPayload | ReceivablesPayload | CashShiftsPayload | SalesReportsPayload | ChequesPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -397,6 +415,30 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         };
       };
       payload = { active: active ? present(active) : null, history: historyRows.map(present), historyHasMore: closedRows.length > 100 };
+    } else if (dataset === "cheques") {
+      const [chequeRows, beneficiaryRows, eventRows, accountRows] = await Promise.all([
+        tx.select({ id: cheques.id, beneficiaryId: cheques.beneficiaryId, direction: cheques.direction, status: cheques.status, partnerName: cheques.partnerName, amount: cheques.amount, issueDate: cheques.issueDate, dueDate: cheques.dueDate, chequeNumber: cheques.chequeNumber, serialNumber: cheques.serialNumber, bank: cheques.bank, branch: cheques.branch, expensePurpose: cheques.expensePurpose, sayadIdentifier: cheques.sayadIdentifier, note: cheques.note, accountingAccountId: cheques.accountingAccountId, accountingDocumentId: cheques.accountingDocumentId, createdAt: cheques.createdAt, updatedAt: cheques.updatedAt })
+          .from(cheques).where(eq(cheques.businessId, business.id)).orderBy(desc(cheques.dueDate), desc(cheques.id)).limit(5_001),
+        tx.select({ id: chequeBeneficiaries.id, fullName: chequeBeneficiaries.fullName, nationalId: chequeBeneficiaries.nationalId, phone: chequeBeneficiaries.phone })
+          .from(chequeBeneficiaries).where(eq(chequeBeneficiaries.businessId, business.id)).orderBy(asc(chequeBeneficiaries.fullName), asc(chequeBeneficiaries.id)).limit(1_001),
+        tx.select({ id: chequeEvents.id, chequeId: chequeEvents.chequeId, requestKey: chequeEvents.requestKey, fromStatus: chequeEvents.fromStatus, toStatus: chequeEvents.toStatus, note: chequeEvents.note, accountingAccountId: chequeEvents.accountingAccountId, reversalDocumentId: chequeEvents.reversalDocumentId, accountingDocumentId: chequeEvents.accountingDocumentId, createdAt: chequeEvents.createdAt })
+          .from(chequeEvents).where(eq(chequeEvents.businessId, business.id)).orderBy(desc(chequeEvents.id)).limit(20_001),
+        tx.select({ id: accAccounts.id, code: accAccounts.code, name: accAccounts.name, level: accAccounts.level, isActive: accAccounts.isActive })
+          .from(accAccounts).where(and(eq(accAccounts.businessId, business.id), eq(accAccounts.isActive, true), inArray(accAccounts.level, ["moein", "tafsili"]))).orderBy(asc(accAccounts.code), asc(accAccounts.id)).limit(1_001),
+      ]);
+      if (chequeRows.length > 5_000 || beneficiaryRows.length > 1_000 || eventRows.length > 20_000 || accountRows.length > 1_000) {
+        throw new HttpError(413, "دفتر چک برای دریافت آفلاین از سقف امن یک snapshot بیشتر است؛ دریافت صفحه‌بندی‌شده لازم است");
+      }
+      const ids = new Set(chequeRows.map((row) => row.id));
+      payload = {
+        cheques: chequeRows.map((row) => ({ ...row, issueDate: row.issueDate.toISOString(), dueDate: row.dueDate.toISOString(), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() })),
+        beneficiaries: beneficiaryRows,
+        events: eventRows.filter((event) => ids.has(event.chequeId)).map((event) => ({ ...event, createdAt: event.createdAt.toISOString() })),
+        accounts: accountRows.filter((row) => row.code !== Accounting.C.CHEQUE_RECEIVABLE && row.code !== Accounting.C.CHEQUE_PAYABLE),
+        banks: [...IRANIAN_BANKS],
+        purposes: [...CHEQUE_PURPOSES],
+        totalCheques: chequeRows.length,
+      };
     } else if (dataset === "reports") {
       const now = new Date(), today = startOfDayTehran(now), from = new Date(today.getTime() - 89 * 86_400_000), to = new Date(today.getTime() + 86_400_000 - 1);
       const dateKey = sql<string>`to_char(${orders.createdAt} AT TIME ZONE 'Asia/Tehran', 'YYYY-MM-DD')`;
@@ -596,6 +638,7 @@ function parseMenuCommand(raw: unknown): MenuCommand {
 }
 
 export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
+  if (isRecord(raw) && raw.module === "cheques") return syncOfflineChequeCommand(req, raw);
   if (isRecord(raw) && raw.module === "staff") return syncOfflineStaffRequest(req, parseStaffCommand(raw));
   if (isRecord(raw) && raw.module === "accounting") return syncOfflineAccountingCommand(req, raw);
   const command = parseMenuCommand(raw);

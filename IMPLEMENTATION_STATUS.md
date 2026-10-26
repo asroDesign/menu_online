@@ -1101,3 +1101,13 @@ worker اکنون حتی پس از تکمیل تاریخچهٔ اولیه، هر
 فایل‌های تغییرکرده و قرارداد دقیق در [راهنمای صندوق آفلاین](docs/agents/modules/offline-pos.md)، [ماتریس امکانات پنل آفلاین](docs/agents/modules/offline-full-dashboard.md)، [نقشهٔ API](docs/agents/core-pages/api-contract-map.md) و [گزارش این تغییر](docs/updates/2026-10-26-offline-inventory-transfers.md) ثبت شده‌اند. migration افزایشی `0068_offline_inventory_transfers.sql` action جدید را مجاز می‌کند؛ rollback در صورت وجود سابقهٔ command انتقال عمداً متوقف می‌شود.
 
 اعتبارسنجی: `npm run typecheck`، `node --check windows-bridge/ui/pos.js` و `git diff --check` موفق شدند. تست و migration اجرا نشدند و به دیتابیس وصل نشدیم. `cargo` در محیط حاضر نیست، پس Rust/Tauri compile تأیید نشده است. ESLint هدفمند در این نوبت اجرا نشده است.
+
+## دفتر چک در اپ Windows آفلاین — ۲۰۲۶-۱۰-۲۶
+
+تب Windows اکنون snapshot رمز‌شدهٔ tenant از دفتر چک را برای جست‌وجو، مشاهدهٔ جزئیات/گردش، ثبت چک دریافتنی یا پرداختنی و درخواست تغییر وضعیت دارد. ثبت با PIN مدیر محلی در outbox رمز‌شده می‌ماند؛ پس از اتصال سرور شماره/سریال، ذی‌نفع، حساب، entitlement و snapshot را دوباره بررسی می‌کند و ایجاد ذی‌نفع، چک، سند پایه، event و command ledger را اتمیک ثبت می‌کند. تغییر وضعیت نیز با `expectedStatus/updatedAt` و قفل سطر بررسی می‌شود؛ برگشت سند وضعیت قبلی، سند وضعیت تازه، چک، event و ledger در یک transaction هستند. projection محلی فقط به snapshot مبنای خودش مربوط می‌شود و تا refresh مجدد امکان ثبت وضعیت تازه روی همان چک را نمی‌دهد.
+
+سقف snapshot آفلاین ۵۰۰۰ چک، ۱۰۰۰ ذی‌نفع، ۲۰٬۰۰۰ event و ۱۰۰۰ حساب است؛ بیشتر از سقف با خطای 413 رد می‌شود و داده ناقص نشان داده نمی‌شود. پیامک سررسید فقط پس از اتصال و طبق workflow آنلاین قابل ارسال است؛ بانک/صیاد و پرداخت واقعی آفلاین نیستند.
+
+دسترسی آفلاین سفارش‌ها نیز بازبینی شد: آخرین ۱۰۰ سفارش بلافاصله و تاریخچهٔ قدیمی‌تر همراه اقلام با backfill cursorدار در SQLite محافظت‌شدهٔ دستگاه ذخیره می‌شوند؛ فهرست و جزئیات cacheشده هنگام قطعی اینترنت باز می‌شوند. برای تضمین همهٔ سابقهٔ کسب‌وکار، backfill باید پیش از قطعی کامل شده باشد.
+
+جزئیات در [گزارش توسعهٔ دفتر چک آفلاین](docs/updates/2026-10-26-offline-cheques.md)، [راهنمای دقیق ماژول](docs/agents/modules/offline-cheques.md)، [نقشهٔ پنل آفلاین](docs/agents/modules/offline-full-dashboard.md)، [راهنمای چک اصلی](docs/agents/modules/cheques.md) و [نقشهٔ قرارداد API](docs/agents/core-pages/api-contract-map.md) ثبت شده است. `npx tsc --noEmit --incremental false`، ESLint هدفمند، `node --check windows-bridge/ui/pos.js` و `git diff --check` موفق شدند. تست DB/integration و migration اجرا نشدند؛ `cargo`/`rustc` موجود نیست، پس کامپایل Rust/Tauri تأیید نشده است.

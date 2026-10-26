@@ -435,6 +435,7 @@ impl Store {
             "payroll" => ["adjustment", "settlement"].contains(&action),
             "settings" => ["update"].contains(&action),
             "loyalty" => ["earn_points", "redeem_reward"].contains(&action),
+            "cheques" => ["register", "set_status"].contains(&action),
             _ => false,
         };
         if !allowed {
@@ -453,6 +454,7 @@ impl Store {
             ("payroll", _) => "payroll",
             ("settings", _) => "settings",
             ("loyalty", _) => "loyalty",
+            ("cheques", _) => "cheques",
             _ => return Err("برای این ماژول snapshot پایه تعریف نشده است".into()),
         };
         if command["baseDataset"].as_str() != Some(base_dataset) {
@@ -1024,6 +1026,56 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"create_document","totalAmount":debit_total}))
     }
 
+    pub fn enqueue_cheque_register_with_pin(&mut self, pin: &str, payload: &Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        let snapshot = self.workspace_snapshot("cheques")?.ok_or_else(|| "نسخهٔ دفتر چک دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ دفتر چک منقضی است؛ پیش از ثبت، دستگاه را به اینترنت وصل کنید".into()); }
+        let direction = payload["direction"].as_str().ok_or("جهت چک مشخص نیست")?;
+        let amount = payload["amount"].as_i64().filter(|value| *value > 0 && *value <= 2_000_000_000_000).ok_or("مبلغ چک معتبر نیست")?;
+        let issue = DateTime::parse_from_rfc3339(payload["issueDate"].as_str().ok_or("تاریخ صدور چک معتبر نیست")?).map_err(|_| "تاریخ صدور چک معتبر نیست")?;
+        let due = DateTime::parse_from_rfc3339(payload["dueDate"].as_str().ok_or("تاریخ سررسید چک معتبر نیست")?).map_err(|_| "تاریخ سررسید چک معتبر نیست")?;
+        if !["payable", "receivable"].contains(&direction) || issue > due { return Err("جهت یا بازهٔ تاریخ چک معتبر نیست".into()); }
+        let partner_name = payload["partnerName"].as_str().unwrap_or("").trim();
+        let cheque_number = payload["chequeNumber"].as_str().unwrap_or("").trim();
+        let serial_number = payload["serialNumber"].as_str().unwrap_or("").trim();
+        let bank = payload["bank"].as_str().unwrap_or("").trim();
+        if partner_name.is_empty() || cheque_number.is_empty() || serial_number.is_empty() || bank.is_empty() { return Err("نام طرف چک، شماره، سریال و بانک الزامی است".into()); }
+        let accounts = snapshot["payload"]["accounts"].as_array().ok_or("حساب‌های فعال در نسخهٔ محلی پیدا نشدند")?;
+        let account_id = payload["accountingAccountId"].as_i64().filter(|id| accounts.iter().any(|row| row["id"].as_i64() == Some(*id) && row["isActive"].as_bool() == Some(true))).ok_or("حساب طرف چک در نسخهٔ محلی پیدا نشد")?;
+        let mut normalized = payload.clone();
+        normalized["accountingAccountId"] = json!(account_id);
+        normalized["partnerName"] = json!(partner_name);
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"cheques","action":"register",
+            "baseDataset":"cheques","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],"payload":normalized
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"register","amount":amount}))
+    }
+
+    pub fn enqueue_cheque_status_with_pin(&mut self, pin: &str, cheque_id: i64, next_status: &str, note: &str, status_account_id: i64) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if cheque_id < 1 || note.chars().count() > 300 || !["registered","passed","bounced","returned","assigned","voided"].contains(&next_status) { return Err("شماره، وضعیت یا توضیح تغییر چک معتبر نیست".into()); }
+        let snapshot = self.workspace_snapshot("cheques")?.ok_or_else(|| "نسخهٔ دفتر چک دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ دفتر چک منقضی است؛ پیش از تغییر وضعیت، دستگاه را به اینترنت وصل کنید".into()); }
+        let cheques = snapshot["payload"]["cheques"].as_array().ok_or("فهرست چک‌های محلی معتبر نیست")?;
+        let cheque = cheques.iter().find(|row| row["id"].as_i64() == Some(cheque_id)).ok_or("چک در نسخهٔ محلی پیدا نشد؛ snapshot را تازه کنید")?;
+        let direction = cheque["direction"].as_str().unwrap_or("");
+        if next_status == "assigned" && direction != "receivable" { return Err("فقط چک دریافتنی می‌تواند واگذار شود".into()); }
+        let accounts = snapshot["payload"]["accounts"].as_array().ok_or("حساب‌های فعال در نسخهٔ محلی پیدا نشدند")?;
+        if next_status == "assigned" && !accounts.iter().any(|row| row["id"].as_i64() == Some(status_account_id) && row["isActive"].as_bool() == Some(true)) { return Err("برای واگذاری چک یک حساب مقصد فعال انتخاب کنید".into()); }
+        let current_account = cheque["accountingAccountId"].as_i64().unwrap_or(0);
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"cheques","action":"set_status",
+            "baseDataset":"cheques","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"chequeId":cheque_id,"expectedStatus":cheque["status"],"status":next_status,"note":note.trim(),"accountingAccountId":current_account,"statusAccountId":status_account_id}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"set_status","chequeId":cheque_id,"status":next_status}))
+    }
+
     pub fn enqueue_receivable_cash_payment_with_pin(&mut self, pin: &str, receivable_id: i64, amount: i64, note: &str) -> Result<Value> {
         self.verify_local_manager_pin(pin)?;
         if receivable_id < 1 || amount < 1 || amount > 2_000_000_000 || note.chars().count() > 300 {
@@ -1455,7 +1507,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "reservations", "staff", "inventory", "accounting", "receivables"].contains(&module) {
+        if !["menu", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;
@@ -1578,6 +1630,10 @@ impl Store {
                 let command = value(payload)?;
                 item["receivableId"] = command["payload"]["receivableId"].clone();
                 item["amount"] = command["payload"]["amount"].clone();
+            }
+            if module == "cheques" {
+                let command = value(payload)?;
+                item["commandPayload"] = command["payload"].clone();
             }
             recent.push(item);
         }
