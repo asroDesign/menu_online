@@ -25,6 +25,7 @@
 
 - `staff_schedules`: برنامهٔ هر شیفت، tenant، کارمند فعلی، بازه، محل، وضعیت `scheduled | canceled | absent`، نسخه و audit ایجاد/ویرایش. `template_id` به نمونه‌های ساخته‌شده از الگوی ثابت اشاره می‌کند. مشخصات ثبت غیبت در `absence_note`, `absence_recorded_by`, `absence_recorded_at` نگهداری می‌شوند.
 - `staff_attendance_records`: یک رکورد به ازای هر شیفت با ورود، خروج و ثبت‌کنندهٔ هر پانچ؛ شناسهٔ شیفت یکتا است. `staff_attendance_events` تاریخچهٔ تغییر زمان را نگه می‌دارد و اصلاح قبلی را بازنویسی نمی‌کند.
+- `offline_staff_attendance_requests`: فرمان آفلاین با شناسهٔ یکتا، terminal/tenant، شیفت و نسخهٔ برنامه، کارمند، اقدام و timestamp ادعاشدهٔ دستگاه دارد و وضعیت `pending | approved | rejected | conflict` را نگه می‌دارد. برای هر شیفت و اقدام در هر لحظه فقط یک درخواست pending پذیرفته می‌شود. تا تأیید مدیر این جدول ورودی محاسبهٔ حقوق نیست؛ تأیید رسمی همراه رویداد audit به جداول اصلی منتقل می‌شود.
 - `staff_leave_requests`: بازه و نوع مرخصی، توضیح، وضعیت `pending | approved | rejected` و کاربر/زمان/یادداشت تصمیم.
 - `staff_shift_templates`: الگوی هفتگی تکرارشونده؛ `weekdays` به صورت رشتهٔ عددهای ۰ تا ۶ ذخیره می‌شود که یکشنبه ۰ است. ساعت‌ها `HH:mm` و زمان‌های نمونه به‌صورت timestamp با منطقهٔ تهران ساخته می‌شوند.
 - `staff_shift_swap_requests`: شیفت و کارمند مبدا/مقصد، درخواست‌دهنده، علت، یادداشت تصمیم، audit و وضعیت `pending_target | pending_manager | approved | rejected`. ایندکس یکتا اجازهٔ بیش از یک درخواست باز برای هر شیفت را نمی‌دهد.
@@ -40,6 +41,8 @@
 - `GET /api/staff-schedule/templates`: فهرست الگوهای فعال tenant جاری. `POST` یا یک الگوی جدید می‌سازد و در بازه می‌گستراند یا الگوی موجود را برای بازهٔ جدید اعمال می‌کند.
 - `GET /api/staff-schedule/swaps`: مدیر همهٔ درخواست‌های tenant و کارمند فقط درخواست‌هایی را می‌بیند که مبدا یا مقصد آن خودش است. `POST` درخواست را می‌سازد. `PATCH` پاسخ همکار (`respond`) یا تصمیم نهایی مدیر (`decide`) را می‌پذیرد.
 - `GET /api/staff-schedule/attendance?from=<ISO>&to=<ISO>`: مدیر همهٔ کارکنان همان کسب‌وکار و کارمند فقط برنامهٔ خودش را در بازهٔ حداکثر ۶۲ روزی می‌بیند. `POST` با `action: check_in | check_out` برای کارمند حاضر است. `PATCH` مدیر با `action: adjust_check_in | adjust_check_out`, `at` و دلیل اجباری، ساعت را اصلاح و رویداد ممیزی ثبت می‌کند.
+- همان GET برای مدیر، حداکثر ۲۰۰ درخواست pending حضور آفلاین را نیز می‌دهد. `PATCH` با `action: review_offline`, `requestId`, `decision: approve | reject` و دلیل اجباری هنگام رد، درخواست را تعیین تکلیف می‌کند. تأیید، شیفت/نسخه و ترتیب ورود/خروج را زیر قفل بازبینی می‌کند؛ سپس attendance و `staff_attendance_events` را در یک transaction ثبت می‌کند.
+- `POST /api/offline-dashboard/staff/attendance` فقط با کلید terminal جفت‌شده، entitlementهای `cashier_pos` و `staff_scheduling`، snapshot معتبر `shifts` همان terminal/tenant و فرمان idempotent می‌پذیرد. timestamp دستگاه در محدودهٔ شیفت و نسبت به زمان سرور کنترل می‌شود؛ درخواست تا بازبینی مدیر در migration `0058_offline_staff_attendance_review.sql` باقی می‌ماند.
 - رابط کاربری و فرم‌های موبایل‌پذیر: `src/modules/staff-schedule.tsx`. محاسبهٔ ماه جلالی، چیدمان شنبه‌محور و کلیدهای تاریخ در `src/lib/staff-calendar.ts` است تا مرز ماه و سال از timezone مرورگر مستقل بماند. APIها در مسیرهای بالا هستند؛ طرح DB در `src/db/schema.ts` تعریف شده است.
 
 ## بازسازی، راه‌اندازی و محدودیت

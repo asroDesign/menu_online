@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { staff, staffAttendanceEvents, staffAttendanceRecords, staffSchedules } from "@/db/schema";
+import { offlineStaffAttendanceRequests, offlineTerminals, staff, staffAttendanceEvents, staffAttendanceRecords, staffSchedules } from "@/db/schema";
 import { HttpError, readJson, withAuth } from "@/lib/auth";
 import { isManagerRole } from "@/lib/roles";
 import { parseTehranDateTime } from "@/lib/tehran-time";
@@ -42,7 +42,26 @@ export const GET = withAuth(async (req, auth) => {
     .innerJoin(staff, eq(staff.id, staffSchedules.staffId))
     .leftJoin(staffAttendanceRecords, and(eq(staffAttendanceRecords.scheduleId, staffSchedules.id), eq(staffAttendanceRecords.businessId, auth.business.id)))
     .where(where).orderBy(staffSchedules.startsAt).limit(500);
-  return Response.json({ items, mine: !manager }, { headers: { "Cache-Control": "no-store" } });
+  const offlineRequests = manager ? await db.select({
+    id: offlineStaffAttendanceRequests.id,
+    scheduleId: offlineStaffAttendanceRequests.scheduleId,
+    staffId: offlineStaffAttendanceRequests.staffId,
+    staffName: staff.name,
+    startsAt: staffSchedules.startsAt,
+    endsAt: staffSchedules.endsAt,
+    action: offlineStaffAttendanceRequests.action,
+    occurredAt: offlineStaffAttendanceRequests.occurredAt,
+    receivedAt: offlineStaffAttendanceRequests.createdAt,
+    terminalName: offlineTerminals.name,
+    status: offlineStaffAttendanceRequests.status,
+    reviewNote: offlineStaffAttendanceRequests.reviewNote,
+  }).from(offlineStaffAttendanceRequests)
+    .innerJoin(staffSchedules, and(eq(staffSchedules.id, offlineStaffAttendanceRequests.scheduleId), eq(staffSchedules.businessId, auth.business.id)))
+    .innerJoin(staff, and(eq(staff.id, offlineStaffAttendanceRequests.staffId), eq(staff.businessId, auth.business.id)))
+    .innerJoin(offlineTerminals, and(eq(offlineTerminals.id, offlineStaffAttendanceRequests.terminalId), eq(offlineTerminals.businessId, auth.business.id)))
+    .where(and(eq(offlineStaffAttendanceRequests.businessId, auth.business.id), eq(offlineStaffAttendanceRequests.status, "pending")))
+    .orderBy(offlineStaffAttendanceRequests.occurredAt).limit(200) : [];
+  return Response.json({ items, mine: !manager, offlineRequests }, { headers: { "Cache-Control": "no-store" } });
 }, { feature: "staff_scheduling", manager: true, roles: staffRoles });
 
 export const POST = withAuth(async (req, auth) => {
@@ -88,6 +107,50 @@ export const POST = withAuth(async (req, auth) => {
 export const PATCH = withAuth(async (req, auth) => {
   if (!isManagerRole(auth.role)) throw new HttpError(403, "اصلاح سوابق حضور فقط برای مدیر مجاز است.");
   const body = await readJson(req, 4 * 1024);
+  if (body.action === "review_offline") {
+    const requestId = typeof body.requestId === "string" ? body.requestId : "";
+    const decision = body.decision;
+    const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId) || (decision !== "approve" && decision !== "reject") || (decision === "reject" && reason.length < 3))
+      throw new HttpError(400, "درخواست، تصمیم و برای رد درخواست دلیل حداقل ۳ نویسه‌ای لازم است.");
+    const outcome = await db.transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db;
+      const targetStatus = decision === "approve" ? "approved" : "rejected";
+      const [initial] = await tx.select().from(offlineStaffAttendanceRequests).where(and(eq(offlineStaffAttendanceRequests.id, requestId), eq(offlineStaffAttendanceRequests.businessId, auth.business.id))).limit(1);
+      if (!initial) throw new HttpError(404, "درخواست حضور آفلاین پیدا نشد.");
+      if (initial.status === targetStatus) return { item: initial, duplicate: true };
+      if (initial.status !== "pending") throw new HttpError(409, "این درخواست قبلاً تعیین تکلیف شده است.");
+      const [shift] = await tx.select().from(staffSchedules).where(and(eq(staffSchedules.id, initial.scheduleId), eq(staffSchedules.businessId, auth.business.id))).for("update");
+      if (!shift) throw new HttpError(404, "شیفت مرتبط با درخواست پیدا نشد.");
+      const [record] = await tx.select().from(staffAttendanceRecords).where(and(eq(staffAttendanceRecords.businessId, auth.business.id), eq(staffAttendanceRecords.scheduleId, shift.id))).for("update");
+      const [request] = await tx.select().from(offlineStaffAttendanceRequests).where(and(eq(offlineStaffAttendanceRequests.id, requestId), eq(offlineStaffAttendanceRequests.businessId, auth.business.id))).for("update");
+      if (!request) throw new HttpError(404, "درخواست حضور آفلاین پیدا نشد.");
+      if (request.status === targetStatus) return { item: request, duplicate: true };
+      if (request.status !== "pending") throw new HttpError(409, "این درخواست قبلاً تعیین تکلیف شده است.");
+      const now = new Date();
+      if (decision === "reject") {
+        const [updated] = await tx.update(offlineStaffAttendanceRequests).set({ status: "rejected", reviewedBy: auth.user.id, reviewedAt: now, reviewNote: reason }).where(and(eq(offlineStaffAttendanceRequests.id, request.id), eq(offlineStaffAttendanceRequests.status, "pending"))).returning();
+        return { item: updated, duplicate: false };
+      }
+      if (!shift || shift.status !== "scheduled" || shift.staffId !== request.staffId || shift.version !== request.scheduleVersion) throw new HttpError(409, "شیفت بعد از ثبت آفلاین تغییر کرده یا لغو شده است؛ درخواست را رد کنید و ساعت را دستی بازبینی کنید.");
+      if (request.action === "check_in") {
+        if (record?.checkInAt || record?.checkOutAt) throw new HttpError(409, "برای این شیفت سابقهٔ ورود یا خروج دیگری ثبت شده است.");
+        const [saved] = record
+          ? await tx.update(staffAttendanceRecords).set({ staffId: request.staffId, checkInAt: request.occurredAt, checkInBy: auth.user.id, updatedBy: auth.user.id, updatedAt: now }).where(eq(staffAttendanceRecords.id, record.id)).returning()
+          : await tx.insert(staffAttendanceRecords).values({ businessId: auth.business.id, scheduleId: shift.id, staffId: request.staffId, checkInAt: request.occurredAt, checkInBy: auth.user.id, updatedBy: auth.user.id }).returning();
+        await tx.insert(staffAttendanceEvents).values({ businessId: auth.business.id, recordId: saved.id, action: "check_in", occurredAt: request.occurredAt, reason: `ثبت آفلاین با درخواست ${request.id} · تایید مدیر${reason ? `: ${reason}` : ""}`, recordedBy: auth.user.id });
+      } else {
+        if (!record?.checkInAt || record.checkInAt.getTime() !== request.expectedCheckInAt?.getTime() || record.checkOutAt || request.occurredAt < record.checkInAt) throw new HttpError(409, "ورود معتبر و متناظر با درخواست خروج ثبت نشده است.");
+        const [saved] = await tx.update(staffAttendanceRecords).set({ checkOutAt: request.occurredAt, checkOutBy: auth.user.id, updatedBy: auth.user.id, updatedAt: now }).where(and(eq(staffAttendanceRecords.id, record.id), sql`${staffAttendanceRecords.checkOutAt} is null`)).returning();
+        if (!saved) throw new HttpError(409, "سابقهٔ حضور هم‌زمان تغییر کرده است.");
+        await tx.insert(staffAttendanceEvents).values({ businessId: auth.business.id, recordId: record.id, action: "check_out", occurredAt: request.occurredAt, reason: `ثبت آفلاین با درخواست ${request.id} · تایید مدیر${reason ? `: ${reason}` : ""}`, recordedBy: auth.user.id });
+      }
+      const [updated] = await tx.update(offlineStaffAttendanceRequests).set({ status: "approved", reviewedBy: auth.user.id, reviewedAt: now, reviewNote: reason }).where(and(eq(offlineStaffAttendanceRequests.id, request.id), eq(offlineStaffAttendanceRequests.status, "pending"))).returning();
+      if (!updated) throw new HttpError(409, "درخواست حضور هم‌زمان تغییر کرده است.");
+      return { item: updated, duplicate: false };
+    });
+    return Response.json(outcome, { headers: { "Cache-Control": "no-store" } });
+  }
   const recordId = Number(body.recordId);
   const action = body.action;
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
@@ -96,10 +159,12 @@ export const PATCH = withAuth(async (req, auth) => {
   const occurredAt = validDate(body.at);
   const saved = await db.transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db;
+    const [initialRecord] = await tx.select({ id: staffAttendanceRecords.id, scheduleId: staffAttendanceRecords.scheduleId }).from(staffAttendanceRecords).where(and(eq(staffAttendanceRecords.id, recordId), eq(staffAttendanceRecords.businessId, auth.business.id))).limit(1);
+    if (!initialRecord) throw new HttpError(404, "سابقه حضور پیدا نشد.");
+    const [shift] = await tx.select().from(staffSchedules).where(and(eq(staffSchedules.id, initialRecord.scheduleId), eq(staffSchedules.businessId, auth.business.id))).for("update");
+    if (!shift) throw new HttpError(404, "شیفت مرتبط پیدا نشد.");
     const [record] = await tx.select().from(staffAttendanceRecords).where(and(eq(staffAttendanceRecords.id, recordId), eq(staffAttendanceRecords.businessId, auth.business.id))).for("update");
     if (!record) throw new HttpError(404, "سابقه حضور پیدا نشد.");
-    const [shift] = await tx.select().from(staffSchedules).where(and(eq(staffSchedules.id, record.scheduleId), eq(staffSchedules.businessId, auth.business.id))).for("update");
-    if (!shift) throw new HttpError(404, "شیفت مرتبط پیدا نشد.");
     if (Math.abs(occurredAt.getTime() - shift.startsAt.getTime()) > 18 * 60 * 60_000 && Math.abs(occurredAt.getTime() - shift.endsAt.getTime()) > 18 * 60 * 60_000)
       throw new HttpError(400, "زمان اصلاح‌شده باید در فاصله ۱۸ ساعته از شیفت باشد.");
     const previousAt = action === "adjust_check_in" ? record.checkInAt : record.checkOutAt;

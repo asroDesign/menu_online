@@ -1984,6 +1984,39 @@ export const offlineWorkspaceCommands = pgTable("offline_workspace_commands", {
     name: "offline_workspace_command_terminal_business_fk",
   }).onDelete("restrict"),
 ]);
+// Offline punch records remain review requests until a manager accepts them; they never feed payroll directly.
+export const offlineStaffAttendanceRequests = pgTable("offline_staff_attendance_requests", {
+  id: text("id").primaryKey(),
+  terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id, { onDelete: "restrict" }),
+  businessId: bizId(),
+  scheduleId: integer("schedule_id").notNull().references(() => staffSchedules.id, { onDelete: "restrict" }),
+  staffId: integer("staff_id").notNull().references(() => staff.id, { onDelete: "restrict" }),
+  scheduleVersion: integer("schedule_version").notNull(),
+  action: text("action").notNull(), // check_in | check_out
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  expectedCheckInAt: timestamp("expected_check_in_at", { withTimezone: true }),
+  previousRequestId: text("previous_request_id").references((): AnyPgColumn => offlineStaffAttendanceRequests.id, { onDelete: "restrict" }),
+  snapshotId: text("snapshot_id").notNull(),
+  snapshotRevision: integer("snapshot_revision").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected | conflict
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewNote: text("review_note").notNull().default(""),
+  createdAt: created(),
+}, (t) => [
+  uniqueIndex("offline_staff_attendance_pending_action_uq").on(t.businessId, t.scheduleId, t.action).where(sql`${t.status} = 'pending'`),
+  index("offline_staff_attendance_review_idx").on(t.businessId, t.status, t.createdAt),
+  check("offline_staff_attendance_action_check", sql`${t.action} in ('check_in','check_out')`),
+  check("offline_staff_attendance_status_check", sql`${t.status} in ('pending','approved','rejected','conflict')`),
+  check("offline_staff_attendance_schedule_version_check", sql`${t.scheduleVersion} > 0`),
+  check("offline_staff_attendance_previous_action_check", sql`(${t.action} = 'check_in' and ${t.expectedCheckInAt} is null and ${t.previousRequestId} is null) or (${t.action} = 'check_out' and ${t.expectedCheckInAt} is not null)`),
+  foreignKey({
+    columns: [t.terminalId, t.businessId],
+    foreignColumns: [offlineTerminals.id, offlineTerminals.businessId],
+    name: "offline_staff_attendance_terminal_business_fk",
+  }).onDelete("restrict"),
+]);
 export const offlineSales = pgTable("offline_sales", {
   id: text("id").primaryKey(), terminalId: text("terminal_id").notNull().references(() => offlineTerminals.id), businessId: bizId(),
   payloadHash: text("payload_hash").notNull(), payload: jsonb("payload").$type<import("@/lib/offline-pos-core").OfflineSale>().notNull(),

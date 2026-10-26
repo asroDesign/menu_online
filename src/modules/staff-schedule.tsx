@@ -13,6 +13,7 @@ type Leave = { id: number; staffId: number; staffName: string; startsAt: string;
 type Swap = { id: number; scheduleId: number; fromStaffId: number; fromStaffName: string; toStaffId: number; toStaffName: string; status: string; reason: string; decisionNote: string; startsAt: string; endsAt: string };
 type Template = { id: number; staffId: number; staffName: string; name: string; weekdays: string; startTime: string; endTime: string; location: string; isActive: boolean };
 type Attendance = { scheduleId: number; staffId: number; staffName: string; startsAt: string; endsAt: string; location: string; scheduleStatus: string; attendanceId: number | null; checkInAt: string | null; checkOutAt: string | null };
+type OfflineAttendanceRequest = { id: string; scheduleId: number; staffId: number; staffName: string; startsAt: string; endsAt: string; action: "check_in" | "check_out"; occurredAt: string; receivedAt: string; terminalName: string; status: string; reviewNote: string };
 type Data = { items: Schedule[]; leaveRequests: Leave[]; staff: StaffOption[]; mine: boolean; staffId: number | null };
 
 const roleNames: Record<string, string> = { waiter: "گارسون", cashier: "صندوقدار", chef: "آشپزخانه", warehouse: "انباردار", accountant: "حسابدار", manager: "مدیر" };
@@ -35,6 +36,7 @@ export default function StaffSchedule() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [swaps, setSwaps] = useState<Swap[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [offlineAttendanceRequests, setOfflineAttendanceRequests] = useState<OfflineAttendanceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(0);
   const [error, setError] = useState("");
@@ -54,6 +56,8 @@ export default function StaffSchedule() {
   const [attendanceEdit, setAttendanceEdit] = useState<{ item: Attendance; action: "adjust_check_in" | "adjust_check_out" } | null>(null);
   const [attendanceEditAt, setAttendanceEditAt] = useState("");
   const [attendanceEditReason, setAttendanceEditReason] = useState("");
+  const [offlineReview, setOfflineReview] = useState<{ item: OfflineAttendanceRequest; decision: "approve" | "reject" } | null>(null);
+  const [offlineReviewReason, setOfflineReviewReason] = useState("");
   const [staffId, setStaffId] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -82,9 +86,9 @@ export default function StaffSchedule() {
         api<Data>(`/api/staff-schedule?${query.toString()}`),
         api<{ items: Swap[] }>("/api/staff-schedule/swaps"),
         isManager ? api<{ items: Template[] }>("/api/staff-schedule/templates") : Promise.resolve({ items: [] as Template[] }),
-        api<{ items: Attendance[] }>(`/api/staff-schedule/attendance?${attendanceQuery.toString()}`),
+        api<{ items: Attendance[]; offlineRequests?: OfflineAttendanceRequest[] }>(`/api/staff-schedule/attendance?${attendanceQuery.toString()}`),
       ]);
-      setData(result); setSwaps(swapResult.items); setTemplates(templateResult.items); setAttendance(attendanceResult.items);
+      setData(result); setSwaps(swapResult.items); setTemplates(templateResult.items); setAttendance(attendanceResult.items); setOfflineAttendanceRequests(attendanceResult.offlineRequests ?? []);
       if (result.staff[0]) {
         setStaffId((value) => value || String(result.staff[0].id));
         setPatternStaffId((value) => value || String(result.staff[0].id));
@@ -148,6 +152,18 @@ export default function StaffSchedule() {
     try {
       await api("/api/staff-schedule/attendance", { method: "PATCH", body: { recordId: attendanceEdit.item.attendanceId, action: attendanceEdit.action, at: attendanceEditAt, reason: attendanceEditReason } });
       setAttendanceEdit(null); setAttendanceEditAt(""); setAttendanceEditReason(""); setRefresh((value) => value + 1); toast("اصلاح حضور با ثبت دلیل در سوابق انجام شد.");
+    } catch (cause) { toast((cause as Error).message, "error"); }
+    finally { setBusy(false); }
+  }
+
+  async function reviewOfflineAttendance() {
+    if (!offlineReview) return;
+    if (offlineReview.decision === "reject" && offlineReviewReason.trim().length < 3) return toast("برای رد درخواست، دلیل حداقل ۳ نویسه‌ای وارد کنید.", "error");
+    setBusy(true);
+    try {
+      await api("/api/staff-schedule/attendance", { method: "PATCH", body: { action: "review_offline", requestId: offlineReview.item.id, decision: offlineReview.decision, reason: offlineReviewReason } });
+      setOfflineReview(null); setOfflineReviewReason(""); setRefresh((value) => value + 1);
+      toast(offlineReview.decision === "approve" ? "درخواست ثبت آفلاین تأیید و وارد سابقهٔ رسمی حضور شد." : "درخواست ثبت آفلاین با دلیل در سوابق رد شد.");
     } catch (cause) { toast((cause as Error).message, "error"); }
     finally { setBusy(false); }
   }
@@ -253,6 +269,7 @@ export default function StaffSchedule() {
         <Card className="p-3"><p className="text-xs text-base-content/60">ساعت ثبت‌شده</p><p className="mt-1 text-xl font-extrabold">{attendanceSummary.hours.toLocaleString("fa-IR", { maximumFractionDigits: 1 })}</p><p className="text-[11px] text-base-content/50">بر پایه ورود و خروج</p></Card>
         <Card className="p-3"><p className="text-xs text-base-content/60">ورود دیرهنگام</p><p className="mt-1 text-xl font-extrabold">{attendanceSummary.late.toLocaleString("fa-IR")}</p><p className="text-[11px] text-base-content/50">بیش از ۵ دقیقه پس از شروع</p></Card>
       </div>
+      {isManager && offlineAttendanceRequests.length > 0 && <Card className="space-y-3 border-amber-300 bg-amber-50/40 p-3 sm:p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold">درخواست‌های حضور ثبت‌شده در حالت آفلاین</h2><p className="mt-1 text-xs text-base-content/60">تا تأیید شما، این ساعت‌ها در گزارش رسمی و محاسبهٔ حقوق وارد نمی‌شوند.</p></div><Badge color="amber">{offlineAttendanceRequests.length.toLocaleString("fa-IR")} در انتظار</Badge></div><div className="divide-y divide-amber-200">{offlineAttendanceRequests.map((item) => <article key={item.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><b className="text-sm">{item.staffName}</b><Badge color="blue">{item.action === "check_in" ? "ورود" : "خروج"}</Badge></div><p className="mt-1 text-xs text-base-content/75">زمان ثبت‌شده: {formatDateTime(item.occurredAt)} · شیفت: {formatDateTime(item.startsAt)} تا {formatDateTime(item.endsAt)}</p><p className="mt-1 text-[11px] text-base-content/55">دستگاه {item.terminalName} · دریافت در سرور: {formatDateTime(item.receivedAt)}</p></div><div className="flex shrink-0 gap-2"><Button size="sm" variant="danger" disabled={busy} onClick={() => { setOfflineReview({ item, decision: "reject" }); setOfflineReviewReason(""); }}>رد</Button><Button size="sm" disabled={busy} onClick={() => { setOfflineReview({ item, decision: "approve" }); setOfflineReviewReason(""); }}>تأیید ساعت</Button></div></article>)}</div></Card>}
       <Card className="space-y-3 p-3 sm:p-4">
         <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
@@ -355,6 +372,9 @@ export default function StaffSchedule() {
     </Modal>
     <Modal open={!!attendanceEdit} onClose={() => setAttendanceEdit(null)} title={attendanceEdit?.action === "adjust_check_in" ? "اصلاح زمان ورود" : "اصلاح زمان خروج"} description={attendanceEdit ? `${attendanceEdit.item.staffName} · ${formatDateTime(attendanceEdit.item.startsAt)}` : undefined} footer={<><Button variant="ghost" onClick={() => setAttendanceEdit(null)}>انصراف</Button><Button loading={busy} onClick={() => void correctAttendance()}>ثبت اصلاح</Button></>}>
       <div className="space-y-4"><Field label="زمان صحیح"><PersianDateInput value={attendanceEditAt} onChange={setAttendanceEditAt} withTime/></Field><Field label="دلیل اصلاح"><Textarea value={attendanceEditReason} maxLength={300} onChange={(event) => setAttendanceEditReason(event.target.value)} placeholder="مثلاً ثبت اشتباه ساعت توسط کارمند"/></Field><p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">زمان قبلی و دلیل این تغییر برای پیگیری در تاریخچهٔ حضور ذخیره می‌شود.</p></div>
+    </Modal>
+    <Modal open={!!offlineReview} onClose={() => setOfflineReview(null)} title={offlineReview?.decision === "approve" ? "تأیید ثبت حضور آفلاین" : "رد ثبت حضور آفلاین"} description={offlineReview ? `${offlineReview.item.staffName} · ${offlineReview.item.action === "check_in" ? "ورود" : "خروج"} · ${formatDateTime(offlineReview.item.occurredAt)}` : undefined} footer={<><Button variant="ghost" onClick={() => setOfflineReview(null)}>انصراف</Button><Button variant={offlineReview?.decision === "reject" ? "danger" : "primary"} loading={busy} onClick={() => void reviewOfflineAttendance()}>{offlineReview?.decision === "approve" ? "تأیید و ثبت در حضور رسمی" : "رد درخواست"}</Button></>}>
+      <div className="space-y-4"><p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">ساعت ثبت‌شده از دستگاه آفلاین آمده است. در صورت تأیید، این زمان وارد سابقهٔ رسمی و ورودی محاسبهٔ حقوق می‌شود؛ ثبت‌کنندهٔ نهایی شما خواهید بود.</p>{offlineReview?.decision === "reject" && <Field label="دلیل رد (اجباری)"><Textarea value={offlineReviewReason} maxLength={300} onChange={(event) => setOfflineReviewReason(event.target.value)} placeholder="علت ناسازگاری یا رد زمان ثبت‌شده"/></Field>}{offlineReview?.decision === "approve" && <Field label="یادداشت مدیر (اختیاری)"><Textarea value={offlineReviewReason} maxLength={300} onChange={(event) => setOfflineReviewReason(event.target.value)} placeholder="یادداشت برای سابقهٔ حسابرسی"/></Field>}</div>
     </Modal>
     <Modal open={leaveOpen} onClose={() => setLeaveOpen(false)} title="درخواست مرخصی" footer={<><Button variant="ghost" onClick={() => setLeaveOpen(false)}>انصراف</Button><Button loading={busy} onClick={() => void requestLeave()}>ارسال درخواست</Button></>}>
       <div className="space-y-4"><Field label="نوع مرخصی"><Select value={leaveKind} onChange={(event) => setLeaveKind(event.target.value)}><option key="personal" value="personal">شخصی</option><option key="sick" value="sick">استعلاجی</option><option key="unpaid" value="unpaid">بدون حقوق</option></Select></Field><Field label="شروع"><PersianDateInput value={startsAt} onChange={setStartsAt} withTime/></Field><Field label="پایان"><PersianDateInput value={endsAt} onChange={setEndsAt} withTime/></Field><Field label="توضیح (اختیاری)"><Textarea value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)}/></Field></div>

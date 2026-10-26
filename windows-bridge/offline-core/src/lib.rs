@@ -368,6 +368,7 @@ impl Store {
             ("reservations", _) => "reservations",
             ("inventory", _) => "inventory",
             ("accounting", _) => "accounting",
+            ("staff", "attendance") => "shifts",
             ("staff", _) => "staff",
             ("payroll", _) => "payroll",
             ("settings", _) => "settings",
@@ -564,6 +565,104 @@ impl Store {
         Ok(json!({"commandId":id,"state":"pending","action":action,"targetId":target_id}))
     }
 
+    pub fn enqueue_staff_attendance_with_pin(
+        &mut self,
+        pin: &str,
+        schedule_id: i64,
+        action: &str,
+        occurred_at: &str,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if schedule_id < 1 || !["check_in", "check_out"].contains(&action) {
+            return Err("شیفت یا نوع ثبت حضور معتبر نیست".into());
+        }
+        let occurred = DateTime::parse_from_rfc3339(occurred_at).map_err(err)?;
+        let snapshot = self.workspace_snapshot("shifts")?.ok_or_else(|| "نسخهٔ محلی برنامهٔ شیفت دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("نسخهٔ برنامهٔ شیفت منقضی است؛ برای ثبت حضور ابتدا آن را تازه کنید".into());
+        }
+        let schedules = snapshot["payload"]["schedules"].as_array().ok_or("فهرست شیفت‌های محلی معتبر نیست")?;
+        let shift = schedules.iter().find(|row| row["id"].as_i64() == Some(schedule_id)).ok_or("شیفت در نسخهٔ محلی پیدا نشد")?;
+        if shift["status"].as_str() != Some("scheduled") {
+            return Err("ثبت حضور فقط برای شیفت برنامه‌ریزی‌شده ممکن است".into());
+        }
+        let staff_id = number(shift, "staffId")?;
+        let starts = DateTime::parse_from_rfc3339(shift["startsAt"].as_str().ok_or("زمان شروع شیفت پیدا نشد")?).map_err(err)?;
+        let ends = DateTime::parse_from_rfc3339(shift["endsAt"].as_str().ok_or("زمان پایان شیفت پیدا نشد")?).map_err(err)?;
+        let attendance = &shift["attendance"];
+        let mut previous_request_id: Option<String> = None;
+        let check_in = if attendance.is_object() && !attendance["checkInAt"].is_null() {
+            Some(DateTime::parse_from_rfc3339(attendance["checkInAt"].as_str().ok_or("زمان ورود ذخیره‌شده معتبر نیست")?).map_err(err)?)
+        } else {
+            None
+        };
+        let check_out = attendance.is_object() && !attendance["checkOutAt"].is_null();
+        let local_events = self.workspace_staff_attendance_events()?;
+        let events = local_events.as_array().ok_or("فهرست درخواست‌های حضور محلی معتبر نیست")?;
+        let active_check_in = events.iter().find(|row| {
+            row["payload"]["scheduleId"].as_i64() == Some(schedule_id)
+                && row["payload"]["action"].as_str() == Some("check_in")
+                && (row["state"].as_str() == Some("pending") || (row["state"].as_str() == Some("synced") && !["approved", "rejected", "conflict"].contains(&row["reviewStatus"].as_str().unwrap_or(""))))
+        });
+        let active_check_out = events.iter().any(|row| {
+            row["payload"]["scheduleId"].as_i64() == Some(schedule_id)
+                && row["payload"]["action"].as_str() == Some("check_out")
+                && (row["state"].as_str() == Some("pending") || (row["state"].as_str() == Some("synced") && !["approved", "rejected", "conflict"].contains(&row["reviewStatus"].as_str().unwrap_or(""))))
+        });
+        let expected_check_in = if action == "check_in" {
+            if check_in.is_some() || check_out || active_check_in.is_some() {
+                return Err("برای این شیفت ورود قبلاً ثبت یا درخواست شده است".into());
+            }
+            let earliest = starts - chrono::Duration::hours(2);
+            let latest = ends + chrono::Duration::hours(2);
+            if occurred < earliest || occurred > latest {
+                return Err("ثبت ورود فقط از دو ساعت پیش از شروع تا دو ساعت پس از پایان شیفت ممکن است".into());
+            }
+            None
+        } else {
+            if check_out || active_check_out {
+                return Err("برای این شیفت خروج قبلاً ثبت یا درخواست شده است".into());
+            }
+            let known = if let Some(value) = check_in {
+                Some(value)
+            } else if let Some(pending) = active_check_in {
+                previous_request_id = pending["commandId"].as_str().map(str::to_owned);
+                Some(DateTime::parse_from_rfc3339(pending["payload"]["occurredAt"].as_str().ok_or("زمان ورود آفلاین معتبر نیست")?).map_err(err)?)
+            } else {
+                None
+            }.ok_or("ابتدا ورود این شیفت را ثبت کنید")?;
+            if occurred < known || occurred < starts || occurred > ends + chrono::Duration::hours(12) {
+                return Err("زمان خروج باید پس از ورود و حداکثر تا ۱۲ ساعت پس از پایان شیفت باشد".into());
+            }
+            Some(known)
+        };
+        let _ = expected_check_in;
+        let business_id = number(&snapshot, "businessId")?;
+        let base_revision = number(&snapshot, "revision")?;
+        let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ نسخهٔ شیفت پیدا نشد")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"staff","action":"attendance",
+            "baseDataset":"shifts","baseSnapshotId":base_snapshot_id,"baseRevision":base_revision,
+            "payload":{"scheduleId":schedule_id,"staffId":staff_id,"action":action,"occurredAt":occurred.to_rfc3339(),"previousRequestId":previous_request_id}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":action,"scheduleId":schedule_id}))
+    }
+
+    pub fn workspace_staff_attendance_events(&self) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let reviews = self.workspace_snapshot("shifts")?.and_then(|snapshot| snapshot["payload"]["offlineAttendanceRequests"].as_array().cloned()).unwrap_or_default();
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='staff' AND action='attendance' ORDER BY sequence DESC LIMIT 200").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, String>(4)?))).map_err(err)?;
+        rows.map(|row| {
+            let (id, state, error, payload, created_at) = row.map_err(err)?;
+            let command = value(payload)?;
+            let review = reviews.iter().find(|request| request["id"].as_str() == Some(id.as_str()));
+            Ok(json!({"commandId":id,"state":state,"error":error,"reviewStatus":review.map(|value|value["status"].clone()).unwrap_or(Value::Null),"reviewNote":review.map(|value|value["reviewNote"].clone()).unwrap_or(Value::Null),"payload":command["payload"],"createdAt":created_at}))
+        }).collect::<Result<Vec<_>>>().map(Value::Array)
+    }
+
     pub fn workspace_menu_pending_changes(&self) -> Result<Value> {
         let business_id = self.paired_business_id()?;
         let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='menu' AND state='pending' ORDER BY sequence").map_err(err)?;
@@ -578,7 +677,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "reservations"].contains(&module) {
+        if !["menu", "reservations", "staff"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;

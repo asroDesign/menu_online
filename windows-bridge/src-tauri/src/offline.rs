@@ -149,7 +149,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "reservations"] {
+                    'workspace_modules: for module in ["menu", "reservations", "staff"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -168,7 +168,11 @@ impl OfflineState {
                             }
                             continue;
                         }
-                        let route = if module == "reservations" { "reservations" } else { "commands" };
+                        let route = match module {
+                            "reservations" => "reservations",
+                            "staff" => "staff/attendance",
+                            _ => "commands",
+                        };
                         let request = client
                             .post(format!("{server}/api/offline-dashboard/{route}"))
                             .bearer_auth(token)
@@ -747,7 +751,11 @@ pub fn offline_workspace_reservations(state: State<'_, OfflineState>) -> Result<
 #[tauri::command]
 pub fn offline_workspace_shifts(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("shifts")
+    let mut snapshot = store.workspace_snapshot("shifts")?;
+    if let Some(snapshot) = snapshot.as_mut() {
+        snapshot["localAttendanceEvents"] = store.workspace_staff_attendance_events()?;
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -803,6 +811,16 @@ pub fn offline_workspace_update_menu(
         .lock()
         .map_err(|_| "پایگاه محلی مشغول است")?
         .enqueue_menu_update_with_pin(&manager_pin, &action, target_id, patch)
+}
+#[tauri::command]
+pub fn offline_workspace_record_attendance(
+    schedule_id: i64,
+    action: String,
+    occurred_at: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_staff_attendance_with_pin(&manager_pin, schedule_id, &action, &occurred_at)
 }
 #[tauri::command]
 pub fn offline_reservation_create(payload: Value, state: State<'_, OfflineState>) -> Result<Value> {

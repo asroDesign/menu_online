@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, stockMovements, warehouses } from "@/db/schema";
+import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, stockMovements, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -56,6 +56,7 @@ type ShiftsPayload = {
     id: number; staffId: number; staffName: string; startsAt: string; endsAt: string; kind: string;
     reason: string; status: string; decisionNote: string; createdAt: string;
   }[];
+  offlineAttendanceRequests: { id: string; scheduleId: number; action: string; occurredAt: string; status: string; reviewNote: string }[];
   totalSchedules: number;
   totalLeaveRequests: number;
 };
@@ -175,6 +176,9 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       const attendanceRows = scheduleIds.length ? await tx.select({ scheduleId: staffAttendanceRecords.scheduleId, checkInAt: staffAttendanceRecords.checkInAt, checkOutAt: staffAttendanceRecords.checkOutAt })
         .from(staffAttendanceRecords).where(and(eq(staffAttendanceRecords.businessId, business.id), inArray(staffAttendanceRecords.scheduleId, scheduleIds))) : [];
       const attendanceBySchedule = new Map(attendanceRows.map((row) => [row.scheduleId, row]));
+      const offlineAttendanceRows = await tx.select({ id: offlineStaffAttendanceRequests.id, scheduleId: offlineStaffAttendanceRequests.scheduleId, action: offlineStaffAttendanceRequests.action, occurredAt: offlineStaffAttendanceRequests.occurredAt, status: offlineStaffAttendanceRequests.status, reviewNote: offlineStaffAttendanceRequests.reviewNote })
+        .from(offlineStaffAttendanceRequests).where(and(eq(offlineStaffAttendanceRequests.businessId, business.id), eq(offlineStaffAttendanceRequests.terminalId, terminal.id)))
+        .orderBy(desc(offlineStaffAttendanceRequests.createdAt), desc(offlineStaffAttendanceRequests.id)).limit(200);
       payload = {
         range: { from: from.toISOString(), to: to.toISOString() },
         staff: staffRows,
@@ -187,6 +191,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
           };
         }),
         leaveRequests: leaveRows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString(), endsAt: row.endsAt.toISOString(), createdAt: row.createdAt.toISOString() })),
+        offlineAttendanceRequests: offlineAttendanceRows.map((row) => ({ ...row, occurredAt: row.occurredAt.toISOString() })),
         totalSchedules: scheduleRows.length,
         totalLeaveRequests: leaveRows.length,
       };
