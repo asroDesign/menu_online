@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, payrollItems, payrollRuns, payrollSettlements, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, transactions, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -99,12 +99,21 @@ type CashShiftRow = {
   closedByName: string; note: string; cashSales: number; nonCashSales: number; byMethod: { method: string; amount: number }[];
 };
 type CashShiftsPayload = { active: CashShiftRow | null; history: CashShiftRow[]; historyHasMore: boolean };
+type OfflineProfitLossPayload = {
+  revenue: number; discounts: number; tax: number; cogs: number; grossProfit: number; expenses: number;
+  otherIncome: number; net: number; cogsCoverage: number;
+  expenseBreakdown: { name: string; amount: number }[];
+  series: { date: string; revenue: number; cogs: number; expenses: number }[];
+  basis: "recorded_order_cogs";
+};
 type SalesReportsPayload = {
+  salesAvailable: boolean;
   from: string; to: string;
   totals: { revenue: number; orders: number; average: number; discounts: number; tax: number; cogs: number; grossProfit: number; soldItems: number };
   series: { date: string; revenue: number; orders: number }[];
   byProduct: { name: string; quantity: number; revenue: number }[];
   statuses: { status: string; paymentStatus: string; orders: number; amount: number }[];
+  profitLoss: OfflineProfitLossPayload | null;
 };
 type ChequesPayload = {
   cheques: {
@@ -267,7 +276,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
   if (dataset === "accounting" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت حسابداری آفلاین به مجوز صندوق و حسابداری نیاز دارد");
   if (dataset === "receivables" && (!hasAny(features, "cashier_pos") || !hasAny(features, "accounting"))) throw new HttpError(403, "مطالبات آفلاین به مجوز صندوق و حسابداری نیاز دارد");
   if (dataset === "cash_shifts" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت شیفت‌های صندوق به مجوز صندوق نیاز دارد");
-  if (dataset === "reports" && (!hasAny(features, "cashier_pos") || !hasAny(features, "sales_reports"))) throw new HttpError(403, "گزارش آفلاین به مجوز صندوق و گزارش فروش نیاز دارد");
+  if (dataset === "reports" && (!hasAny(features, "cashier_pos") || (!hasAny(features, "sales_reports") && !hasAny(features, "profit_loss")))) throw new HttpError(403, "گزارش آفلاین به مجوز صندوق و دست‌کم یکی از گزارش فروش یا سود و زیان نیاز دارد");
   if (dataset === "cheques" && (!hasAny(features, "cashier_pos") || !hasAny(features, "cheque_register") || !hasAny(features, "accounting"))) throw new HttpError(403, "دریافت دفتر چک آفلاین به مجوز صندوق، دفتر چک و حسابداری نیاز دارد");
   if (dataset === "payroll" && (!hasAny(features, "cashier_pos") || !hasAny(features, "payroll"))) throw new HttpError(403, "دریافت اطلاعات حقوق به مجوز صندوق آفلاین و حقوق و دستمزد نیاز دارد");
   if (dataset === "accounting") await Accounting.ensureAccounting(business);
@@ -477,45 +486,99 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     } else if (dataset === "reports") {
       const now = new Date(), today = startOfDayTehran(now), from = new Date(today.getTime() - 89 * 86_400_000), to = new Date(today.getTime() + 86_400_000 - 1);
       const dateKey = sql<string>`to_char(${orders.createdAt} AT TIME ZONE 'Asia/Tehran', 'YYYY-MM-DD')`;
+      const salesAvailable = hasAny(features, "sales_reports"), profitLossAvailable = hasAny(features, "profit_loss");
       const paidOrders = and(eq(orders.businessId, business.id), eq(orders.status, "paid"), eq(orders.paymentStatus, "paid"), gt(orders.createdAt, new Date(from.getTime() - 1)), lt(orders.createdAt, new Date(to.getTime() + 1)));
-      const [totals] = await tx.select({
-        revenue: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
-        orders: sql<number>`count(*)::int`,
-        discounts: sql<number>`coalesce(sum(${orders.discountAmount}), 0)::float8`,
-        tax: sql<number>`coalesce(sum(${orders.tax}), 0)::float8`,
-        cogs: sql<number>`coalesce(sum(${orders.cogs}), 0)::float8`,
-      }).from(orders).where(paidOrders);
-      const dailyRows = await tx.select({
-        day: dateKey,
-        revenue: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
-        orders: sql<number>`count(*)::int`,
-      }).from(orders).where(paidOrders).groupBy(dateKey).orderBy(dateKey);
-      const dailyByKey = new Map(dailyRows.map((row) => [row.day, row]));
       const dayFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" });
-      const series = Array.from({ length: 90 }, (_, index) => {
-        const day = new Date(from.getTime() + index * 86_400_000), key = dayFormatter.format(day), row = dailyByKey.get(key);
-        return { date: day.toISOString(), revenue: Number(row?.revenue ?? 0), orders: Number(row?.orders ?? 0) };
+      const dayRows = Array.from({ length: 90 }, (_, index) => {
+        const day = new Date(from.getTime() + index * 86_400_000);
+        return { date: day.toISOString(), revenue: 0, orders: 0 };
       });
-      const byProductRows = await tx.select({
-        name: orderItems.name,
-        quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::float8`,
-        revenue: sql<number>`coalesce(sum(${orderItems.lineTotal}), 0)::float8`,
-      }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(paidOrders)
-        .groupBy(orderItems.name).orderBy(desc(sql`sum(${orderItems.lineTotal})`)).limit(50);
-      const [sold] = await tx.select({ quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::float8` })
-        .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(paidOrders);
-      const statusRows = await tx.select({
-        status: orders.status, paymentStatus: orders.paymentStatus,
-        orders: sql<number>`count(*)::int`, amount: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
-      }).from(orders).where(and(eq(orders.businessId, business.id), gt(orders.createdAt, new Date(from.getTime() - 1)), lt(orders.createdAt, new Date(to.getTime() + 1))))
-        .groupBy(orders.status, orders.paymentStatus);
-      const revenue = Number(totals?.revenue ?? 0), orderCount = Number(totals?.orders ?? 0), cogs = Number(totals?.cogs ?? 0);
+      let salesDailyByKey = new Map<string, { revenue: number; orders: number }>();
+      let salesTotals = { revenue: 0, orders: 0, discounts: 0, tax: 0, cogs: 0, soldItems: 0 };
+      let byProduct: { name: string; quantity: number; revenue: number }[] = [], statuses: { status: string; paymentStatus: string; orders: number; amount: number }[] = [];
+      if (salesAvailable) {
+        const [totals] = await tx.select({
+          revenue: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
+          orders: sql<number>`count(*)::int`,
+          discounts: sql<number>`coalesce(sum(${orders.discountAmount}), 0)::float8`,
+          tax: sql<number>`coalesce(sum(${orders.tax}), 0)::float8`,
+          cogs: sql<number>`coalesce(sum(${orders.cogs}), 0)::float8`,
+        }).from(orders).where(paidOrders);
+        const dailyRows = await tx.select({
+          day: dateKey,
+          revenue: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
+          orders: sql<number>`count(*)::int`,
+        }).from(orders).where(paidOrders).groupBy(dateKey).orderBy(dateKey);
+        salesDailyByKey = new Map(dailyRows.map((row) => [row.day, { revenue: Number(row.revenue), orders: Number(row.orders) }]));
+        const byProductRows = await tx.select({
+          name: orderItems.name,
+          quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::float8`,
+          revenue: sql<number>`coalesce(sum(${orderItems.lineTotal}), 0)::float8`,
+        }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(paidOrders)
+          .groupBy(orderItems.name).orderBy(desc(sql`sum(${orderItems.lineTotal})`)).limit(50);
+        const [sold] = await tx.select({ quantity: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::float8` })
+          .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).where(paidOrders);
+        const statusRows = await tx.select({
+          status: orders.status, paymentStatus: orders.paymentStatus,
+          orders: sql<number>`count(*)::int`, amount: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
+        }).from(orders).where(and(eq(orders.businessId, business.id), gt(orders.createdAt, new Date(from.getTime() - 1)), lt(orders.createdAt, new Date(to.getTime() + 1))))
+          .groupBy(orders.status, orders.paymentStatus);
+        salesTotals = { revenue: Number(totals?.revenue ?? 0), orders: Number(totals?.orders ?? 0), discounts: Number(totals?.discounts ?? 0), tax: Number(totals?.tax ?? 0), cogs: Number(totals?.cogs ?? 0), soldItems: Number(sold?.quantity ?? 0) };
+        byProduct = byProductRows.map((row) => ({ name: row.name, quantity: Number(row.quantity), revenue: Number(row.revenue) }));
+        statuses = statusRows.map((row) => ({ status: row.status, paymentStatus: row.paymentStatus, orders: Number(row.orders), amount: Number(row.amount) }));
+      }
+      const series = dayRows.map((day) => ({ ...day, ...(salesDailyByKey.get(dayFormatter.format(new Date(day.date))) ?? { revenue: 0, orders: 0 }) }));
+      const orderCount = salesTotals.orders, revenue = salesTotals.revenue, cogs = salesTotals.cogs;
+      let profitLoss: OfflineProfitLossPayload | null = null;
+      if (profitLossAvailable) {
+        const paidForPnl = await tx.select({ createdAt: orders.createdAt, subtotal: orders.subtotal, discountAmount: orders.discountAmount, deliveryFee: orders.deliveryFee, tax: orders.tax, cogs: orders.cogs })
+          .from(orders).where(and(eq(orders.businessId, business.id), eq(orders.status, "paid"), gte(orders.createdAt, from), lte(orders.createdAt, to))).limit(50_001);
+        if (paidForPnl.length > 50_000) throw new HttpError(413, "تعداد سفارش‌ها برای گزارش آفلاین سود و زیان از سقف امن بیشتر است");
+        const pnlTransactions = await tx.select({ kind: transactions.kind, amount: transactions.amount, category: sql<string>`left(${transactions.category}, 120)`, accountMoeinId: transactions.accountMoeinId, date: transactions.date })
+          .from(transactions).where(and(eq(transactions.businessId, business.id), gte(transactions.date, from), lte(transactions.date, to), sql`${transactions.source} <> 'sale'`)).limit(20_001);
+        if (pnlTransactions.length > 20_000) throw new HttpError(413, "تعداد تراکنش‌ها برای گزارش آفلاین سود و زیان از سقف امن بیشتر است");
+        const expenseAccounts = pnlTransactions.some((row) => row.kind === "expense")
+          ? await tx.select({ id: accAccounts.id, name: accAccounts.name }).from(accAccounts).where(and(eq(accAccounts.businessId, business.id), eq(accAccounts.type, "expense")))
+          : [];
+        const expenseNames = new Map(expenseAccounts.map((row) => [row.id, row.name]));
+        const pnlSeries = dayRows.map((day) => ({ date: day.date, revenue: 0, cogs: 0, expenses: 0 }));
+        const pnlByDay = new Map(pnlSeries.map((row) => [dayFormatter.format(new Date(row.date)), row]));
+        let pnlRevenue = 0, discounts = 0, tax = 0, pnlCogs = 0, expenses = 0, otherIncome = 0;
+        const expenseBreakdown = new Map<string, number>();
+        for (const order of paidForPnl) {
+          const netRevenue = order.subtotal - order.discountAmount + order.deliveryFee;
+          pnlRevenue += netRevenue; discounts += order.discountAmount; tax += order.tax; pnlCogs += order.cogs;
+          const daily = pnlByDay.get(dayFormatter.format(order.createdAt));
+          if (daily) { daily.revenue += netRevenue; daily.cogs += order.cogs; }
+        }
+        for (const transaction of pnlTransactions) {
+          const daily = pnlByDay.get(dayFormatter.format(transaction.date));
+          if (transaction.kind === "expense") {
+            const label = ((transaction.accountMoeinId && expenseNames.get(transaction.accountMoeinId)) || transaction.category || "سایر").slice(0, 120);
+            expenses += transaction.amount; expenseBreakdown.set(label, (expenseBreakdown.get(label) ?? 0) + transaction.amount);
+            if (daily) daily.expenses += transaction.amount;
+          } else if (transaction.kind === "income") otherIncome += transaction.amount;
+        }
+        const coveredOrders = paidForPnl.filter((order) => order.cogs > 0).length;
+        const sortedExpenses = [...expenseBreakdown].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
+        const topExpenses = sortedExpenses.slice(0, 100), remainingExpenses = sortedExpenses.slice(100).reduce((sum, row) => sum + row.amount, 0);
+        if (remainingExpenses) topExpenses.push({ name: "سایر دسته‌ها", amount: remainingExpenses });
+        profitLoss = {
+          revenue: pnlRevenue, discounts, tax, cogs: pnlCogs, grossProfit: pnlRevenue - pnlCogs, expenses, otherIncome,
+          net: pnlRevenue - pnlCogs - expenses + otherIncome,
+          cogsCoverage: paidForPnl.length ? Math.round((coveredOrders / paidForPnl.length) * 100) : 0,
+          expenseBreakdown: topExpenses,
+          series: pnlSeries, basis: "recorded_order_cogs",
+        };
+      }
       payload = {
+        salesAvailable,
         from: from.toISOString(), to: to.toISOString(),
-        totals: { revenue, orders: orderCount, average: orderCount ? Math.round(revenue / orderCount) : 0, discounts: Number(totals?.discounts ?? 0), tax: Number(totals?.tax ?? 0), cogs, grossProfit: revenue - cogs, soldItems: Number(sold?.quantity ?? 0) },
+        totals: { revenue, orders: orderCount, average: orderCount ? Math.round(revenue / orderCount) : 0, discounts: salesTotals.discounts, tax: salesTotals.tax, cogs, grossProfit: revenue - cogs, soldItems: salesTotals.soldItems },
         series,
-        byProduct: byProductRows.map((row) => ({ name: row.name, quantity: Number(row.quantity), revenue: Number(row.revenue) })),
-        statuses: statusRows.map((row) => ({ status: row.status, paymentStatus: row.paymentStatus, orders: Number(row.orders), amount: Number(row.amount) })),
+        byProduct,
+        statuses,
+        profitLoss,
       };
     } else if (dataset === "payroll") {
       const [businessRow] = await tx.select({ name: businesses.name }).from(businesses).where(eq(businesses.id, business.id)).limit(1);
