@@ -7,6 +7,7 @@ import { hasAny } from "@/lib/plans";
 import { logInfo } from "@/lib/logger";
 import { offlineAuth } from "@/lib/offline-pos";
 import { createReservation, reservationPhone } from "@/lib/reservations";
+import { syncOfflineReservationStatus } from "@/lib/offline-reservations";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,11 @@ function parseCommand(raw: unknown): Command {
 
 export async function POST(req: Request) {
   try {
-    const command = parseCommand(await readJson(req, 64_000));
+    const raw = await readJson(req, 64_000);
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && "action" in raw && raw.action === "set_status") {
+      return Response.json(await syncOfflineReservationStatus(req, raw), { headers: { "Cache-Control": "no-store" } });
+    }
+    const command = parseCommand(raw);
     const { terminal, business, features } = await offlineAuth(req);
     if (command.businessId !== business.id) throw new HttpError(403, "درخواست رزرو متعلق به کسب‌وکار این صندوق نیست");
     const commandHash = createHash("sha256").update(canonical(command)).digest("hex");

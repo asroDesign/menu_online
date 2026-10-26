@@ -196,7 +196,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    if module == "menu" || module == "inventory" || module == "staff" || module == "accounting" { let _ = store.set("workspace_refresh", &json!(true)); }
+                                    if module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -217,7 +217,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 && (module == "menu" || module == "inventory" || module == "staff" || module == "accounting") {
+                                    if status == 409 && (module == "menu" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
@@ -974,6 +974,16 @@ pub fn offline_workspace_orders(offset: i64, limit: i64, state: State<'_, Offlin
 pub fn offline_workspace_reservations(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("reservations")
+}
+
+#[tauri::command]
+pub fn offline_workspace_update_reservation_status(
+    reservation_id: i64,
+    status: String,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_reservation_status_with_pin(&manager_pin, reservation_id, &status)
 }
 
 #[tauri::command]

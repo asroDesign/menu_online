@@ -426,7 +426,7 @@ impl Store {
             ]
             .contains(&action),
             "customers" => ["create", "update"].contains(&action),
-            "reservations" => ["create"].contains(&action),
+            "reservations" => ["create", "set_status"].contains(&action),
             "inventory" => ["receive", "movement", "waste", "transfer"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
             "staff" => ["attendance", "create_shift", "leave_request", "shift_change"].contains(&action),
@@ -564,6 +564,55 @@ impl Store {
         });
         self.enqueue_workspace_command(&command)?;
         Ok(json!({"commandId":id,"state":"pending"}))
+    }
+
+    pub fn enqueue_reservation_status_with_pin(&mut self, pin: &str, reservation_id: i64, target_status: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if reservation_id < 1 || !["confirmed", "cancelled", "completed", "no_show"].contains(&target_status) {
+            return Err("شناسه یا وضعیت رزرو معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("reservations")?.ok_or_else(|| "نسخهٔ رزروها دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ رزروها منقضی است؛ ابتدا آن را تازه کنید".into()); }
+        let rows = snapshot["payload"]["reservations"].as_array().ok_or("فهرست رزروهای محلی معتبر نیست")?;
+        let reservation = rows.iter().find(|row| row["id"].as_i64() == Some(reservation_id)).ok_or("رزرو در نسخهٔ محلی پیدا نشد؛ فهرست را تازه کنید")?;
+        let current_status = reservation["status"].as_str().ok_or("وضعیت رزرو در نسخهٔ محلی معتبر نیست")?;
+        let next_allowed = match current_status {
+            "requested" => ["confirmed", "cancelled"].contains(&target_status),
+            "confirmed" => ["cancelled", "completed", "no_show"].contains(&target_status),
+            _ => false,
+        };
+        if !next_allowed { return Err("تغییر وضعیت رزرو با وضعیت فعلی مجاز نیست".into()); }
+        if target_status == "confirmed" && reservation["depositStatus"].as_str() == Some("pending") {
+            return Err("رزرو دارای پیش‌پرداخت معوق است؛ پرداخت را آفلاین تأیید نکنید".into());
+        }
+        let expected_updated_at = reservation["updatedAt"].as_str().ok_or("زمان تغییر رزرو در نسخهٔ محلی معتبر نیست")?;
+        DateTime::parse_from_rfc3339(expected_updated_at).map_err(err)?;
+        let snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ snapshot رزرو پیدا نشد")?;
+        let issued_at = DateTime::parse_from_rfc3339(snapshot["issuedAt"].as_str().ok_or("زمان snapshot رزرو پیدا نشد")?).map_err(err)?;
+        let business_id = number(&snapshot, "businessId")?;
+        let mut query = self.conn.prepare("SELECT state,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='reservations' AND action='set_status' AND base_snapshot_id=?2 ORDER BY sequence").map_err(err)?;
+        let commands = query.query_map(params![business_id,snapshot_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Vec<u8>>(1)?,row.get::<_, String>(2)?))).map_err(err)?;
+        for row in commands {
+            let (state, payload, created_at) = row.map_err(err)?;
+            let command = value(payload)?;
+            if command["payload"]["reservationId"].as_i64() != Some(reservation_id) { continue; }
+            if state == "pending" { return Err("برای این رزرو تغییر وضعیتی در صف همگام‌سازی است".into()); }
+            if DateTime::parse_from_rfc3339(&created_at).map_err(err)? > issued_at {
+                return Err("تغییر قبلی هنوز با snapshot تازه بازبینی نشده است؛ ابتدا رزروها را به‌روز کنید".into());
+            }
+        }
+        drop(query);
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"reservations",
+            "action":"set_status","baseDataset":"reservations","baseSnapshotId":snapshot_id,
+            "baseRevision":snapshot["revision"],"payload":{
+                "reservationId":reservation_id,"expectedStatus":current_status,
+                "expectedUpdatedAt":expected_updated_at,"status":target_status
+            }
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","reservationId":reservation_id,"status":target_status}))
     }
 
     pub fn enqueue_menu_update_with_pin(
@@ -1289,11 +1338,20 @@ impl Store {
             "SELECT sum(state='pending'),sum(state='conflict'),sum(state='rejected'),sum(state='synced') FROM workspace_commands WHERE business_id=?1",
             [business_id], |r| Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?.unwrap_or(0),r.get::<_,Option<i64>>(3)?.unwrap_or(0))),
         ).map_err(err)?;
-        let mut q = self.conn.prepare("SELECT sequence,id,module,action,state,error,attempts,created_at FROM workspace_commands WHERE business_id=?1 ORDER BY sequence DESC LIMIT 50").map_err(err)?;
-        let rows = q.query_map([business_id],|r|Ok(json!({"sequence":r.get::<_,i64>(0)?,"id":r.get::<_,String>(1)?,"module":r.get::<_,String>(2)?,"action":r.get::<_,String>(3)?,"state":r.get::<_,String>(4)?,"error":r.get::<_,String>(5)?,"attempts":r.get::<_,i64>(6)?,"createdAt":r.get::<_,String>(7)?}))).map_err(err)?;
-        Ok(
-            json!({"pending":counts.0,"conflicts":counts.1,"rejected":counts.2,"synced":counts.3,"recent":rows.collect::<std::result::Result<Vec<_>,_>>().map_err(err)?}),
-        )
+        let mut q = self.conn.prepare("SELECT sequence,id,module,action,state,error,attempts,created_at,base_snapshot_id,payload FROM workspace_commands WHERE business_id=?1 ORDER BY sequence DESC LIMIT 50").map_err(err)?;
+        let rows = q.query_map([business_id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?,r.get::<_,String>(7)?,r.get::<_,Option<String>>(8)?,r.get::<_,Vec<u8>>(9)?))).map_err(err)?;
+        let mut recent = Vec::new();
+        for row in rows {
+            let (sequence,id,module,action,state,error,attempts,created_at,base_snapshot_id,payload) = row.map_err(err)?;
+            let mut item = json!({"sequence":sequence,"id":id,"module":module,"action":action,"state":state,"error":error,"attempts":attempts,"createdAt":created_at,"baseSnapshotId":base_snapshot_id});
+            if module == "reservations" && action == "set_status" {
+                let command = value(payload)?;
+                item["reservationId"] = command["payload"]["reservationId"].clone();
+                item["targetStatus"] = command["payload"]["status"].clone();
+            }
+            recent.push(item);
+        }
+        Ok(json!({"pending":counts.0,"conflicts":counts.1,"rejected":counts.2,"synced":counts.3,"recent":recent}))
     }
     pub fn recover_prints(&self) -> Result<()> {
         self.conn.execute("UPDATE print_jobs SET state='unknown', error='برنامه هنگام ارسال بسته شد؛ قبل از چاپ مجدد خروج کاغذ را بررسی کنید' WHERE state='sending'", []).map_err(err)?;
