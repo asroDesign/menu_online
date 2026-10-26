@@ -4,7 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
-  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
+  let state, catalog, workspaceMenu, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), total=0, chosen, payingId=null, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
   function draft(){return {id:draftId,items:cart,type:$('pos-type').value,tableId:$('pos-type').value==='dine_in'&&$('pos-table').value?Number($('pos-table').value):null,customerName:$('pos-customer').value,customerPhone:digits($('pos-phone').value),note:$('pos-note').value};}
   function persist(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>call('offline_draft',{draft:draft()}).catch(e=>notify(e,true)),200);}
@@ -55,6 +55,7 @@
       const localCustomersMeta=state.workspaceSnapshots?.find(item=>item.dataset==='customers');
       const localInventoryMeta=state.workspaceSnapshots?.find(item=>item.dataset==='inventory');
       const localOrdersMeta=state.workspaceSnapshots?.find(item=>item.dataset==='orders');
+      const localReservationsMeta=state.workspaceSnapshots?.find(item=>item.dataset==='reservations');
       const nextWorkspaceSync=JSON.stringify(state.workspaceSync||null);
       const workspaceSyncChanged=nextWorkspaceSync!==workspaceSyncKey;workspaceSyncKey=nextWorkspaceSync;
       const nextWorkspaceCommands=JSON.stringify(state.workspaceCommands||null);
@@ -65,12 +66,15 @@
       const nextInventorySync=JSON.stringify(state.workspaceInventorySync||null),inventorySyncChanged=nextInventorySync!==workspaceInventorySyncKey;workspaceInventorySyncKey=nextInventorySync;
       const nextOrdersMeta=JSON.stringify(localOrdersMeta||null),ordersMetaChanged=nextOrdersMeta!==workspaceOrdersMetaKey;workspaceOrdersMetaKey=nextOrdersMeta;
       const nextOrdersSync=JSON.stringify(state.workspaceOrdersSync||null),ordersSyncChanged=nextOrdersSync!==workspaceOrdersSyncKey;workspaceOrdersSyncKey=nextOrdersSync;
+      const nextReservationsMeta=JSON.stringify(localReservationsMeta||null),reservationsMetaChanged=nextReservationsMeta!==workspaceReservationsMetaKey;workspaceReservationsMetaKey=nextReservationsMeta;
+      const nextReservationsSync=JSON.stringify(state.workspaceReservationsSync||null),reservationsSyncChanged=nextReservationsSync!==workspaceReservationsSyncKey;workspaceReservationsSyncKey=nextReservationsSync;
       renderWorkspaceCommands();
       renderWorkspaceReservations();
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
       if(!$('customers-app').hidden&&(customerMetaChanged||customerSyncChanged||!workspaceCustomers))void loadWorkspaceCustomers();
       if(!$('inventory-app').hidden&&(inventoryMetaChanged||inventorySyncChanged||!workspaceInventory))void loadWorkspaceInventory();
       if(!$('pos-app').hidden&&(ordersMetaChanged||ordersSyncChanged||!workspaceOrdersLoaded))void loadWorkspaceOrders();
+      if(!$('reservations-app').hidden&&(reservationsMetaChanged||reservationsSyncChanged||!workspaceReservationsLoaded))void loadWorkspaceReservations();
       if(next&&(!catalog||catalog.snapshotId!==next.snapshotId)){
         catalog=next;$('pos-name').textContent=catalog.name;
         const selected=$('pos-category').value,table=$('pos-table').value;
@@ -214,6 +218,35 @@
     try{workspaceOrders=await call('offline_workspace_orders');workspaceOrdersLoaded=true;renderWorkspaceOrders();}
     catch(error){workspaceOrdersLoaded=true;$('server-orders-state').textContent=String(error);$('server-orders-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('server-orders-sync').className='pos-status offline';}
   }
+  function showReservationDetails(id){
+    const row=(workspaceReservations?.payload?.reservations||[]).find(item=>item.id===id);if(!row)return;
+    const statuses={requested:'درخواست‌شده',confirmed:'تأییدشده',cancelled:'لغوشده',completed:'انجام‌شده',no_show:'عدم حضور'};
+    const types={normal:'عادی',occasion:'مناسبت',business:'کاری'};
+    const deposits={not_required:'نیازی نیست',pending:'در انتظار پرداخت',paid:'پرداخت‌شده',waived:'معاف‌شده'};
+    const date=value=>{try{return new Date(value).toLocaleString('fa-IR')}catch{return '—'}};
+    $('reservation-detail-title').textContent=`جزئیات رزرو #${money(row.id)}`;
+    $('reservation-detail-content').innerHTML=`<div class="pos-detail-badges"><span class="pos-badge">${statuses[row.status]||esc(row.status)}</span><span class="pos-badge">${deposits[row.depositStatus]||esc(row.depositStatus)}</span></div><div class="pos-detail-grid"><span>نام مهمان</span><b>${esc(row.customerName)}</b><span>شماره موبایل</span><b dir="ltr">${esc(row.customerPhone)}</b><span>زمان رزرو</span><b>${esc(date(row.startsAt))}</b><span>میز</span><b>${esc(row.tableName||'تعیین نشده')}</b><span>تعداد مهمان</span><b>${money(row.guestCount)} نفر</b><span>مدت</span><b>${money(row.durationMinutes)} دقیقه</b><span>نوع رزرو</span><b>${types[row.reservationType]||esc(row.reservationType)}</b><span>پیش‌پرداخت</span><b>${money(row.depositAmount)} تومان · ${deposits[row.depositStatus]||esc(row.depositStatus)}${row.depositMethod?` · ${esc(row.depositMethod)}`:''}</b><span>ثبت اولیه</span><b>${esc(date(row.createdAt))}</b><span>آخرین تغییر</span><b>${esc(date(row.updatedAt))}</b></div><div class="pos-detail-note"><b>توضیحات</b><p>${esc(row.note||'توضیحی ثبت نشده است')}</p></div>`;
+    $('reservation-detail-dialog').showModal();
+  }
+  function renderWorkspaceReservationHistory(){
+    const snapshot=workspaceReservations,payload=snapshot?.payload,sync=state?.workspaceReservationsSync;
+    if(!snapshot||!payload){
+      $('server-reservations-sync').textContent=sync?.message||'در انتظار دریافت';$('server-reservations-sync').className='pos-status offline';
+      $('server-reservations-state').textContent=sync?.message||'برای مشاهدهٔ رزروهای ثبت‌شده هنگام قطعی، این دستگاه را در زمان اتصال همگام‌سازی کنید.';
+      $('server-reservations-list').innerHTML='';return;
+    }
+    const reservations=Array.isArray(payload.reservations)?payload.reservations:[];
+    const statuses={requested:'درخواست‌شده',confirmed:'تأییدشده',cancelled:'لغوشده',completed:'انجام‌شده',no_show:'عدم حضور'};
+    const deposits={not_required:'بدون پیش‌پرداخت',pending:'پیش‌پرداخت در انتظار',paid:'پیش‌پرداخت‌شده',waived:'معاف‌شده'};
+    const updated=new Date(snapshot.issuedAt).toLocaleString('fa-IR');
+    $('server-reservations-sync').textContent=snapshot.expired?'نسخهٔ قدیمی · فقط مشاهده':`آخرین دریافت ${updated}`;$('server-reservations-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
+    $('server-reservations-state').textContent=`${money(payload.totalReservations)} رزرو در نسخهٔ محلی · آخرین دریافت ${updated}${sync?.message?` · ${sync.message}`:''}`;
+    $('server-reservations-list').innerHTML=reservations.length?`<table class="pos-table server-reservations-table"><thead><tr><th>مهمان</th><th>زمان رزرو</th><th>میز</th><th>تعداد</th><th>وضعیت</th><th>پیش‌پرداخت</th><th>جزئیات</th></tr></thead><tbody>${reservations.map(row=>`<tr><td><b>${esc(row.customerName)}</b><small dir="ltr">${esc(row.customerPhone)}</small></td><td>${new Date(row.startsAt).toLocaleString('fa-IR')}</td><td>${esc(row.tableName||'تعیین نشده')}</td><td>${money(row.guestCount)}</td><td>${statuses[row.status]||esc(row.status)}</td><td>${deposits[row.depositStatus]||esc(row.depositStatus)}${Number(row.depositAmount)?`<small>${money(row.depositAmount)} تومان</small>`:''}</td><td><button class="button secondary" data-reservation-detail="${row.id}">جزئیات</button></td></tr>`).join('')}</tbody></table>`:'<p class="muted">رزروی در آخرین نسخهٔ دریافت‌شده وجود ندارد.</p>';
+  }
+  async function loadWorkspaceReservations(){
+    try{workspaceReservations=await call('offline_workspace_reservations');workspaceReservationsLoaded=true;renderWorkspaceReservationHistory();}
+    catch(error){workspaceReservationsLoaded=true;$('server-reservations-state').textContent=String(error);$('server-reservations-sync').textContent='خواندن نسخهٔ محلی ناموفق بود';$('server-reservations-sync').className='pos-status offline';}
+  }
   let editingMenu=null;
   function openMenuEditor(kind,id){
     const view=workspaceMenuView(),base=workspaceMenu?.payload;
@@ -272,6 +305,8 @@
   $('pos-history').onclick=async e=>{try{const details=e.target.closest('[data-details]'),pay=e.target.closest('[data-pay]'),retry=e.target.closest('[data-retry]');if(details)showSaleDetails(details.dataset.details);if(pay)checkout(pay.dataset.pay);if(retry){await call('offline_retry',{id:retry.dataset.retry});const old=historyOlder.find(item=>item.id===retry.dataset.retry);if(old){old.state='pending';old.error='';}await refresh();}}catch(error){notify(error,true);}};
   $('pos-history-more').onclick=async()=>{try{const page=await call('offline_history',{offset:state.sales.length+historyOlder.length});historyOlder.push(...page.sales);historyHasMore=page.hasMore;renderSalesHistory();}catch(error){notify(error,true);}};
   $('server-orders-list').onclick=e=>{const button=e.target.closest('[data-server-order]');if(button){const sale=serverOrderSales[Number(button.dataset.serverOrder)];if(sale)showSaleDetails(sale.id,sale);}};
+  $('server-reservations-list').onclick=e=>{const button=e.target.closest('[data-reservation-detail]');if(button)showReservationDetails(Number(button.dataset.reservationDetail));};
+  $('server-reservations-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-reservations-state').textContent='درخواست دریافت نسخهٔ تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('server-orders-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-orders-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('pos-prints').onclick=async e=>{const b=e.target.closest('[data-print]');if(b&&confirm('ممکن است فیش قبلاً چاپ شده باشد. پس از بررسی خروج کاغذ، دوباره ارسال شود؟')){try{await call('offline_retry_print',{id:Number(b.dataset.print)});await refresh();}catch(error){notify(error,true);}}};
   $('pos-search').oninput=renderProducts;$('pos-category').onchange=renderProducts;$('pos-method').onchange=paymentFields;$('pos-cash').oninput=()=>{const n=digits($('pos-cash').value);$('pos-cash').value=/^\d*$/.test(n)?Number(n||0).toLocaleString('en-US'):n;paymentFields();};$('pos-checkout').onclick=()=>checkout();
@@ -311,7 +346,7 @@
   function selectDesktopTab(tab){
     const selected={pos:'pos-app',menu:'workspace-menu-app',customers:'customers-app',inventory:'inventory-app',reservations:'reservations-app',hardware:'hardware-app'};
     Object.entries(selected).forEach(([key,id])=>{$(id).hidden=key!==tab;$(`tab-${key}`).classList.toggle('selected',key===tab);});
-    if(tab==='pos'){void routes();void loadWorkspaceOrders();}if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();}
+    if(tab==='pos'){void routes();void loadWorkspaceOrders();}if(tab==='menu')void loadWorkspaceMenu();if(tab==='customers')void loadWorkspaceCustomers();if(tab==='inventory')void loadWorkspaceInventory();if(tab==='reservations'){renderReservationTables();renderWorkspaceReservations();void loadWorkspaceReservations();}
   }
   $('tab-pos').onclick=()=>selectDesktopTab('pos');$('tab-menu').onclick=()=>selectDesktopTab('menu');$('tab-customers').onclick=()=>selectDesktopTab('customers');$('tab-inventory').onclick=()=>selectDesktopTab('inventory');$('tab-reservations').onclick=()=>selectDesktopTab('reservations');$('tab-hardware').onclick=()=>selectDesktopTab('hardware');
   $('workspace-menu-refresh').onclick=async()=>{try{await call('offline_refresh');$('workspace-menu-state').textContent='درخواست دریافت snapshot تازه ثبت شد؛ نسخهٔ قبلی تا دریافت موفق در دسترس می‌ماند.';}catch(error){notify(error,true);}};$('workspace-menu-search').oninput=renderWorkspaceMenu;$('workspace-menu-category').onchange=renderWorkspaceMenu;

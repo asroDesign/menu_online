@@ -521,6 +521,53 @@ impl OfflineState {
                                 }
                             }
                         }
+                        let request = client
+                            .get(format!("{server}/api/offline-dashboard/snapshots/reservations"))
+                            .bearer_auth(token)
+                            .send();
+                        match decode(request) {
+                            Ok((200, snapshot))
+                                if snapshot["schemaVersion"] == 1
+                                    && snapshot["dataset"].as_str() == Some("reservations")
+                                    && snapshot["businessId"].as_i64() == pair["businessId"].as_i64()
+                                    && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                                    && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                                    && snapshot["payload"]["reservations"].is_array()
+                                    && snapshot["payload"]["totalReservations"].as_i64().is_some() =>
+                            {
+                                if let Ok(mut store) = state.store.lock() {
+                                    match store.save_workspace_snapshot(&snapshot) {
+                                        Ok(()) => {
+                                            let _ = store.set("workspace_sync_reservations", &json!({
+                                                "ok": true, "dataset": "reservations", "revision": snapshot["revision"],
+                                                "checkedAt": chrono::Utc::now().to_rfc3339()
+                                            }));
+                                        }
+                                        Err(_) => {
+                                            let _ = store.set("workspace_sync_reservations", &json!({
+                                                "ok": false, "dataset": "reservations", "message": "ذخیرهٔ نسخهٔ محلی رزروها انجام نشد"
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((status, data)) => {
+                                if let Ok(mut store) = state.store.lock() {
+                                    if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("reservations"); }
+                                    let _ = store.set("workspace_sync_reservations", &json!({
+                                        "ok": false, "dataset": "reservations",
+                                        "message": data["error"].as_str().unwrap_or("دریافت تاریخچهٔ محلی رزروها ناموفق بود")
+                                    }));
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(store) = state.store.lock() {
+                                    let _ = store.set("workspace_sync_reservations", &json!({
+                                        "ok": false, "dataset": "reservations", "message": "ارتباط تاریخچهٔ رزروها در دسترس نیست"
+                                    }));
+                                }
+                            }
+                        }
                     }
                 }
                 if backup.elapsed() >= Duration::from_secs(86400) {
@@ -603,6 +650,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceCustomerSync": s.get("workspace_sync_customers")?,
         "workspaceInventorySync": s.get("workspace_sync_inventory")?,
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
+        "workspaceReservationsSync": s.get("workspace_sync_reservations")?,
         "workspaceCommands": s.workspace_command_summary()?,
         "health": state.health.lock().map_err(|_| "وضعیت در دسترس نیست")?.clone()
     }))
@@ -639,6 +687,12 @@ pub fn offline_workspace_inventory(state: State<'_, OfflineState>) -> Result<Opt
 pub fn offline_workspace_orders(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_snapshot("orders")
+}
+
+#[tauri::command]
+pub fn offline_workspace_reservations(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+    let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
+    store.workspace_snapshot("reservations")
 }
 
 #[tauri::command]

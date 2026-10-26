@@ -19,7 +19,7 @@
 | سخت‌افزار | `windows-bridge/src-tauri/src/bridge.rs` | چاپ مستقیم با درایور Windows/TCP/serial و ارسال فرمان پیجر طبق تنظیم دستگاه |
 | رابط صندوق | `windows-bridge/ui/index.html`, `pos.js`, `style.css` | کاتالوگ، جست‌وجو، گزینه‌ها/وزن، سبد، دریافت وجه، سوابق، خطاها، مسیر چاپ، و تب‌های منو، مشتریان و انبار فقط‌خواندنی، درخواست رزرو آفلاین |
 | قرارداد و قواعد | `src/lib/offline-pos-core.ts` | ساختار نسخه ۱، کنترل UUID، مبالغ، شماره پیگیری و بازه اعتبار snapshot |
-| سرویس سرور | `src/lib/offline-pos.ts`, `src/lib/offline-dashboard.ts`, `src/lib/reservations.ts`, APIهای `src/app/api/offline-dashboard/` | احراز دستگاه، snapshot منو/مشتری/انبار/تاریخچهٔ سفارش، تراکنش سفارش/تسویه، و بازاعتبارسنجی/idempotency درخواست رزرو |
+| سرویس سرور | `src/lib/offline-pos.ts`, `src/lib/offline-dashboard.ts`, `src/lib/reservations.ts`, APIهای `src/app/api/offline-dashboard/` | احراز دستگاه، snapshot منو/مشتری/انبار/تاریخچهٔ سفارش و رزرو، تراکنش سفارش/تسویه، و بازاعتبارسنجی/idempotency درخواست رزرو |
 | مدیریت دستگاه | `src/app/dashboard/settings/offline-pos/page.tsx` | ساخت کلید، دریافت فایل اتصال، لغو دسترسی، ۵۰ فروش اخیر |
 | معرفی محصول | `src/components/marketing/offline-desktop.*` | معرفی مزیت ادامه فروش در قطعی، با ذکر حدود واقعی قابلیت |
 
@@ -67,7 +67,9 @@ Worker module reservations را به POST /api/offline-dashboard/reservations م
 
 دو ستون nullable reservations.source_command_id و reservations.source_command_hash با migration 0057_offline_reservation_idempotency.sql و unique index tenant-scoped، یک فرمان را در retry/ارسال هم‌زمان فقط یک بار ثبت می‌کنند. قفل advisory فرمان، بررسی hash و درج رزرو در transaction مشترک است؛ پاسخ گم‌شده با همان hash، receipt همان رزرو را برمی‌گرداند، و استفادهٔ دوباره از UUID برای payload متفاوت conflict است. migration down در صورت باقی‌بودن هر رزرو حاصل از فرمان آفلاین عمداً rollback را متوقف می‌کند تا کلیدهای idempotency از بین نروند.
 
-این قابلیت فقط ثبت درخواست رزرو جدید از صندوق ویندوز را آفلاین می‌کند. فهرست/ویرایش/تأیید، ثبت پیش‌پرداخت، لغو، مدیریت میز، reservation availability عمومی و اعلان‌های push/SMS همچنان نیاز به اتصال سرور دارند. محدودیت‌های این مرحله از پوشش کامل ماژول رزرو یا کل پنل جدا هستند.
+تاریخچهٔ رزرو آخرین ۱۰۰ رزرو رستوران از `GET /api/offline-dashboard/snapshots/reservations` را نگه می‌دارد. API فقط برای ترمینال مجاز دارای `cashier_pos` و entitlement `reservations` پاسخ می‌دهد و نام/موبایل مهمان، میز، تعداد، زمان، مدت، وضعیت رزرو/پیش‌پرداخت، نوع، توضیح و timestampها را برمی‌گرداند. server فقط آخرین revision رزرو هر terminal را نگه می‌دارد؛ worker هر ۱۰ دقیقه snapshot را در SQLite رمز‌شده ذخیره می‌کند و UI تب رزروها فهرست و مودال جزئیات را مستقل از اتصال نشان می‌دهد. cache هفت روز اعتبار دارد، نسخهٔ منقضی فقط‌خواندنی است و در پاسخ 401/403 هنگام اتصال پاک می‌شود. سقف بدنه ۴ مگابایت است و نسخهٔ قبلی در شکست دریافت حفظ می‌شود.
+
+این قابلیت ایجاد درخواست رزرو جدید و مشاهدهٔ آخرین ۱۰۰ رزرو سرور را آفلاین می‌کند. فهرست کامل بدون سقف، ویرایش/تأیید، ثبت پیش‌پرداخت، لغو، مدیریت میز، reservation availability عمومی و اعلان‌های push/SMS همچنان نیاز به اتصال سرور دارند. درخواست تازهٔ محلی با تاریخچهٔ snapshot یکی نیست و تا sync/بررسی سرور رزرو قطعی محسوب نمی‌شود؛ محدودیت‌های این مرحله از پوشش کامل ماژول رزرو یا کل پنل جدا هستند.
 
 ## Outbox فرمان‌های پنل — محدود به منو
 

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, stockMovements, warehouses } from "@/db/schema";
+import { businesses, categories, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, reservations, stockMovements, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -36,6 +36,14 @@ type OrdersPayload = {
   }[];
   totalOrders: number;
 };
+type ReservationsPayload = {
+  reservations: {
+    id: number; tableId: number | null; tableName: string | null; customerName: string; customerPhone: string;
+    guestCount: number; reservationType: string; startsAt: string; durationMinutes: number; status: string;
+    depositAmount: number; depositStatus: string; depositMethod: string; note: string; createdAt: string; updatedAt: string;
+  }[];
+  totalReservations: number;
+};
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -57,12 +65,13 @@ function responseShape(row: typeof offlineWorkspaceSnapshots.$inferSelect) {
 }
 
 export async function offlineDashboardSnapshot(req: Request, dataset: string) {
-  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
+  if (dataset !== "menu" && dataset !== "customers" && dataset !== "inventory" && dataset !== "orders" && dataset !== "reservations") throw new HttpError(404, "این مجموعهٔ داده برای دریافت آفلاین تعریف نشده است");
   const { terminal, business, features } = await offlineAuth(req);
   if (dataset === "menu" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت دادهٔ محلی در اشتراک فعلی فعال نیست");
   if (dataset === "customers" && (!hasAny(features, "cashier_pos") || !hasAny(features, "loyalty"))) throw new HttpError(403, "صندوق آفلاین و باشگاه مشتریان باید در اشتراک فعال باشند");
   if (dataset === "inventory" && (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory"))) throw new HttpError(403, "صندوق آفلاین و انبار باید در اشتراک فعال باشند");
   if (dataset === "orders" && !hasAny(features, "cashier_pos")) throw new HttpError(403, "دریافت تاریخچهٔ سفارش به مجوز صندوق آفلاین نیاز دارد");
+  if (dataset === "reservations" && (!hasAny(features, "cashier_pos") || !hasAny(features, "reservations"))) throw new HttpError(403, "دریافت تاریخچهٔ رزرو به مجوز صندوق آفلاین و رزرو میز نیاز دارد");
 
   return db.transaction(async (tx) => {
     const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
@@ -72,7 +81,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
     if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
 
-    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload;
+    let payload: MenuPayload | CustomerPayload | InventoryPayload | OrdersPayload | ReservationsPayload;
     if (dataset === "menu") {
       const [currentBusiness] = await tx.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, type: businesses.type, logoUrl: businesses.logoUrl, accentColor: businesses.accentColor, taxPercent: businesses.taxPercent, servicePercent: businesses.servicePercent }).from(businesses).where(eq(businesses.id, business.id));
       if (!currentBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
@@ -110,6 +119,23 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         warehouses: warehouseRows,
         movements: movementRows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
         totalItems: itemRows.length,
+      };
+    } else if (dataset === "reservations") {
+      const reservationRows = await tx.select({
+        id: reservations.id, tableId: reservations.tableId, tableName: diningTables.name,
+        customerName: reservations.customerName, customerPhone: reservations.customerPhone,
+        guestCount: reservations.guestCount, reservationType: reservations.reservationType,
+        startsAt: reservations.startsAt, durationMinutes: reservations.durationMinutes, status: reservations.status,
+        depositAmount: reservations.depositAmount, depositStatus: reservations.depositStatus,
+        depositMethod: reservations.depositMethod, note: reservations.note,
+        createdAt: reservations.createdAt, updatedAt: reservations.updatedAt,
+      }).from(reservations).leftJoin(diningTables, and(eq(diningTables.id, reservations.tableId), eq(diningTables.businessId, business.id)))
+        .where(eq(reservations.businessId, business.id)).orderBy(desc(reservations.updatedAt), desc(reservations.id)).limit(100);
+      payload = {
+        reservations: reservationRows.map((row) => ({
+          ...row, startsAt: row.startsAt.toISOString(), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
+        })),
+        totalReservations: reservationRows.length,
       };
     } else {
       const orderRows = await tx.select({
@@ -152,7 +178,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       };
     }
     if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_SNAPSHOT_BYTES) {
-      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
+      const message = dataset === "menu" ? "اطلاعات منو از سقف دریافت آفلاین بیشتر است؛ تصاویر باید از نشانی فایل بارگذاری‌شده باشند" : dataset === "customers" ? "فهرست مشتریان برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "orders" ? "تاریخچه سفارش‌ها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : dataset === "reservations" ? "تاریخچه رزروها برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است" : "اطلاعات انبار برای دریافت آفلاین از سقف ۴ مگابایت بیشتر است";
       throw new HttpError(413, message);
     }
     const payloadHash = createHash("sha256").update(canonical(payload)).digest("hex");
@@ -163,11 +189,13 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
     if (latest?.payloadHash === payloadHash) {
       const [refreshed] = await tx.update(offlineWorkspaceSnapshots).set({ issuedAt: now, validUntil }).where(and(eq(offlineWorkspaceSnapshots.id, latest.id), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id))).returning();
       if (!refreshed) throw new HttpError(409, "تمدید نسخهٔ دادهٔ آفلاین انجام نشد");
+      if (dataset === "reservations") await tx.delete(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset), lt(offlineWorkspaceSnapshots.revision, refreshed.revision)));
       return responseShape(refreshed);
     }
 
     const [saved] = await tx.insert(offlineWorkspaceSnapshots).values({ id: randomUUID(), terminalId: terminal.id, businessId: business.id, dataset, revision: (latest?.revision ?? 0) + 1, schemaVersion: 1, payloadHash, payload, issuedAt: now, validUntil }).returning();
     if (!saved) throw new HttpError(500, "ذخیرهٔ نسخهٔ دادهٔ آفلاین انجام نشد");
+    if (dataset === "reservations") await tx.delete(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.dataset, dataset), lt(offlineWorkspaceSnapshots.revision, saved.revision)));
     return responseShape(saved);
   }, { isolationLevel: "repeatable read" });
 }
