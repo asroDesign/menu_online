@@ -16,7 +16,7 @@
 - `src/lib/offline-inventory.ts`: parser strict فاکتور، کنترل idempotency/tenant/snapshot/stock و مسیر سرور برای receive؛ مسیر ضایعات نیز بهای projectionشده را کنترل می‌کند.
 - `src/app/api/offline-dashboard/inventory/route.ts`: dispatch به receive یا waste از body محدودشده.
 - `src/lib/offline-dashboard.ts`: اضافه‌شدن فهرست محدود و کم‌حساسیت فروشندگان به inventory snapshot.
-- `windows-bridge/offline-core/src/lib.rs`: PIN، اعتبارسنجی و queue فاکتور، محاسبهٔ allocation/average cost و projection دریافت/ضایعات بر اساس sequence همین snapshot؛ خواندن فرمان‌های محلی.
+- `windows-bridge/offline-core/src/lib.rs`: PIN، اعتبارسنجی و queue فاکتور، محاسبهٔ allocation/average cost و projection دریافت/ضایعات بر اساس sequence همین snapshot؛ خواندن فرمان‌های محلی و allowlist claim worker برای ارسال `inventory`.
 - `windows-bridge/src-tauri/src/offline.rs`, `main.rs`: command Tauri و وضعیت فهرست گردش‌های محلی.
 - `windows-bridge/ui/index.html`, `pos.js`, `style.css`: فرم واکنش‌گرا، ردیف‌های تکرارشونده، preview جمع و نمایش status/projection.
 - `src/db/migrations/0062_offline_inventory_receipts.sql` و `.down.sql`: allowlist ledger با rollback محافظت‌شده.

@@ -1181,7 +1181,7 @@ impl Store {
     }
 
     pub fn claim_workspace_commands(&mut self, module: &str) -> Result<Vec<Value>> {
-        if !["menu", "reservations", "staff", "accounting"].contains(&module) {
+        if !["menu", "reservations", "staff", "inventory", "accounting"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;
