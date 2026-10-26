@@ -46,6 +46,7 @@ impl OfflineState {
             let mut refresh = Instant::now() - Duration::from_secs(600);
             let mut workspace_refresh = Instant::now() - Duration::from_secs(600);
             let mut order_history_refresh = Instant::now();
+            let mut reservation_history_refresh = Instant::now();
             let mut backup = Instant::now() - Duration::from_secs(86400);
             loop {
                 let pair = state
@@ -565,7 +566,7 @@ impl OfflineState {
                             }
                             Ok((status, data)) => {
                                 if let Ok(mut store) = state.store.lock() {
-                                    if status == 401 || status == 403 { let _ = store.delete_workspace_snapshot("reservations"); }
+                                    if status == 401 || status == 403 { let _ = store.delete_workspace_reservation_history(); }
                                     let _ = store.set("workspace_sync_reservations", &json!({
                                         "ok": false, "dataset": "reservations",
                                         "message": data["error"].as_str().unwrap_or("دریافت تاریخچهٔ محلی رزروها ناموفق بود")
@@ -736,6 +737,23 @@ impl OfflineState {
                     }
                     order_history_refresh = Instant::now();
                 }
+                let reservation_history_complete = state
+                    .store
+                    .lock()
+                    .ok()
+                    .and_then(|store| store.get("workspace_reservation_history_sync").ok().flatten())
+                    .and_then(|sync| sync["complete"].as_bool());
+                let reservation_history_interval = if reservation_history_complete == Some(true) { 60 } else { 30 };
+                if reservation_history_refresh.elapsed() >= Duration::from_secs(reservation_history_interval) {
+                    if let Some(pair) = state.store.lock().ok().and_then(|store| store.get("pairing").ok().flatten()) {
+                        let server = pair["server"].as_str().unwrap_or("").trim_end_matches('/');
+                        let token = pair["token"].as_str().unwrap_or("");
+                        let business_id = pair["businessId"].as_i64().unwrap_or(0);
+                        refresh_reservations_snapshot(&state, &client, server, token, business_id);
+                        sync_reservation_history_batch(&state, &client, server, token, business_id);
+                    }
+                    reservation_history_refresh = Instant::now();
+                }
                 if backup.elapsed() >= Duration::from_secs(86400) {
                     if let Ok(s) = state.store.lock() {
                         if s.backup(&state.root.join("offline-pos-daily-backup.sqlite3"))
@@ -870,6 +888,43 @@ fn refresh_order_snapshot(
                     &json!({"ok": false, "dataset": "orders", "message": "ارتباط تاریخچهٔ سفارش‌ها در دسترس نیست"}),
                 );
             }
+        }
+    }
+}
+fn refresh_reservations_snapshot(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    let response = client.get(format!("{server}/api/offline-dashboard/snapshots/reservations")).bearer_auth(token).send();
+    match decode(response) {
+        Ok((200, snapshot))
+            if snapshot["schemaVersion"] == 1
+                && snapshot["dataset"].as_str() == Some("reservations")
+                && snapshot["businessId"].as_i64() == Some(business_id)
+                && snapshot["revision"].as_i64().is_some_and(|revision| revision > 0)
+                && snapshot["snapshotId"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()).is_some()
+                && snapshot["payload"]["reservations"].is_array()
+                && snapshot["payload"]["totalReservations"].as_i64().is_some() =>
+        {
+            if let Ok(mut store) = state.store.lock() {
+                match store.save_workspace_snapshot(&snapshot) {
+                    Ok(()) => { let _ = store.set("workspace_sync_reservations", &json!({"ok":true,"dataset":"reservations","revision":snapshot["revision"],"checkedAt":chrono::Utc::now().to_rfc3339()})); }
+                    Err(error) => { let _ = store.set("workspace_sync_reservations", &json!({"ok":false,"dataset":"reservations","message":error})); }
+                }
+            }
+        }
+        Ok((status, data)) => {
+            if let Ok(mut store) = state.store.lock() {
+                if status == 401 || status == 403 { let _ = store.delete_workspace_reservation_history(); }
+                let _ = store.set("workspace_sync_reservations", &json!({"ok":false,"dataset":"reservations","message":data["error"].as_str().unwrap_or("دریافت تاریخچهٔ محلی رزروها ناموفق بود")}));
+            }
+        }
+        Err(_) => {
+            if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_reservations", &json!({"ok":false,"dataset":"reservations","message":"ارتباط تاریخچهٔ رزروها در دسترس نیست"})); }
         }
     }
 }
@@ -1192,6 +1247,55 @@ fn sync_order_history_batch(
         }
     }
 }
+
+fn sync_reservation_history_batch(
+    state: &OfflineState,
+    client: &reqwest::blocking::Client,
+    server: &str,
+    token: &str,
+    business_id: i64,
+) {
+    if business_id < 1 { return; }
+    for _ in 0..20 {
+        let history_state = state.store.lock().ok()
+            .and_then(|store| store.get("workspace_reservation_history_sync").ok().flatten())
+            .unwrap_or(json!({"cursor":null,"complete":false}));
+        if history_state["complete"].as_bool() == Some(true) { break; }
+        let cursor = history_state["cursor"].as_str().map(str::to_owned);
+        let url = match cursor.as_deref() {
+            Some(value) => format!("{server}/api/offline-dashboard/reservation-history?cursor={value}"),
+            None => format!("{server}/api/offline-dashboard/reservation-history"),
+        };
+        match decode(client.get(url).bearer_auth(token).send()) {
+            Ok((200, page))
+                if page["schemaVersion"] == 1
+                    && page["dataset"].as_str() == Some("reservations-history")
+                    && page["businessId"].as_i64() == Some(business_id)
+                    && page["requestCursor"].as_str() == cursor.as_deref()
+                    && page["reservations"].as_array().is_some_and(|rows| rows.len() <= 50)
+                    && page["hasMore"].as_bool().is_some() =>
+            {
+                if let Ok(mut store) = state.store.lock() {
+                    match store.save_reservation_history_page(&page, cursor.as_deref()) {
+                        Ok(()) => { let _ = store.set("workspace_sync_reservations_history", &json!({"ok":true,"checkedAt":page["issuedAt"],"message":null})); }
+                        Err(error) => { let _ = store.set("workspace_sync_reservations_history", &json!({"ok":false,"message":error})); break; }
+                    }
+                }
+            }
+            Ok((status, data)) => {
+                if let Ok(mut store) = state.store.lock() {
+                    if status == 401 || status == 403 { let _ = store.delete_workspace_reservation_history(); }
+                    let _ = store.set("workspace_sync_reservations_history", &json!({"ok":false,"message":data["error"].as_str().unwrap_or("دریافت آرشیو کامل رزروها ناموفق بود")}));
+                }
+                break;
+            }
+            Err(_) => {
+                if let Ok(store) = state.store.lock() { let _ = store.set("workspace_sync_reservations_history", &json!({"ok":false,"message":"ارتباط دریافت آرشیو کامل رزروها در دسترس نیست"})); }
+                break;
+            }
+        }
+    }
+}
 #[tauri::command]
 pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
     let s = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
@@ -1212,6 +1316,8 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
         "workspaceOrderHistorySync": s.get("workspace_order_history_sync")?,
         "workspaceOrderHistoryError": s.get("workspace_sync_orders_history")?,
+        "workspaceReservationHistorySync": s.get("workspace_reservation_history_sync")?,
+        "workspaceReservationHistoryError": s.get("workspace_sync_reservations_history")?,
         "workspaceReservationsSync": s.get("workspace_sync_reservations")?,
         "workspaceShiftsSync": s.get("workspace_sync_shifts")?,
         "workspaceAccountingSync": s.get("workspace_sync_accounting")?,
@@ -1303,9 +1409,30 @@ pub fn offline_workspace_orders(offset: i64, limit: i64, state: State<'_, Offlin
 }
 
 #[tauri::command]
-pub fn offline_workspace_reservations(state: State<'_, OfflineState>) -> Result<Option<Value>> {
+pub fn offline_workspace_reservations(offset: i64, limit: i64, state: State<'_, OfflineState>) -> Result<Value> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("reservations")
+    let page = store.workspace_reservation_history_page(offset, limit)?;
+    let snapshot = store.workspace_snapshot("reservations")?;
+    let archive_checked_at = page["checkedAt"].as_str().unwrap_or("");
+    let issued_at = snapshot.as_ref().and_then(|item| item["issuedAt"].as_str()).filter(|value| !value.is_empty()).unwrap_or(archive_checked_at);
+    let expired = snapshot.as_ref().and_then(|item| item["expired"].as_bool()).unwrap_or_else(|| {
+        chrono::DateTime::parse_from_rfc3339(issued_at).map(|date| date + chrono::Duration::days(7) < chrono::Utc::now()).unwrap_or(true)
+    });
+    Ok(json!({
+        "businessId":snapshot.as_ref().and_then(|item| item["businessId"].as_i64()).unwrap_or_else(|| store.get("pairing").ok().flatten().and_then(|pair|pair["businessId"].as_i64()).unwrap_or(0)),
+        "dataset":"reservations",
+        "snapshotId":snapshot.as_ref().and_then(|item| item["snapshotId"].as_str()).unwrap_or(""),
+        "revision":snapshot.as_ref().and_then(|item| item["revision"].as_i64()).unwrap_or(0),
+        "issuedAt":issued_at,
+        "expired":expired,
+        "latestReservations":snapshot.as_ref().and_then(|item| item["payload"]["reservations"].as_array()).cloned().unwrap_or_default(),
+        "payload":{"reservations":page["reservations"],"totalReservations":page["totalReservations"]},
+        "hasMore":page["hasMore"],
+        "complete":page["complete"],
+        "historyCheckedAt":page["checkedAt"],
+        "workspaceReservationHistorySync":store.get("workspace_reservation_history_sync")?,
+        "workspaceReservationHistoryError":store.get("workspace_sync_reservations_history")?
+    }))
 }
 
 #[tauri::command]

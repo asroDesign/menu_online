@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::Path;
 pub type Result<T> = std::result::Result<T, String>;
-const LOCAL_SCHEMA_VERSION: i64 = 4;
+const LOCAL_SCHEMA_VERSION: i64 = 5;
 const WORKSPACE_DATASETS: &[&str] = &[
     "overview",
     "orders",
@@ -218,6 +218,19 @@ impl Store {
             PRAGMA user_version=4;
             COMMIT;").map_err(err)?;
         }
+        if version < 5 {
+            conn.execute_batch("BEGIN IMMEDIATE;
+            CREATE TABLE IF NOT EXISTS offline_reservation_history(
+                business_id INTEGER NOT NULL,
+                reservation_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                PRIMARY KEY(business_id,reservation_id)
+            );
+            CREATE INDEX IF NOT EXISTS offline_reservation_history_page_idx ON offline_reservation_history(business_id,created_at DESC,reservation_id DESC);
+            PRAGMA user_version=5;
+            COMMIT;").map_err(err)?;
+        }
         Ok(Self { conn })
     }
 
@@ -377,6 +390,15 @@ impl Store {
                     params![business_id,order_id,order_number,created_at,blob(order)?]).map_err(err)?;
             }
         }
+        if dataset == "reservations" {
+            let rows = snapshot["payload"]["reservations"].as_array().ok_or("فهرست رزرو snapshot معتبر نیست")?;
+            for reservation in rows {
+                let reservation_id = number(reservation, "id")?;
+                let created_at = reservation["createdAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان رزرو snapshot معتبر نیست")?;
+                tx.execute("INSERT INTO offline_reservation_history(business_id,reservation_id,created_at,payload) VALUES(?1,?2,?3,?4) ON CONFLICT(business_id,reservation_id) DO UPDATE SET created_at=excluded.created_at,payload=excluded.payload",
+                    params![business_id,reservation_id,created_at,blob(reservation)?]).map_err(err)?;
+            }
+        }
         tx.commit().map_err(err)
     }
 
@@ -431,6 +453,58 @@ impl Store {
         tx.execute("DELETE FROM workspace_snapshots WHERE business_id=?1 AND dataset='orders'", [business_id]).map_err(err)?;
         tx.execute("DELETE FROM offline_order_history WHERE business_id=?1", [business_id]).map_err(err)?;
         tx.execute("DELETE FROM settings WHERE key IN ('workspace_order_history_sync','workspace_sync_orders','workspace_sync_orders_history')", []).map_err(err)?;
+        tx.commit().map_err(err)
+    }
+
+    pub fn save_reservation_history_page(&mut self, page: &Value, requested_cursor: Option<&str>) -> Result<()> {
+        let business_id = number(page, "businessId")?;
+        if business_id != self.paired_business_id()? || page["dataset"].as_str() != Some("reservations-history") || page["schemaVersion"].as_i64() != Some(1) {
+            return Err("صفحهٔ تاریخچه متعلق به صندوق یا نسخهٔ دیگری است".into());
+        }
+        if page["requestCursor"].as_str() != requested_cursor { return Err("نشانگر صفحهٔ پاسخ با درخواست هم‌خوان نیست".into()); }
+        let sync = self.get("workspace_reservation_history_sync")?.unwrap_or(json!({"cursor":null,"complete":false}));
+        if sync["complete"].as_bool() == Some(true) { return Err("آرشیو رزرو قبلاً کامل شده است".into()); }
+        if sync["cursor"].as_str() != requested_cursor { return Err("وضعیت دریافت تاریخچه هم‌زمان تغییر کرده است".into()); }
+        let has_more = page["hasMore"].as_bool().ok_or("وضعیت صفحهٔ رزرو معتبر نیست")?;
+        let next_cursor = page["nextCursor"].as_str();
+        if (has_more && (next_cursor.is_none() || next_cursor == requested_cursor)) || (!has_more && next_cursor.is_some()) {
+            return Err("ادامهٔ صفحه‌بندی تاریخچه معتبر نیست".into());
+        }
+        let rows = page["reservations"].as_array().ok_or("فهرست رزرو صفحه معتبر نیست")?;
+        if rows.len() > 50 || (has_more && rows.is_empty()) { return Err("اندازهٔ صفحهٔ رزرو معتبر نیست".into()); }
+        let issued_at = page["issuedAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان صفحهٔ تاریخچه معتبر نیست")?;
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        for reservation in rows {
+            let reservation_id = number(reservation, "id")?;
+            let created_at = reservation["createdAt"].as_str().filter(|value| DateTime::parse_from_rfc3339(value).is_ok()).ok_or("زمان رزرو صفحه معتبر نیست")?;
+            tx.execute("INSERT INTO offline_reservation_history(business_id,reservation_id,created_at,payload) VALUES(?1,?2,?3,?4) ON CONFLICT(business_id,reservation_id) DO UPDATE SET created_at=excluded.created_at,payload=excluded.payload",
+                params![business_id,reservation_id,created_at,blob(reservation)?]).map_err(err)?;
+        }
+        let cached: i64 = tx.query_row("SELECT count(*) FROM offline_reservation_history WHERE business_id=?1", [business_id], |row| row.get(0)).map_err(err)?;
+        let next_state = json!({"cursor":next_cursor,"complete":!has_more,"cachedReservations":cached,"checkedAt":issued_at});
+        tx.execute("INSERT INTO settings(key,value) VALUES('workspace_reservation_history_sync',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [blob(&next_state)?]).map_err(err)?;
+        tx.commit().map_err(err)
+    }
+
+    pub fn workspace_reservation_history_page(&self, offset: i64, requested_limit: i64) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let limit = requested_limit.clamp(1, 500) as usize;
+        let total: i64 = self.conn.query_row("SELECT count(*) FROM offline_reservation_history WHERE business_id=?1", [business_id], |row| row.get(0)).map_err(err)?;
+        let mut query = self.conn.prepare("SELECT payload FROM offline_reservation_history WHERE business_id=?1 ORDER BY created_at DESC,reservation_id DESC LIMIT ?2 OFFSET ?3").map_err(err)?;
+        let rows = query.query_map(params![business_id,(limit + 1) as i64,offset.max(0)], |row| row.get::<_,Vec<u8>>(0)).map_err(err)?;
+        let mut reservations = rows.map(|row| row.map_err(err).and_then(value)).collect::<Result<Vec<_>>>()?;
+        let has_more = reservations.len() > limit;
+        if has_more { reservations.truncate(limit); }
+        let sync = self.get("workspace_reservation_history_sync")?.unwrap_or(json!({"cursor":null,"complete":false,"cachedReservations":total}));
+        Ok(json!({"reservations":reservations,"totalReservations":total,"cachedReservations":total,"hasMore":has_more,"complete":sync["complete"].as_bool()==Some(true),"checkedAt":sync["checkedAt"]}))
+    }
+
+    pub fn delete_workspace_reservation_history(&mut self) -> Result<()> {
+        let business_id = self.paired_business_id()?;
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        tx.execute("DELETE FROM workspace_snapshots WHERE business_id=?1 AND dataset='reservations'", [business_id]).map_err(err)?;
+        tx.execute("DELETE FROM offline_reservation_history WHERE business_id=?1", [business_id]).map_err(err)?;
+        tx.execute("DELETE FROM settings WHERE key IN ('workspace_reservation_history_sync','workspace_sync_reservations_history','workspace_sync_reservations')", []).map_err(err)?;
         tx.commit().map_err(err)
     }
 

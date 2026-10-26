@@ -250,6 +250,78 @@ export async function offlineOrderHistoryPage(req: Request) {
   }, { isolationLevel: "repeatable read" });
 }
 
+type ReservationHistoryCursor = { createdAt: string; id: number };
+const RESERVATION_HISTORY_PAGE_SIZE = 50;
+
+function parseReservationHistoryCursor(value: string | null): ReservationHistoryCursor | null {
+  if (value === null) return null;
+  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new HttpError(400, "نشانگر صفحهٔ تاریخچهٔ رزرو معتبر نیست");
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (Object.keys(decoded).length !== 2 || typeof decoded.createdAt !== "string" || !ORDER_HISTORY_CURSOR_TIME.test(decoded.createdAt) || !Number.isSafeInteger(decoded.id) || Number(decoded.id) < 1 || !Number.isFinite(Date.parse(decoded.createdAt))) throw new Error("invalid cursor");
+    return { createdAt: decoded.createdAt, id: Number(decoded.id) };
+  } catch {
+    throw new HttpError(400, "نشانگر صفحهٔ تاریخچهٔ رزرو معتبر نیست");
+  }
+}
+
+function encodeReservationHistoryCursor(cursor: ReservationHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+export async function offlineReservationHistoryPage(req: Request) {
+  const url = new URL(req.url);
+  const cursorValue = url.searchParams.get("cursor");
+  const cursor = parseReservationHistoryCursor(cursorValue);
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "reservations")) throw new HttpError(403, "دریافت تاریخچهٔ رزرو به مجوز صندوق آفلاین و رزرو میز نیاز دارد");
+  return db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این صندوق لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const cursorTimestamp = cursor ? sql`${cursor.createdAt}::timestamptz` : undefined;
+    const cursorPredicate = cursor && cursorTimestamp ? or(
+      lt(reservations.createdAt, cursorTimestamp),
+      and(eq(reservations.createdAt, cursorTimestamp), lt(reservations.id, cursor.id)),
+    ) : undefined;
+    const rows = await tx.select({
+      id: reservations.id, tableId: reservations.tableId, tableName: diningTables.name,
+      customerName: reservations.customerName, customerPhone: reservations.customerPhone,
+      guestCount: reservations.guestCount, reservationType: reservations.reservationType,
+      startsAt: reservations.startsAt, durationMinutes: reservations.durationMinutes, status: reservations.status,
+      depositAmount: reservations.depositAmount, depositStatus: reservations.depositStatus,
+      depositMethod: reservations.depositMethod, note: reservations.note,
+      createdAt: reservations.createdAt,
+      createdAtCursor: sql<string>`to_char(${reservations.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      updatedAt: reservations.updatedAt,
+    }).from(reservations).leftJoin(diningTables, and(eq(diningTables.id, reservations.tableId), eq(diningTables.businessId, business.id)))
+      .where(and(eq(reservations.businessId, business.id), cursorPredicate))
+      .orderBy(desc(reservations.createdAt), desc(reservations.id)).limit(RESERVATION_HISTORY_PAGE_SIZE + 1);
+    const hasMore = rows.length > RESERVATION_HISTORY_PAGE_SIZE;
+    const pageRows = hasMore ? rows.slice(0, RESERVATION_HISTORY_PAGE_SIZE) : rows;
+    const page = pageRows.map(({ createdAtCursor, ...row }) => ({
+      ...row,
+      startsAt: row.startsAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      cursorCreatedAt: createdAtCursor,
+    }));
+    if (Buffer.byteLength(JSON.stringify(page), "utf8") > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "صفحهٔ رزروها از سقف دریافت آفلاین بیشتر است");
+    const last = pageRows.at(-1);
+    return {
+      schemaVersion: 1,
+      dataset: "reservations-history",
+      businessId: business.id,
+      requestCursor: cursorValue,
+      nextCursor: hasMore && last ? encodeReservationHistoryCursor({ createdAt: last.createdAtCursor, id: last.id }) : null,
+      hasMore,
+      issuedAt: new Date().toISOString(),
+      reservations: page.map(({ cursorCreatedAt: _cursorCreatedAt, ...row }) => row),
+    };
+  }, { isolationLevel: "repeatable read" });
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(",")}}`;
