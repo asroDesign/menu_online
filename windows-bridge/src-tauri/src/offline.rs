@@ -150,7 +150,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"] {
+                    'workspace_modules: for module in ["menu", "customers", "orders", "reservations", "staff", "inventory", "accounting", "receivables", "cheques"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -197,7 +197,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
-                                    if module == "menu" || module == "customers" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" { let _ = store.set("workspace_refresh", &json!(true)); }
+                                    if module == "menu" || module == "customers" || module == "orders" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
                             Ok((status, data)) => {
@@ -218,7 +218,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
-                                    if status == 409 && (module == "menu" || module == "customers" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques") {
+                                    if status == 409 && (module == "menu" || module == "customers" || module == "orders" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
                                 }
@@ -1118,6 +1118,16 @@ pub fn offline_workspace_update_customer_name(customer_id: i64, name: String, ma
 }
 
 #[tauri::command]
+pub fn offline_workspace_change_order_status(order_id: i64, status: String, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_order_status_with_pin(&manager_pin, order_id, &status)
+}
+
+#[tauri::command]
+pub fn offline_workspace_confirm_order_cashier(order_id: i64, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_cashier_confirmation_with_pin(&manager_pin, order_id)
+}
+
+#[tauri::command]
 pub fn offline_workspace_inventory(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.workspace_inventory_snapshot()
@@ -1131,12 +1141,19 @@ pub fn offline_workspace_orders(offset: i64, limit: i64, state: State<'_, Offlin
     let archive_checked_at = page["checkedAt"].as_str().unwrap_or("");
     let issued_at = snapshot.as_ref().and_then(|item| item["issuedAt"].as_str()).filter(|value| !value.is_empty()).unwrap_or(archive_checked_at);
     let expired = chrono::DateTime::parse_from_rfc3339(issued_at).map(|date| date + chrono::Duration::days(7) < chrono::Utc::now()).unwrap_or(true);
+    let latest_order_ids = snapshot.as_ref().and_then(|item| item["payload"]["orders"].as_array()).map(|rows| rows.iter().filter_map(|row| row["id"].as_i64()).collect::<Vec<_>>()).unwrap_or_default();
+    let latest_orders = snapshot.as_ref().and_then(|item| item["payload"]["orders"].as_array()).map(|rows| rows.iter().filter(|row| row["id"].as_i64().is_some()).map(|row| json!({"id":row["id"],"type":row["type"],"status":row["status"],"updatedAt":row["updatedAt"],"cashierConfirmedAt":row["cashierConfirmedAt"]})).collect::<Vec<_>>()).unwrap_or_default();
     Ok(json!({
         "businessId": snapshot.as_ref().and_then(|item| item["businessId"].as_i64()).unwrap_or(0),
         "dataset":"orders",
+        "snapshotId":snapshot.as_ref().and_then(|item| item["snapshotId"].as_str()).unwrap_or(""),
+        "revision":snapshot.as_ref().and_then(|item| item["revision"].as_i64()).unwrap_or(0),
         "issuedAt":issued_at,
         "archiveCheckedAt":archive_checked_at,
         "expired":expired,
+        "latestOrderIds":latest_order_ids,
+        "latestOrders":latest_orders,
+        "localChanges":store.workspace_order_status_commands()?,
         "payload":{"orders":page["orders"],"totalOrders":page["totalOrders"]},
         "hasMore":page["hasMore"],
         "complete":page["complete"]

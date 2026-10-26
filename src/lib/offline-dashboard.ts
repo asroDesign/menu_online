@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orders, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, accDocuments, accFiscalYears, accLines, businesses, cashShifts, categories, chequeBeneficiaries, chequeEvents, cheques, customerRewardCampaigns, customerRewardClaims, customers, diningTables, inventoryCategories, inventoryItems, offlineStaffAttendanceRequests, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, orderItems, orderStatusEvents, orders, pagers, products, receivableAccounts, receivablePaymentReversals, receivablePayments, receivables, reservations, staff, staffAttendanceRecords, staffLeaveRequests, staffSchedules, staffShiftSwapRequests, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
 import { offlineAuth } from "@/lib/offline-pos";
@@ -14,6 +14,8 @@ import { startOfDayTehran } from "@/lib/jalali";
 import { CHEQUE_PURPOSES, IRANIAN_BANKS } from "@/lib/cheque-metadata";
 import { normalizeProductOptionGroups } from "@/lib/product-options";
 import { parseOfflineCustomerCommand, type OfflineCustomerCommand } from "@/lib/offline-customer-core";
+import { nextOfflineOrderStatus, parseOfflineOrderStatusCommand, type OfflineOrderCommand } from "@/lib/offline-order-status-core";
+import { queuePrintJobs, recordOrderEvents, settingsOf } from "@/lib/orders";
 
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SNAPSHOT_BYTES = 4_000_000;
@@ -38,12 +40,13 @@ type InventoryPayload = {
   totalItems: number;
 };
 type OrdersPayload = {
+  workflowPreset: 1 | 2 | 3 | 4;
   orders: {
     id: number; number: number; tableId: number | null; tableName: string | null; customerName: string; customerPhone: string;
     type: string; source: string; status: string; note: string; address: string; deliveryFee: number; discountCode: string;
     discountAmount: number; membershipDiscount: number; cashbackUsed: number; scheduledFor: string | null; deliveryStatus: string;
     subtotal: number; tax: number; service: number; total: number;
-    paymentMethod: string | null; paymentStatus: string; paymentBreakdown: unknown; createdAt: string;
+    paymentMethod: string | null; paymentStatus: string; paymentBreakdown: unknown; createdAt: string; updatedAt: string; cashierConfirmedAt: string | null;
     items: { id: number; productId: number | null; name: string; price: number; quantity: number; weightGrams: number | null; tareGrams: number; lineTotal: number; note: string; optionSnapshot: unknown }[];
   }[];
   totalOrders: number;
@@ -162,12 +165,16 @@ export async function offlineOrderHistoryPage(req: Request) {
       subtotal: orders.subtotal, tax: orders.tax, service: orders.service, total: orders.total,
       paymentMethod: orders.paymentMethod, paymentStatus: orders.paymentStatus, paymentBreakdown: orders.paymentBreakdown,
       createdAt: orders.createdAt,
+      updatedAt: sql<string>`to_char(${orders.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
       createdAtCursor: sql<string>`to_char(${orders.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
     }).from(orders).leftJoin(diningTables, and(eq(diningTables.id, orders.tableId), eq(diningTables.businessId, business.id)))
       .where(and(eq(orders.businessId, business.id), isNull(orders.deletedAt), cursorPredicate))
       .orderBy(desc(orders.createdAt), desc(orders.id)).limit(ORDER_HISTORY_PAGE_SIZE + 1);
     const hasMore = orderRows.length > ORDER_HISTORY_PAGE_SIZE;
     const pageRows = hasMore ? orderRows.slice(0, ORDER_HISTORY_PAGE_SIZE) : orderRows;
+    const cashierConfirmations = pageRows.length ? await tx.select({ orderId: orderStatusEvents.orderId, createdAt: orderStatusEvents.createdAt })
+      .from(orderStatusEvents).where(and(eq(orderStatusEvents.businessId, business.id), eq(orderStatusEvents.kind, "cashier_confirmation"), inArray(orderStatusEvents.orderId, pageRows.map((row) => row.id)))) : [];
+    const cashierConfirmationByOrder = new Map(cashierConfirmations.map((row) => [row.orderId, row.createdAt.toISOString()]));
     const itemRows = pageRows.length ? await tx.select({
       id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, name: orderItems.name,
       price: orderItems.price, quantity: orderItems.quantity, weightGrams: orderItems.weightGrams,
@@ -182,6 +189,7 @@ export async function offlineOrderHistoryPage(req: Request) {
       ...order,
       createdAt: order.createdAt.toISOString(),
       scheduledFor: order.scheduledFor?.toISOString() ?? null,
+      cashierConfirmedAt: cashierConfirmationByOrder.get(order.id) ?? null,
       paymentBreakdown: order.paymentBreakdown ? (() => {
         const payment = order.paymentBreakdown as Record<string, unknown>;
         return {
@@ -532,6 +540,8 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         totalBalance: receivableRows.reduce((sum, row) => sum + row.balance, 0),
       };
     } else {
+      const configuredPreset = settingsOf(business).orderWorkflowPreset ?? 4;
+      const workflowPreset: 1 | 2 | 3 | 4 = [1, 2, 3, 4].includes(configuredPreset) ? configuredPreset : 4;
       const orderRows = await tx.select({
         id: orders.id, number: orders.number, tableId: orders.tableId, tableName: diningTables.name,
         customerName: orders.customerName, customerPhone: orders.customerPhone, type: orders.type, source: orders.source,
@@ -541,9 +551,13 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         subtotal: orders.subtotal, tax: orders.tax, service: orders.service,
         total: orders.total, paymentMethod: orders.paymentMethod, paymentStatus: orders.paymentStatus,
         paymentBreakdown: orders.paymentBreakdown, createdAt: orders.createdAt,
+        updatedAt: sql<string>`to_char(${orders.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
       }).from(orders).leftJoin(diningTables, and(eq(diningTables.id, orders.tableId), eq(diningTables.businessId, business.id)))
         .where(and(eq(orders.businessId, business.id), isNull(orders.deletedAt)))
         .orderBy(desc(orders.createdAt), desc(orders.id)).limit(100);
+      const cashierConfirmations = orderRows.length ? await tx.select({ orderId: orderStatusEvents.orderId, createdAt: orderStatusEvents.createdAt })
+        .from(orderStatusEvents).where(and(eq(orderStatusEvents.businessId, business.id), eq(orderStatusEvents.kind, "cashier_confirmation"), inArray(orderStatusEvents.orderId, orderRows.map((row) => row.id)))) : [];
+      const cashierConfirmationByOrder = new Map(cashierConfirmations.map((row) => [row.orderId, row.createdAt.toISOString()]));
       const itemRows = orderRows.length ? await tx.select({
         id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, name: orderItems.name,
         price: orderItems.price, quantity: orderItems.quantity, weightGrams: orderItems.weightGrams,
@@ -553,10 +567,12 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       const itemsByOrder = new Map<number, typeof itemRows>();
       for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), item]);
       payload = {
+        workflowPreset,
         orders: orderRows.map((row) => ({
           ...row,
           createdAt: row.createdAt.toISOString(),
           scheduledFor: row.scheduledFor?.toISOString() ?? null,
+          cashierConfirmedAt: cashierConfirmationByOrder.get(row.id) ?? null,
           paymentBreakdown: row.paymentBreakdown ? (() => {
             const payment = row.paymentBreakdown as Record<string, unknown>;
             return {
@@ -675,6 +691,7 @@ function parseMenuCommand(raw: unknown): MenuCommand {
 
 export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
   if (isRecord(raw) && raw.module === "cheques") return syncOfflineChequeCommand(req, raw);
+  if (isRecord(raw) && raw.module === "orders") return syncOfflineOrderStatusCommand(req, raw);
   if (isRecord(raw) && raw.module === "staff") return syncOfflineStaffRequest(req, parseStaffCommand(raw));
   if (isRecord(raw) && raw.module === "accounting") return syncOfflineAccountingCommand(req, raw);
   if (isRecord(raw) && raw.module === "customers") return syncOfflineCustomerCommand(req, raw);
@@ -866,6 +883,114 @@ export async function syncOfflineCustomerCommand(req: Request, raw: unknown) {
   });
 
   if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, "error" in outcome.response && typeof outcome.response.error === "string" ? outcome.response.error : "همگام‌سازی تغییر مشتری انجام نشد");
+  return outcome.response;
+}
+
+function parseOfflineOrderCommand(raw: unknown): OfflineOrderCommand {
+  try {
+    return parseOfflineOrderStatusCommand(raw);
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : "فرمان تغییر وضعیت سفارش معتبر نیست");
+  }
+}
+
+export async function syncOfflineOrderStatusCommand(req: Request, raw: unknown) {
+  const command = parseOfflineOrderCommand(raw);
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos")) throw new HttpError(403, "تغییر وضعیت آفلاین سفارش به مجوز صندوق نیاز دارد");
+  if (command.businessId !== business.id) throw new HttpError(403, "فرمان سفارش متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+
+  const outcome = await db.transaction(async (tx) => {
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این دستگاه لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id, settings: businesses.settings }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false))).for("update");
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.module !== "orders" || previous.payloadHash !== payloadHash) {
+        return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسهٔ فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      }
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(
+      eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId),
+      eq(offlineWorkspaceSnapshots.terminalId, terminal.id),
+      eq(offlineWorkspaceSnapshots.businessId, business.id),
+      eq(offlineWorkspaceSnapshots.dataset, "orders"),
+      eq(offlineWorkspaceSnapshots.revision, command.baseRevision),
+    )).for("update");
+    const record = async (state: "applied" | "conflict", httpStatus: 200 | 409, error = "", receipt = "") => {
+      const response = { commandId: command.id, state, receipt, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({
+        id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy,
+        module: "orders", action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>,
+        state, httpStatus, error, receipt, result: response,
+      });
+      return { httpStatus, response };
+    };
+
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ سفارش‌ها پیدا نشد یا منقضی شده است؛ پس از اتصال نسخهٔ تازه بگیرید");
+    const snapshotOrders = Array.isArray(snapshot.payload.orders) ? snapshot.payload.orders as Record<string, unknown>[] : [];
+    const base = snapshotOrders.find((row) => row.id === command.payload.orderId);
+    if (!base || base.status !== command.payload.expectedStatus || base.updatedAt !== command.payload.expectedUpdatedAt) {
+      return record("conflict", 409, "وضعیت سفارش از زمان دریافت نسخه تغییر کرده است؛ نسخهٔ تازه را بررسی کنید");
+    }
+
+    const [current] = await tx.select({
+      id: orders.id, status: orders.status, type: orders.type,
+      updatedAt: sql<string>`to_char(${orders.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    }).from(orders).where(and(eq(orders.id, command.payload.orderId), eq(orders.businessId, business.id), isNull(orders.deletedAt))).for("update");
+    if (!current || current.status !== command.payload.expectedStatus || current.updatedAt !== command.payload.expectedUpdatedAt) {
+      return record("conflict", 409, "سفارش پیدا نشد یا هم‌زمان تغییر کرده است؛ تغییر محلی اعمال نشد");
+    }
+
+    const preset = settingsOf({ ...business, settings: activeBusiness.settings }).orderWorkflowPreset ?? 4;
+    const [cashierConfirmation] = await tx.select().from(orderStatusEvents).where(and(
+      eq(orderStatusEvents.businessId, business.id), eq(orderStatusEvents.orderId, current.id), eq(orderStatusEvents.kind, "cashier_confirmation"),
+    )).for("update");
+    if (command.action === "confirm_cashier") {
+      if (preset !== 4 || command.payload.expectedStatus !== "pending" || base.cashierConfirmedAt || cashierConfirmation) {
+        return record("conflict", 409, "تأیید صندوقدار دیگر لازم یا مجاز نیست؛ نسخهٔ تازه را بررسی کنید");
+      }
+      await tx.insert(orderStatusEvents).values({
+        businessId: business.id, orderId: current.id, kind: "cashier_confirmation",
+        fromValue: "pending", toValue: "confirmed", actorType: "offline_terminal", actorId: terminal.createdBy,
+      });
+      return record("applied", 200, "", String(current.id));
+    }
+
+    if (command.payload.expectedStatus === "pending" && preset === 4 && (!base.cashierConfirmedAt || !cashierConfirmation)) {
+      return record("conflict", 409, "پیش از شروع آماده‌سازی، تأیید صندوقدار لازم است");
+    }
+    const expectedNext = nextOfflineOrderStatus(command.payload.expectedStatus);
+    if (expectedNext !== command.payload.status) return record("conflict", 409, "گذار وضعیت سفارش دیگر معتبر نیست");
+    if (command.payload.status === "served" && current.type === "delivery") return record("conflict", 409, "وضعیت تحویل سفارش‌های ارسال فقط از workflow پیک تغییر می‌کند");
+
+    const now = new Date();
+    const [updated] = await tx.update(orders).set({ status: command.payload.status, updatedAt: now })
+      .where(and(eq(orders.id, current.id), eq(orders.businessId, business.id), eq(orders.status, current.status)))
+      .returning({ id: orders.id, number: orders.number });
+    if (!updated) return record("conflict", 409, "تغییر وضعیت سفارش هم‌زمان انجام شد؛ نسخهٔ تازه را بررسی کنید");
+    // These helpers accept the shared database executor type; the transaction
+    // object implements the same query surface and remains bound to this tx.
+    const orderTx = tx as unknown as typeof db;
+    await recordOrderEvents(orderTx, business.id, current.id, { order: [current.status, command.payload.status] }, "offline_terminal", terminal.createdBy);
+    if (command.payload.status === "ready") {
+      await queuePrintJobs(business, current.id, features, false, undefined, orderTx, "completed");
+      if (hasAny(features, "foodcourt_pager")) await tx.update(pagers).set({ status: "ringing", ringRequestedAt: now, ringSentAt: null })
+        .where(and(eq(pagers.businessId, business.id), eq(pagers.orderId, current.id)));
+    }
+    if (command.payload.status === "served" && hasAny(features, "foodcourt_pager")) {
+      await tx.update(pagers).set({ status: "free", orderId: null })
+        .where(and(eq(pagers.businessId, business.id), eq(pagers.orderId, current.id)));
+    }
+    return record("applied", 200, "", String(updated.id));
+  });
+
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, "error" in outcome.response && typeof outcome.response.error === "string" ? outcome.response.error : "تغییر وضعیت سفارش انجام نشد");
   return outcome.response;
 }
 

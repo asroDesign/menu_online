@@ -491,7 +491,7 @@ impl Store {
         let module = command["module"].as_str().ok_or("نام ماژول لازم است")?;
         let action = command["action"].as_str().ok_or("نوع عملیات لازم است")?;
         let allowed = match module {
-            "orders" => ["create", "change_status", "record_payment"].contains(&action),
+            "orders" => ["create", "change_status", "confirm_cashier", "record_payment"].contains(&action),
             "menu" => [
                 "create_product",
                 "create_category",
@@ -903,6 +903,63 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"update","customerId":customer_id}))
     }
 
+    pub fn enqueue_order_status_with_pin(&mut self, pin: &str, order_id: i64, status: &str) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if order_id < 1 { return Err("شناسهٔ سفارش معتبر نیست".into()); }
+        let snapshot = self.workspace_snapshot("orders")?.ok_or_else(|| "نسخهٔ سفارش‌ها این دستگاه دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ سفارش‌ها منقضی است؛ ابتدا آن را به‌روز کنید".into()); }
+        let orders = snapshot["payload"]["orders"].as_array().ok_or("فهرست سفارش snapshot معتبر نیست")?;
+        let order = orders.iter().find(|row| row["id"].as_i64() == Some(order_id)).ok_or("این سفارش در آخرین نسخهٔ معتبر نیست؛ وضعیت آن آفلاین قابل تغییر نیست")?;
+        let expected_status = order["status"].as_str().ok_or("وضعیت سفارش cacheشده معتبر نیست")?;
+        let workflow_preset = snapshot["payload"]["workflowPreset"].as_i64().unwrap_or(4);
+        if workflow_preset == 4 && expected_status == "pending" && order["cashierConfirmedAt"].is_null() {
+            return Err("ابتدا تأیید صندوقدار را ثبت کنید".into());
+        }
+        let next_status = match expected_status {
+            "pending" => "preparing",
+            "preparing" => "ready",
+            "ready" => "served",
+            _ => return Err("فقط گذار در انتظار ← آماده‌سازی ← آماده ← تحویل آفلاین مجاز است".into()),
+        };
+        if status != next_status { return Err("وضعیت سفارش باید فقط یک مرحله به جلو تغییر کند".into()); }
+        if status == "served" && order["type"].as_str() == Some("delivery") { return Err("وضعیت تحویل سفارش‌های ارسال فقط از workflow پیک تغییر می‌کند".into()); }
+        let expected_updated_at = order["updatedAt"].as_str().filter(|value| value.len() == 27).ok_or("زمان آخرین تغییر سفارش در snapshot نیست؛ نسخه را تازه کنید")?;
+        let pending = self.order_status_commands_for_state("pending")?;
+        if pending.iter().any(|row| row["payload"]["orderId"].as_i64() == Some(order_id)) {
+            return Err("برای این سفارش یک تغییر وضعیت در صف همگام‌سازی است".into());
+        }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"orders","action":"change_status",
+            "baseDataset":"orders","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"orderId":order_id,"expectedStatus":expected_status,"expectedUpdatedAt":expected_updated_at,"status":status}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"change_status","orderId":order_id,"status":status}))
+    }
+
+    pub fn enqueue_cashier_confirmation_with_pin(&mut self, pin: &str, order_id: i64) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if order_id < 1 { return Err("شناسهٔ سفارش معتبر نیست".into()); }
+        let snapshot = self.workspace_snapshot("orders")?.ok_or_else(|| "نسخهٔ سفارش‌ها این دستگاه دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ سفارش‌ها منقضی است؛ ابتدا آن را به‌روز کنید".into()); }
+        if snapshot["payload"]["workflowPreset"].as_i64().unwrap_or(4) != 4 { return Err("تأیید صندوقدار در گردش سفارش این کسب‌وکار فعال نیست".into()); }
+        let orders = snapshot["payload"]["orders"].as_array().ok_or("فهرست سفارش snapshot معتبر نیست")?;
+        let order = orders.iter().find(|row| row["id"].as_i64() == Some(order_id)).ok_or("این سفارش در آخرین نسخهٔ معتبر نیست؛ وضعیت آن آفلاین قابل تغییر نیست")?;
+        if order["status"].as_str() != Some("pending") || !order["cashierConfirmedAt"].is_null() { return Err("این سفارش در انتظار تأیید صندوقدار نیست".into()); }
+        let expected_updated_at = order["updatedAt"].as_str().filter(|value| value.len() == 27).ok_or("زمان آخرین تغییر سفارش در snapshot نیست؛ نسخه را تازه کنید")?;
+        let pending = self.order_status_commands_for_state("pending")?;
+        if pending.iter().any(|row| row["payload"]["orderId"].as_i64() == Some(order_id)) { return Err("برای این سفارش یک تغییر در صف همگام‌سازی است".into()); }
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":number(&snapshot,"businessId")?,"module":"orders","action":"confirm_cashier",
+            "baseDataset":"orders","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"orderId":order_id,"expectedStatus":"pending","expectedUpdatedAt":expected_updated_at}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"confirm_cashier","orderId":order_id}))
+    }
+
     fn customer_commands_for_state(&self, state: &str) -> Result<Vec<Value>> {
         if !["pending", "conflict", "rejected", "synced"].contains(&state) { return Err("وضعیت فرمان مشتری معتبر نیست".into()); }
         let business_id = self.paired_business_id()?;
@@ -921,6 +978,26 @@ impl Store {
             changes.extend(self.customer_commands_for_state(state)?);
         }
         changes.sort_by(|left, right| right["createdAt"].as_str().cmp(&left["createdAt"].as_str()));
+        changes.truncate(500);
+        Ok(Value::Array(changes))
+    }
+
+    fn order_status_commands_for_state(&self, state: &str) -> Result<Vec<Value>> {
+        if !["pending", "conflict", "rejected", "synced"].contains(&state) { return Err("وضعیت فرمان سفارش معتبر نیست".into()); }
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare("SELECT id,action,state,error,payload,created_at FROM workspace_commands WHERE business_id=?1 AND module='orders' AND action IN ('change_status','confirm_cashier') AND state=?2 ORDER BY sequence DESC LIMIT 500").map_err(err)?;
+        let rows = query.query_map(params![business_id,state], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,Vec<u8>>(4)?,row.get::<_,String>(5)?))).map_err(err)?;
+        rows.map(|row| {
+            let (command_id,action,state,error,payload,created_at)=row.map_err(err)?;
+            let command=value(payload)?;
+            Ok(json!({"commandId":command_id,"action":action,"state":state,"error":error,"payload":command["payload"],"baseRevision":command["baseRevision"],"createdAt":created_at}))
+        }).collect()
+    }
+
+    pub fn workspace_order_status_commands(&self) -> Result<Value> {
+        let mut changes = Vec::new();
+        for state in ["pending", "conflict", "rejected", "synced"] { changes.extend(self.order_status_commands_for_state(state)?); }
+        changes.sort_by(|left,right|right["createdAt"].as_str().cmp(&left["createdAt"].as_str()));
         changes.truncate(500);
         Ok(Value::Array(changes))
     }
