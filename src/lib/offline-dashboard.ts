@@ -87,6 +87,7 @@ type ShiftsPayload = {
 };
 type AccountingPayload = {
   accounts: { id: number; code: string; name: string; level: string; parentId: number | null; type: string; nature: string; isSystem: boolean; isActive: boolean }[];
+  bankAccounts: { id: number; name: string; bank: string }[];
   years: { id: number; title: string; startDate: string; endDate: string; isClosed: boolean }[];
   documents: { id: number; number: number; date: string; kind: string; source: string; description: string; status: string; reversed: boolean; reversedOf: number | null; totalAmount: number; lines: { accountId: number; accountCode: string; accountName: string; debit: number; credit: number; description: string }[] }[];
   totalDocuments: number;
@@ -632,15 +633,17 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
         totalLeaveRequests: leaveRows.length,
       };
     } else if (dataset === "accounting") {
-      const [accountRows, yearRows, documentRows] = await Promise.all([
+      const [accountRows, yearRows, documentRows, bankRows] = await Promise.all([
         tx.select({ id: accAccounts.id, code: accAccounts.code, name: accAccounts.name, level: accAccounts.level, parentId: accAccounts.parentId, type: accAccounts.type, nature: accAccounts.nature, isSystem: accAccounts.isSystem, isActive: accAccounts.isActive })
           .from(accAccounts).where(eq(accAccounts.businessId, business.id)).orderBy(asc(accAccounts.code), asc(accAccounts.id)).limit(1001),
         tx.select({ id: accFiscalYears.id, title: accFiscalYears.title, startDate: accFiscalYears.startDate, endDate: accFiscalYears.endDate, isClosed: accFiscalYears.isClosed })
           .from(accFiscalYears).where(eq(accFiscalYears.businessId, business.id)).orderBy(desc(accFiscalYears.startDate)).limit(101),
         tx.select({ id: accDocuments.id, fiscalYearId: accDocuments.fiscalYearId, number: accDocuments.number, date: accDocuments.date, kind: accDocuments.kind, source: accDocuments.source, description: accDocuments.description, status: accDocuments.status, reversed: accDocuments.reversed, reversedOf: accDocuments.reversedOf, totalAmount: accDocuments.totalAmount })
           .from(accDocuments).where(eq(accDocuments.businessId, business.id)).orderBy(desc(accDocuments.date), desc(accDocuments.id)).limit(101),
+        tx.select({ id: bankAccounts.id, name: bankAccounts.name, bank: bankAccounts.bank })
+          .from(bankAccounts).where(eq(bankAccounts.businessId, business.id)).orderBy(asc(bankAccounts.name), asc(bankAccounts.id)).limit(501),
       ]);
-      if (accountRows.length > 1000 || yearRows.length > 100 || documentRows.length > 100) throw new HttpError(413, "دادهٔ حسابداری از سقف snapshot آفلاین بیشتر است؛ دریافت صفحه‌بندی‌شده لازم است");
+      if (accountRows.length > 1000 || yearRows.length > 100 || documentRows.length > 100 || bankRows.length > 500) throw new HttpError(413, "دادهٔ حسابداری از سقف snapshot آفلاین بیشتر است؛ دریافت صفحه‌بندی‌شده لازم است");
       const documentIds = documentRows.map((row) => row.id);
       const lineRows = documentIds.length ? await tx.select({ documentId: accLines.documentId, accountId: accLines.accountId, debit: accLines.debit, credit: accLines.credit, description: accLines.description, accountCode: accAccounts.code, accountName: accAccounts.name })
         .from(accLines).innerJoin(accAccounts, and(eq(accAccounts.id, accLines.accountId), eq(accAccounts.businessId, business.id)))
@@ -648,7 +651,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       const linesByDocument = new Map<number, typeof lineRows>();
       for (const line of lineRows) linesByDocument.set(line.documentId, [...(linesByDocument.get(line.documentId) ?? []), line]);
       payload = {
-        accounts: accountRows,
+        accounts: accountRows, bankAccounts: bankRows,
         years: yearRows.map((year) => ({ ...year, startDate: year.startDate.toISOString(), endDate: year.endDate.toISOString() })),
         documents: documentRows.map((doc) => ({ ...doc, date: doc.date.toISOString(), lines: linesByDocument.get(doc.id) ?? [] })),
         totalDocuments: documentRows.length,

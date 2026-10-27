@@ -717,6 +717,67 @@ export async function postManualTx(biz: Biz, t: { id: number; kind: string; cate
     lines: t.kind === "income" ? [{ accountId: moneyId, debit: t.amount }, { accountId: categoryAccountId, credit: t.amount }] : [{ accountId: categoryAccountId, debit: t.amount }, { accountId: moneyId, credit: t.amount }],
   });
 }
+
+/** Post an income/expense row inside the caller's transaction, including its bank detail account. */
+export async function postManualTxInTransaction(
+  tx: Q,
+  biz: Biz,
+  t: { id: number; kind: "income" | "expense"; category: string; amount: number; description: string; bankAccountId: number | null; accountId: number; date: Date },
+) {
+  await tx.execute(sql`select pg_advisory_xact_lock(${biz.id})`);
+  const all = await tx.select().from(accAccounts).where(eq(accAccounts.businessId, biz.id));
+  const byCode = new Map(all.map((account) => [account.code, account]));
+  const byId = new Map(all.map((account) => [account.id, account]));
+  const accountType = t.kind === "income" ? "revenue" : "expense";
+  const nature = t.kind === "income" ? "credit" : "debit";
+  const categoryAccount = byId.get(t.accountId);
+  if (!categoryAccount || !categoryAccount.isActive || categoryAccount.type !== accountType || categoryAccount.nature !== nature || !["moein", "tafsili"].includes(categoryAccount.level)) {
+    throw new HttpError(409, "حساب انتخاب‌شده در نسخهٔ سرور فعال یا متناسب با نوع ردیف نیست");
+  }
+  if (categoryAccount.level === "tafsili") {
+    const parent = categoryAccount.parentId ? byId.get(categoryAccount.parentId) : undefined;
+    if (!parent || !parent.isActive || parent.level !== "moein" || parent.type !== accountType || parent.nature !== nature) {
+      throw new HttpError(409, "حساب تفصیلی انتخاب‌شده با حساب معین درآمد یا هزینه هم‌خوان نیست");
+    }
+  }
+
+  let moneyAccountId: number;
+  if (t.bankAccountId === null) {
+    const cash = byCode.get(C.CASH);
+    if (!cash || !cash.isActive) throw new HttpError(409, "حساب صندوق فعال نیست");
+    moneyAccountId = cash.id;
+  } else {
+    const [bank] = await tx.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts)
+      .where(and(eq(bankAccounts.id, t.bankAccountId), eq(bankAccounts.businessId, biz.id)));
+    if (!bank) throw new HttpError(409, "حساب بانکی انتخاب‌شده متعلق به این کسب‌وکار نیست");
+    const bankParent = byCode.get(C.BANK);
+    if (!bankParent || !bankParent.isActive) throw new HttpError(409, "حساب معین بانک‌ها فعال نیست");
+    const existing = all.find((account) => account.refType === "bank" && account.refId === bank.id);
+    if (existing) {
+      if (!existing.isActive) throw new HttpError(409, "حساب تفصیلی این بانک غیرفعال است");
+      moneyAccountId = existing.id;
+    } else {
+      const sequence = all.filter((account) => account.parentId === bankParent.id).length + 1;
+      const [created] = await tx.insert(accAccounts).values({
+        businessId: biz.id, code: `${C.BANK}${String(sequence).padStart(2, "0")}`, name: `بانک — ${bank.name}`,
+        level: "tafsili", parentId: bankParent.id, type: "asset", nature: "debit", refType: "bank", refId: bank.id, isSystem: true,
+      }).returning({ id: accAccounts.id });
+      moneyAccountId = created.id;
+    }
+  }
+
+  const category = t.category.trim().slice(0, 120);
+  const memo = t.description.trim().slice(0, 240);
+  const label = t.kind === "income" ? "درآمد" : "هزینه";
+  return postDocumentInTransaction(tx, biz, {
+    date: t.date, source: "expense", sourceRef: `tx:${t.id}`, description: `${label}: ${category}${memo ? ` — ${memo}` : ""}`.slice(0, 200),
+    status: "posted",
+    lines: t.kind === "income"
+      ? [{ accountId: moneyAccountId, debit: t.amount }, { accountId: categoryAccount.id, credit: t.amount }]
+      : [{ accountId: categoryAccount.id, debit: t.amount }, { accountId: moneyAccountId, credit: t.amount }],
+  });
+}
+
 export async function unpostManualTx(biz: Biz, txId: number) {
   const [d] = await db.select().from(accDocuments).where(and(eq(accDocuments.businessId, biz.id), eq(accDocuments.sourceRef, `tx:${txId}`)));
   if (!d) return;

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots } from "@/db/schema";
+import { businesses, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, transactions } from "@/db/schema";
 import * as Accounting from "@/lib/accounting";
 import { HttpError } from "@/lib/auth";
 import { hasAny } from "@/lib/plans";
@@ -24,6 +24,20 @@ type AccountingCommand = {
   };
 };
 
+type IncomeExpenseCommand = {
+  schemaVersion: 1;
+  id: string;
+  businessId: number;
+  module: "accounting";
+  action: "create_transaction";
+  baseDataset: "accounting";
+  baseSnapshotId: string;
+  baseRevision: number;
+  payload: { date: string; kind: "income" | "expense"; category: string; amount: number; bankAccountId: number | null; accountId: number; description: string };
+};
+
+type OfflineAccountingCommand = AccountingCommand | IncomeExpenseCommand;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -33,16 +47,30 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function parseCommand(raw: unknown): AccountingCommand {
+function parseCommand(raw: unknown): OfflineAccountingCommand {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HttpError(400, "فرمان حسابداری آفلاین معتبر نیست");
   const command = raw as Record<string, unknown>;
   const keys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
   if (Object.keys(command).some((key) => !keys.includes(key))) throw new HttpError(400, "فرمان حسابداری فیلد ناشناخته دارد");
-  if (command.schemaVersion !== 1 || command.module !== "accounting" || command.action !== "create_document" || command.baseDataset !== "accounting") throw new HttpError(400, "نسخه یا نوع فرمان حسابداری پشتیبانی نمی‌شود");
+  if (command.schemaVersion !== 1 || command.module !== "accounting" || !["create_document", "create_transaction"].includes(String(command.action)) || command.baseDataset !== "accounting") throw new HttpError(400, "نسخه یا نوع فرمان حسابداری پشتیبانی نمی‌شود");
   if (typeof command.id !== "string" || !UUID.test(command.id) || !Number.isSafeInteger(command.businessId) || Number(command.businessId) < 1) throw new HttpError(400, "شناسه فرمان یا کسب‌وکار معتبر نیست");
   if (typeof command.baseSnapshotId !== "string" || !UUID.test(command.baseSnapshotId) || !Number.isSafeInteger(command.baseRevision) || Number(command.baseRevision) < 1) throw new HttpError(400, "نسخه مبنای حسابداری معتبر نیست");
   if (!command.payload || typeof command.payload !== "object" || Array.isArray(command.payload)) throw new HttpError(400, "اطلاعات سند معتبر نیست");
   const payload = command.payload as Record<string, unknown>;
+  if (command.action === "create_transaction") {
+    if (Object.keys(payload).some((key) => !["date", "kind", "category", "amount", "bankAccountId", "accountId", "description"].includes(key))
+      || typeof payload.date !== "string" || payload.date.length > 40 || !RFC3339.test(payload.date) || !Number.isFinite(Date.parse(payload.date))
+      || (payload.kind !== "income" && payload.kind !== "expense") || typeof payload.category !== "string" || payload.category.trim().length < 1 || [...payload.category].length > 120
+      || !Number.isSafeInteger(payload.amount) || Number(payload.amount) < 1 || Number(payload.amount) > 2_147_483_647
+      || !(payload.bankAccountId === null || (Number.isSafeInteger(payload.bankAccountId) && Number(payload.bankAccountId) > 0))
+      || !Number.isSafeInteger(payload.accountId) || Number(payload.accountId) < 1 || typeof payload.description !== "string" || [...payload.description].length > 240) {
+      throw new HttpError(400, "تاریخ، نوع، دسته، مبلغ یا حساب ردیف درآمد/هزینه معتبر نیست");
+    }
+    return { ...command, module: "accounting", action: "create_transaction", baseDataset: "accounting", payload: {
+      date: payload.date, kind: payload.kind, category: payload.category.trim(), amount: Number(payload.amount),
+      bankAccountId: payload.bankAccountId === null ? null : Number(payload.bankAccountId), accountId: Number(payload.accountId), description: payload.description.trim(),
+    } } as unknown as IncomeExpenseCommand;
+  }
   if (Object.keys(payload).some((key) => !["date", "kind", "description", "lines"].includes(key))) throw new HttpError(400, "اطلاعات سند فیلد ناشناخته دارد");
   if (typeof payload.date !== "string" || payload.date.length > 40 || !RFC3339.test(payload.date) || !Number.isFinite(Date.parse(payload.date)) || payload.kind !== "general" || typeof payload.description !== "string" || payload.description.trim().length < 2 || [...payload.description].length > 300 || !Array.isArray(payload.lines) || payload.lines.length < 2 || payload.lines.length > 200) throw new HttpError(400, "تاریخ، شرح یا ردیف‌های سند معتبر نیستند");
   const lines = payload.lines.map((rawLine) => {
@@ -86,21 +114,45 @@ export async function syncOfflineAccountingCommand(req: Request, raw: unknown) {
     if (!snapshot || snapshot.validUntil <= new Date()) throw new HttpError(409, "نسخهٔ حسابداری پیدا نشد یا منقضی شده است؛ پس از اتصال نسخهٔ تازه بگیرید");
     const accounts = Array.isArray(snapshot.payload.accounts) ? snapshot.payload.accounts as Record<string, unknown>[] : [];
     const accountIds = new Set(accounts.filter((account) => account.isActive === true && account.level !== "kol").map((account) => Number(account.id)));
-    if (command.payload.lines.some((line) => !accountIds.has(line.accountId))) throw new HttpError(409, "یکی از حساب‌های سند در نسخهٔ محلی موجود یا فعال نیست");
     const years = Array.isArray(snapshot.payload.years) ? snapshot.payload.years as Record<string, unknown>[] : [];
     const date = new Date(command.payload.date);
     if (!years.some((year) => year.isClosed !== true && typeof year.startDate === "string" && typeof year.endDate === "string" && date >= new Date(year.startDate) && date <= new Date(year.endDate))) throw new HttpError(409, "تاریخ سند در سال مالی بازِ نسخهٔ محلی نیست؛ پس از اتصال نسخهٔ تازه بگیرید");
 
-    const doc = await Accounting.postDocumentInTransaction(tx, business, {
-      date, kind: "general", source: "manual", sourceRef: `offline-command:${command.id}`,
-      description: command.payload.description, status: "posted", lines: command.payload.lines,
-      createdBy: `صندوق آفلاین ${terminal.id.slice(0, 8)}`,
-    });
+    let doc: Awaited<ReturnType<typeof Accounting.postDocumentInTransaction>>;
+    let transactionId: number | undefined;
+    if (command.action === "create_document") {
+      if (command.payload.lines.some((line) => !accountIds.has(line.accountId))) throw new HttpError(409, "یکی از حساب‌های سند در نسخهٔ محلی موجود یا فعال نیست");
+      doc = await Accounting.postDocumentInTransaction(tx, business, {
+        date, kind: "general", source: "manual", sourceRef: `offline-command:${command.id}`,
+        description: command.payload.description, status: "posted", lines: command.payload.lines,
+        createdBy: `صندوق آفلاین ${terminal.id.slice(0, 8)}`,
+      });
+    } else {
+      const account = accounts.find((candidate) => Number(candidate.id) === command.payload.accountId && candidate.isActive === true);
+      const expectedType = command.payload.kind === "income" ? "revenue" : "expense";
+      const expectedNature = command.payload.kind === "income" ? "credit" : "debit";
+      if (!account || account.level === "kol" || account.type !== expectedType || account.nature !== expectedNature) throw new HttpError(409, "حساب درآمد/هزینه در snapshot فعال یا متناسب با نوع ردیف نیست");
+      if (command.payload.bankAccountId !== null) {
+        const bankAccounts = Array.isArray(snapshot.payload.bankAccounts) ? snapshot.payload.bankAccounts as Record<string, unknown>[] : [];
+        if (!bankAccounts.some((bank) => Number(bank.id) === command.payload.bankAccountId)) throw new HttpError(409, "حساب بانکی در snapshot محلی موجود نیست");
+      }
+      const [transaction] = await tx.insert(transactions).values({
+        businessId: business.id, kind: command.payload.kind, source: "manual", category: command.payload.category,
+        amount: command.payload.amount, bankAccountId: command.payload.bankAccountId, accountMoeinId: account.level === "moein" ? account.id as number : account.parentId as number,
+        accountTafsiliId: account.level === "tafsili" ? account.id as number : null, sourceRef: `offline-command:${command.id}`,
+        description: command.payload.description, date,
+      }).returning({ id: transactions.id });
+      transactionId = transaction.id;
+      doc = await Accounting.postManualTxInTransaction(tx, business, {
+        id: transaction.id, kind: command.payload.kind, category: command.payload.category, amount: command.payload.amount,
+        bankAccountId: command.payload.bankAccountId, accountId: command.payload.accountId, description: command.payload.description, date,
+      });
+    }
     const receipt = randomUUID();
-    const response = { commandId: command.id, state: "applied", receipt, documentId: doc.id, documentNumber: doc.number };
+    const response = { commandId: command.id, state: "applied", receipt, documentId: doc.id, documentNumber: doc.number, ...(transactionId ? { transactionId } : {}) };
     await tx.insert(offlineWorkspaceCommands).values({
       id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy,
-      module: "accounting", action: "create_document", payloadHash,
+      module: "accounting", action: command.action, payloadHash,
       payload: command as unknown as Record<string, unknown>, state: "applied", httpStatus: 200,
       error: "", receipt, result: response,
     });

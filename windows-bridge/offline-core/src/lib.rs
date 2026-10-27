@@ -821,7 +821,7 @@ impl Store {
             "customers" => ["create", "update"].contains(&action),
             "reservations" => ["create", "set_status"].contains(&action),
             "inventory" => ["create_item", "receive", "movement", "waste", "transfer", "supplier_create", "supplier_update"].contains(&action),
-            "accounting" => ["create_document", "reverse_document"].contains(&action),
+            "accounting" => ["create_document", "create_transaction", "reverse_document"].contains(&action),
             "receivables" => ["record_payment"].contains(&action),
             "staff" => ["attendance", "create_shift", "leave_request", "shift_change", "mark_absent", "decide_leave", "decide_shift_swap"].contains(&action),
             "payroll" => ["adjustment", "settlement"].contains(&action),
@@ -1895,6 +1895,62 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"create_document","totalAmount":debit_total}))
     }
 
+    pub fn enqueue_income_expense_with_pin(&mut self, pin: &str, payload: &Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        let fields = payload.as_object().ok_or("اطلاعات درآمد/هزینه معتبر نیست")?;
+        let allowed = ["kind", "category", "description", "amount", "date", "accountId", "bankAccountId"];
+        if fields.keys().any(|key| !allowed.contains(&key.as_str())) || allowed.iter().any(|key| !fields.contains_key(*key)) {
+            return Err("اطلاعات درآمد/هزینه ناقص است یا فیلد ناشناخته دارد".into());
+        }
+        let snapshot = self.workspace_snapshot("accounting")?.ok_or_else(|| "نسخهٔ حسابداری محلی دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) { return Err("نسخهٔ حسابداری منقضی است؛ برای ثبت ردیف، ابتدا حساب‌ها را تازه کنید".into()); }
+        let kind = payload["kind"].as_str().filter(|value| *value == "income" || *value == "expense").ok_or("نوع درآمد یا هزینه معتبر نیست")?;
+        let category = payload["category"].as_str().ok_or("دستهٔ درآمد یا هزینه لازم است")?.trim();
+        if category.is_empty() || category.chars().count() > 120 { return Err("دسته باید بین ۱ تا ۱۲۰ نویسه باشد".into()); }
+        let description = payload["description"].as_str().unwrap_or("").trim();
+        if description.chars().count() > 240 { return Err("شرح بیش از ۲۴۰ نویسه است".into()); }
+        let amount = payload["amount"].as_i64().filter(|value| *value > 0 && *value <= 2_147_483_647).ok_or("مبلغ باید عدد صحیح مثبت و در محدودهٔ ستون پول باشد")?;
+        let date = DateTime::parse_from_rfc3339(payload["date"].as_str().ok_or("تاریخ معتبر نیست")?).map_err(|_| "تاریخ ردیف معتبر نیست")?;
+        let years = snapshot["payload"]["years"].as_array().ok_or("فهرست سال مالی محلی معتبر نیست")?;
+        if !years.iter().any(|year| {
+            let start = year["startDate"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            let end = year["endDate"].as_str().and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+            year["isClosed"].as_bool() == Some(false) && start.is_some_and(|value| date >= value) && end.is_some_and(|value| date <= value)
+        }) { return Err("تاریخ باید در یکی از سال‌های مالی بازِ نسخهٔ محلی باشد".into()); }
+        let account_id = payload["accountId"].as_i64().filter(|value| *value > 0).ok_or("حساب درآمد یا هزینه انتخاب نشده است")?;
+        let expected_type = if kind == "income" { "revenue" } else { "expense" };
+        let expected_nature = if kind == "income" { "credit" } else { "debit" };
+        let accounts = snapshot["payload"]["accounts"].as_array().ok_or("فهرست حساب‌های محلی معتبر نیست")?;
+        let account = accounts.iter().find(|account| account["id"].as_i64() == Some(account_id) && account["isActive"].as_bool() == Some(true)).ok_or("حساب انتخاب‌شده در نسخهٔ محلی فعال نیست")?;
+        if !matches!(account["level"].as_str(), Some("moein") | Some("tafsili")) || account["type"].as_str() != Some(expected_type) || account["nature"].as_str() != Some(expected_nature) {
+            return Err("ماهیت حساب با درآمد یا هزینه انتخاب‌شده هم‌خوان نیست".into());
+        }
+        if account["level"].as_str() == Some("tafsili") {
+            let parent_id = account["parentId"].as_i64().ok_or("حساب تفصیلی والد معتبر ندارد")?;
+            if !accounts.iter().any(|parent| parent["id"].as_i64() == Some(parent_id) && parent["isActive"].as_bool() == Some(true) && parent["level"].as_str() == Some("moein") && parent["type"].as_str() == Some(expected_type) && parent["nature"].as_str() == Some(expected_nature)) {
+                return Err("حساب تفصیلی با حساب معین سازگار نیست".into());
+            }
+        }
+        let bank_account_id = if payload["bankAccountId"].is_null() { None } else { Some(payload["bankAccountId"].as_i64().filter(|value| *value > 0).ok_or("حساب بانکی معتبر نیست")?) };
+        if let Some(bank_id) = bank_account_id {
+            let banks = snapshot["payload"]["bankAccounts"].as_array().ok_or("فهرست حساب‌های بانکی محلی موجود نیست")?;
+            if !banks.iter().any(|bank| bank["id"].as_i64() == Some(bank_id)) { return Err("حساب بانکی در نسخهٔ محلی موجود نیست".into()); }
+        }
+        let business_id = number(&snapshot, "businessId")?;
+        let base_snapshot_id = snapshot["snapshotId"].as_str().ok_or("شناسهٔ نسخهٔ حسابداری پیدا نشد")?;
+        let command_id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":command_id,"businessId":business_id,"module":"accounting",
+            "action":"create_transaction","baseDataset":"accounting","baseSnapshotId":base_snapshot_id,
+            "baseRevision":snapshot["revision"],"payload":{
+                "date":date.with_timezone(&Utc).to_rfc3339(),"kind":kind,"category":category,"amount":amount,
+                "bankAccountId":bank_account_id,"accountId":account_id,"description":description
+            }
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":command_id,"state":"pending","action":"create_transaction","amount":amount}))
+    }
+
     pub fn enqueue_cheque_register_with_pin(&mut self, pin: &str, payload: &Value) -> Result<Value> {
         self.verify_local_manager_pin(pin)?;
         let snapshot = self.workspace_snapshot("cheques")?.ok_or_else(|| "نسخهٔ دفتر چک دریافت نشده است".to_string())?;
@@ -2749,6 +2805,10 @@ impl Store {
                 item["amount"] = command["payload"]["amount"].clone();
             }
             if module == "cheques" {
+                let command = value(payload)?;
+                item["commandPayload"] = command["payload"].clone();
+            }
+            if module == "accounting" && action == "create_transaction" {
                 let command = value(payload)?;
                 item["commandPayload"] = command["payload"].clone();
             }

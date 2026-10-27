@@ -1923,6 +1923,10 @@ pub fn offline_workspace_create_accounting_document(
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_accounting_document_with_pin(&manager_pin, &date, &description, &lines)
 }
 #[tauri::command]
+pub fn offline_workspace_create_income_expense(payload: Value, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_income_expense_with_pin(&manager_pin, &payload)
+}
+#[tauri::command]
 pub fn offline_reservation_create(payload: Value, state: State<'_, OfflineState>) -> Result<Value> {
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_reservation_request(payload)
 }

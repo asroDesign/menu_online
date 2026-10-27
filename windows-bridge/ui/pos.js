@@ -217,9 +217,22 @@
   function renderWorkspaceAccountingCommands(){
     const summary=state?.workspaceCommands||{},recent=(summary.recent||[]).filter(item=>item.module==='accounting');
     const states={pending:'در انتظار اتصال',conflict:'نیازمند بررسی',rejected:'رد شد',synced:'ثبت شد'};
-    $('accounting-commands').innerHTML=recent.length?recent.slice(0,30).map(item=>`<div class="workspace-command-row"><span><b>سند عمومی · ${esc(item.id.slice(0,8))}</b><small>${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`).join(''):'<p class="muted">سند آفلاینی در صف نیست.</p>';
+    const transactions=recent.filter(item=>item.action==='create_transaction');
+    $('accounting-income-expense-commands').innerHTML=transactions.length?transactions.slice(0,30).map(item=>{const payload=item.commandPayload||{},kind=payload.kind==='income'?'درآمد':'هزینه';return `<div class="workspace-command-row"><span><b>${kind} · ${esc(payload.category||'بدون دسته')} · ${money(payload.amount)} تومان</b><small>${esc(payload.description||'بدون شرح')} · ${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`;}).join(''):'<p class="muted">ردیف درآمد یا هزینه‌ای در صف نیست.</p>';
+    const documents=recent.filter(item=>item.action==='create_document');
+    $('accounting-commands').innerHTML=documents.length?documents.slice(0,30).map(item=>`<div class="workspace-command-row"><span><b>سند عمومی · ${esc(item.id.slice(0,8))}</b><small>${esc(item.error||item.createdAt||'')}</small></span><strong class="workspace-command-state ${esc(item.state)}">${states[item.state]||esc(item.state)}</strong></div>`).join(''):'<p class="muted">سند عمومی آفلاینی در صف نیست.</p>';
   }
   function activeAccountingAccounts(){return (workspaceAccounting?.payload?.accounts||[]).filter(account=>account.isActive&&account.level!=='kol');}
+  function renderIncomeExpenseOptions(){
+    const kind=$('income-expense-kind').value,accountSelect=$('income-expense-account'),bankSelect=$('income-expense-bank'),accounts=activeAccountingAccounts().filter(account=>account.type===(kind==='income'?'revenue':'expense')&&account.nature===(kind==='income'?'credit':'debit'));
+    const selectedAccount=accountSelect.value,selectedBank=bankSelect.value;
+    accountSelect.innerHTML=`<option value="">انتخاب حساب ${kind==='income'?'درآمد':'هزینه'}</option>${accounts.map(account=>`<option value="${account.id}">${esc(account.code)} · ${esc(account.name)}${account.level==='tafsili'?' · تفصیلی':''}</option>`).join('')}`;
+    if(accounts.some(account=>String(account.id)===selectedAccount))accountSelect.value=selectedAccount;
+    const banks=workspaceAccounting?.payload?.bankAccounts||[];
+    bankSelect.innerHTML=`<option value="">صندوق نقد</option>${banks.map(bank=>`<option value="${bank.id}">${esc(bank.bank||'بانک')} · ${esc(bank.name)}</option>`).join('')}`;
+    if(banks.some(bank=>String(bank.id)===selectedBank))bankSelect.value=selectedBank;
+    $('income-expense-submit').disabled=!workspaceAccounting?.payload||workspaceAccounting.expired||!state?.paired;
+  }
   function appendAccountingLine(){
     const accounts=activeAccountingAccounts(),tbody=$('accounting-lines');
     const row=document.createElement('tr');
@@ -246,7 +259,7 @@
     if(!snapshot||!payload){
       $('accounting-sync').textContent=sync?.message||'snapshot دریافت نشده';$('accounting-sync').className='pos-status offline';
       $('accounting-state').textContent=sync?.message||'برای مشاهده و ثبت سند آفلاین، یک‌بار هنگام اتصال حساب‌ها و سال مالی را دریافت کنید.';
-      $('accounting-revision').textContent='—';$('accounting-summary').innerHTML='';$('accounting-documents').innerHTML='';$('accounting-lines').innerHTML='';renderAccountingTotals();return;
+      $('accounting-revision').textContent='—';$('accounting-summary').innerHTML='';$('accounting-documents').innerHTML='';$('accounting-lines').innerHTML='';renderIncomeExpenseOptions();renderAccountingTotals();return;
     }
     const accounts=Array.isArray(payload.accounts)?payload.accounts:[],years=Array.isArray(payload.years)?payload.years:[],documents=Array.isArray(payload.documents)?payload.documents:[];
     const openYears=years.filter(year=>!year.isClosed),activeAccounts=accounts.filter(account=>account.isActive&&account.level!=='kol');
@@ -254,6 +267,8 @@
     $('accounting-sync').textContent=snapshot.expired?'نسخهٔ منقضی · فقط مشاهده':'نسخهٔ محلی رمزگذاری‌شده';$('accounting-sync').className=`pos-status ${snapshot.expired?'offline':'online'}`;
     $('accounting-revision').textContent=`نسخه ${money(snapshot.revision)}`;
     $('accounting-state').textContent=`${money(documents.length)} سند اخیر · ${money(payload.totalDocuments)} سند در snapshot · ${money(activeAccounts.length)} حساب قابل ثبت · ${money(openYears.length)} سال مالی باز · آخرین دریافت ${updated}${sync?.message?` · ${sync.message}`:''}`;
+    if(!$('income-expense-date').value)$('income-expense-date').value=defaultChequeDate();
+    renderIncomeExpenseOptions();
     $('accounting-summary').innerHTML=`<article><span>حساب قابل انتخاب</span><b>${money(activeAccounts.length)}</b></article><article><span>سال مالی باز</span><b>${money(openYears.length)}</b></article><article><span>اسناد cache شده</span><b>${money(documents.length)}</b></article>`;
     $('accounting-documents').innerHTML=documents.length?documents.map(doc=>`<article class="offline-shift-card accounting-document"><div class="offline-shift-head"><b>سند #${money(doc.number)}</b><span class="pos-badge ${doc.status==='posted'?'synced':'conflict'}">${doc.status==='posted'?'قطعی':'پیش‌نویس'}</span></div><p>${esc(doc.description||'بدون شرح')}</p><div class="offline-shift-meta"><span>${new Date(doc.date).toLocaleDateString('fa-IR')}</span><span>${money(doc.totalAmount)} تومان</span><span>${esc(doc.source||'manual')}</span>${doc.reversed?'<span>برگشت‌خورده</span>':''}</div><div class="accounting-document-lines">${(doc.lines||[]).map(line=>`<div><span>${esc(line.accountCode)} · ${esc(line.accountName)}</span><b>${line.debit?`بدهکار ${money(line.debit)}`:`بستانکار ${money(line.credit)}`} تومان</b></div>`).join('')}</div></article>`).join(''):'<p class="muted">سندی در نسخهٔ حسابداری محلی موجود نیست.</p>';
     const previous=Array.from($('accounting-lines').querySelectorAll('tr')).map(row=>({account:row.querySelector('[data-account]')?.value||'',debit:row.querySelector('[data-debit]')?.value||'0',credit:row.querySelector('[data-credit]')?.value||'0',description:row.querySelector('[data-line-description]')?.value||''}));
@@ -1211,6 +1226,22 @@
   $('server-orders-refresh').onclick=async()=>{try{await call('offline_refresh');$('server-orders-state').textContent='درخواست دریافت سفارش‌های تازه و ادامهٔ آرشیو کامل ثبت شد؛ نسخهٔ محلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('accounting-refresh').onclick=async()=>{try{await call('offline_refresh');$('accounting-state').textContent='درخواست دریافت حساب‌ها و اسناد تازه ثبت شد؛ نسخهٔ محلی تا دریافت موفق قابل مشاهده می‌ماند.';}catch(error){notify(error,true);}};
   $('accounting-add-line').onclick=()=>appendAccountingLine();
+  $('income-expense-kind').onchange=renderIncomeExpenseOptions;
+  $('income-expense-amount').oninput=event=>{const value=digits(event.currentTarget.value).replace(/\D/g,'');event.currentTarget.value=value?Number(value).toLocaleString('fa-IR'):'';};
+  $('income-expense-form').onsubmit=async event=>{
+    event.preventDefault();$('income-expense-error').textContent='';$('income-expense-submit').disabled=true;
+    try{
+      const date=jalaliInputIso($('income-expense-date').value),amount=Number(digits($('income-expense-amount').value)),kind=$('income-expense-kind').value,accountId=Number($('income-expense-account').value);
+      if(!date)throw new Error('تاریخ شمسی معتبر نیست.');
+      if(!['income','expense'].includes(kind))throw new Error('نوع ردیف درآمد یا هزینه را انتخاب کنید.');
+      if(!Number.isSafeInteger(amount)||amount<=0||amount>2_147_483_647)throw new Error('مبلغ باید عدد صحیح مثبت و در محدودهٔ مجاز باشد.');
+      if(!Number.isSafeInteger(accountId)||accountId<1)throw new Error('حساب متناسب با نوع درآمد یا هزینه را انتخاب کنید.');
+      const payload={date,kind,category:$('income-expense-category').value.trim(),amount,bankAccountId:$('income-expense-bank').value?Number($('income-expense-bank').value):null,accountId,description:$('income-expense-description').value.trim()};
+      await call('offline_workspace_create_income_expense',{payload,managerPin:digits($('income-expense-pin').value)});
+      $('income-expense-pin').value='';$('income-expense-amount').value='';$('income-expense-description').value='';notify('ردیف درآمد/هزینه روی دستگاه ذخیره شد و در صف همگام‌سازی است.');await refresh();
+    }catch(error){$('income-expense-error').textContent=String(error);}
+    finally{renderIncomeExpenseOptions();}
+  };
   $('accounting-lines').addEventListener('input',event=>{const input=event.target.closest('[data-debit],[data-credit]');if(input)input.value=digits(input.value).replace(/\D/g,'');renderAccountingTotals();});
   $('accounting-lines').addEventListener('change',()=>renderAccountingTotals());
   $('accounting-lines').addEventListener('click',event=>{if(!event.target.closest('[data-remove-accounting-line]'))return;if($('accounting-lines').querySelectorAll('tr').length<=2){notify('سند باید دست‌کم دو ردیف داشته باشد.',true);return;}event.target.closest('tr').remove();renderAccountingTotals();});
