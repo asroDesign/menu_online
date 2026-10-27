@@ -26,6 +26,6 @@ test('both OTP flows use the shared SMS-autofill control', () => {
   assert.match(component, /autoComplete="one-time-code"/);
   assert.match(component, /inputMode="numeric"/);
   assert.match(component, /gridTemplateColumns: `repeat\(\$\{safeLength\}/);
-  assert.match(source('src/components/auth-form.tsx'), /<OtpCodeInput value=\{code\}/);
-  assert.match(source('src/components/public-menu-navigation.tsx'), /<OtpCodeInput value=\{code\}/);
+  assert.match(source('src/components/auth-form.tsx'), /<OtpCodeInput\b[^>]*\bvalue=\{code\}/);
+  assert.match(source('src/components/public-menu-navigation.tsx'), /<OtpCodeInput\b[^>]*\bvalue=\{code\}/);
 });

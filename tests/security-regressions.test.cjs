@@ -376,7 +376,7 @@ test('interactive preview is local-only, uses fabricated data, and never submits
   assert.match(page, /<DemoPreview initialMenuId=\{menu\}\/\>/);
 });
 
-test('shared demo identities cannot sign in and demo checkout/reservation actions are rejected', () => {
+test('shared demo identities cannot sign in; sample checkout is blocked while reservations follow tenant settings', () => {
   const auth = source('src/app/api/auth/demo/route.ts');
   const login = source('src/app/api/auth/login/route.ts');
   const form = source('src/components/auth-form.tsx');
@@ -384,8 +384,11 @@ test('shared demo identities cannot sign in and demo checkout/reservation action
   assert.match(login, /const demoBlocked = DEMO_LOGIN_EMAILS\.has\(email\)/);
   assert.doesNotMatch(form, /api\/auth\/demo|ورود آزمایشی|demoEnabled/);
   assert.match(source('src/app/api/public/[slug]/orders/route.ts'), /isReadOnlyDemoSlug\(slug\)/);
-  assert.match(source('src/app/api/public/[slug]/reservations/route.ts'), /isReadOnlyDemoSlug\(slug\)/);
   assert.match(source('src/app/api/public/[slug]/pos/[id]/route.ts'), /isReadOnlyDemoSlug\(slug\)/);
+  const reservations = source('src/app/api/public/[slug]/reservations/route.ts');
+  assert.match(reservations, /hasAny\(features, "reservations"\)/);
+  assert.doesNotMatch(reservations, /isReadOnlyDemoSlug\(slug\)/);
+  assert.match(source('src/components/menu-client.tsx'), /canReserve = caps\.reservations && \(!readOnlyPreview \|\| readOnlyDemo\)/);
 });
 
 test('product option selections are validated and unit prices come from server catalog data', () => {
@@ -495,7 +498,7 @@ test('menu templates are whitelisted and the real-menu preview cannot order or r
     assert.ok(templates.includes(`id: ${template}`), `menu template ${template} remains whitelisted`);
   assert.match(page, /readOnlyPreview=\{!!validTemplate && slug !== DEMO_SLUG\}/);
   assert.match(menu, /!readOnlyPreview && biz\.acceptOrders/);
-  assert.match(menu, /caps\.reservations && !readOnlyDemo && !readOnlyPreview/);
+  assert.match(menu, /canReserve = caps\.reservations && \(!readOnlyPreview \|\| readOnlyDemo\)/);
   assert.match(menu, /آلرژن ثبت نشده/);
 });
 
@@ -510,7 +513,7 @@ test('demo menu allows the waiter request flow while keeping its order preview r
   assert.match(menu, /pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-2xl/);
   assert.match(menu, /aria-label="درخواست از گارسون؛ صدا زدن یا ارسال پیام"/);
   assert.doesNotMatch(menu, /caps\.waiterCall && !readOnlyDemo/);
-  assert.match(menu, /ثبت سفارش و رزرو میز فعال نیست، اما می‌توانید درخواست گارسون را آزمایش کنید/);
+  assert.match(menu, /سفارش آنلاین غیرفعال است، اما می‌توانید رزرو میز را ثبت کنید/);
   assert.doesNotMatch(request, /isReadOnlyDemoSlug|منوی نمایشی امکان درخواست گارسون/);
   assert.match(request, /hasAny\(features, "waiter_call"\)/);
   assert.match(request, /eq\(diningTables\.businessId, business\.id\)/);
@@ -530,7 +533,7 @@ test('waiter service requests use a persistent floating sound dock with a counte
   assert.match(notifications, /فعال‌سازی صدا/);
   assert.doesNotMatch(notifications, /اعلان دیداری فعال است|sm:flex-row sm:items-center/);
   assert.match(notifications, /fixed left-4 bottom-\[calc\(5rem_\+_env\(safe-area-inset-bottom\)\)\]/);
-  assert.match(notifications, /bottom-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(notifications, /max-h-\[min\(48vh,22rem\)\]/);
 });
 
 test('platform funnel stores no identifying fields and separates observed from server-confirmed events', () => {
