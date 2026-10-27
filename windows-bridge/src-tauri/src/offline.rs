@@ -1427,6 +1427,7 @@ pub fn offline_status(state: State<'_, OfflineState>) -> Result<Value> {
         "workspaceCustomerSync": s.get("workspace_sync_customers")?,
         "workspaceInventorySync": s.get("workspace_sync_inventory")?,
         "workspaceInventoryCommands": s.workspace_inventory_commands()?,
+        "workspaceInventorySupplierCommands": s.workspace_inventory_supplier_commands()?,
         "workspaceOrdersSync": s.get("workspace_sync_orders")?,
         "workspaceOrderHistorySync": s.get("workspace_order_history_sync")?,
         "workspaceOrderHistoryError": s.get("workspace_sync_orders_history")?,
@@ -1900,6 +1901,16 @@ pub fn offline_workspace_receive_inventory(
 #[tauri::command]
 pub fn offline_workspace_create_inventory_item(payload: Value, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
     state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_create_item_with_pin(&manager_pin, &payload)
+}
+
+#[tauri::command]
+pub fn offline_workspace_create_supplier(payload: Value, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_supplier_create_with_pin(&manager_pin, &payload)
+}
+
+#[tauri::command]
+pub fn offline_workspace_update_supplier(supplier_id: i64, patch: Value, manager_pin: String, state: State<'_, OfflineState>) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_inventory_supplier_update_with_pin(&manager_pin, supplier_id, &patch)
 }
 #[tauri::command]
 pub fn offline_workspace_create_accounting_document(

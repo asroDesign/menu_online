@@ -820,7 +820,7 @@ impl Store {
             .contains(&action),
             "customers" => ["create", "update"].contains(&action),
             "reservations" => ["create", "set_status"].contains(&action),
-            "inventory" => ["create_item", "receive", "movement", "waste", "transfer"].contains(&action),
+            "inventory" => ["create_item", "receive", "movement", "waste", "transfer", "supplier_create", "supplier_update"].contains(&action),
             "accounting" => ["create_document", "reverse_document"].contains(&action),
             "receivables" => ["record_payment"].contains(&action),
             "staff" => ["attendance", "create_shift", "leave_request", "shift_change", "mark_absent", "decide_leave", "decide_shift_swap"].contains(&action),
@@ -2160,6 +2160,71 @@ impl Store {
                 "sequence":sequence,"baseSnapshotId":base_snapshot_id,"action":command["action"],"payload":command["payload"]
             }))
         }).collect::<Result<Vec<_>>>().map(|items| json!(items))
+    }
+
+    pub fn workspace_inventory_supplier_commands(&self) -> Result<Value> {
+        let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else { return Ok(json!([])); };
+        let mut query = self.conn.prepare("SELECT id,state,error,payload,created_at,sequence,base_snapshot_id FROM workspace_commands WHERE business_id=?1 AND module='inventory' AND action IN ('supplier_create','supplier_update') ORDER BY sequence DESC LIMIT 100").map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Vec<u8>>(3)?,row.get::<_,String>(4)?,row.get::<_,i64>(5)?,row.get::<_,Option<String>>(6)?))).map_err(err)?;
+        rows.map(|row| {
+            let (id,state,error,payload,created_at,sequence,base_snapshot_id)=row.map_err(err)?;
+            let command=value(payload)?;
+            Ok(json!({"id":id,"state":state,"error":error,"payload":command["payload"],"action":command["action"],"createdAt":created_at,"sequence":sequence,"baseSnapshotId":base_snapshot_id}))
+        }).collect::<Result<Vec<_>>>().map(|rows| json!(rows))
+    }
+
+    pub fn enqueue_inventory_supplier_create_with_pin(&mut self, pin: &str, raw: &Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        let fields = raw.as_object().ok_or("مشخصات تأمین‌کننده معتبر نیست")?;
+        let allowed = ["name","contactPerson","phone","address","taxId","bankInfo","note","isActive"];
+        if fields.keys().any(|key| !allowed.contains(&key.as_str())) { return Err("مشخصات تأمین‌کننده شامل فیلد ناشناخته است".into()); }
+        let get_text = |key: &str, max: usize| -> Result<String> {
+            let value = raw[key].as_str().ok_or("اطلاعات متنی تأمین‌کننده معتبر نیست")?.trim().to_string();
+            if value.chars().count() > max { return Err("یکی از مشخصات تأمین‌کننده بیش از حد طولانی است".into()); }
+            Ok(value)
+        };
+        let name = get_text("name",100)?;
+        if name.chars().count() < 2 { return Err("نام تأمین‌کننده باید دست‌کم دو نویسه باشد".into()); }
+        let contact_person=get_text("contactPerson",80)?; let phone=get_text("phone",30)?; let address=get_text("address",300)?;
+        let tax_id=get_text("taxId",40)?; let bank_info=get_text("bankInfo",80)?; let note=get_text("note",300)?;
+        let is_active=raw["isActive"].as_bool().ok_or("وضعیت فعال‌بودن تأمین‌کننده معتبر نیست")?;
+        let snapshot=self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool()==Some(true) { return Err("نسخهٔ انبار منقضی است؛ ابتدا اطلاعات تازه بگیرید".into()); }
+        let name_key=name.to_lowercase();
+        if snapshot["payload"]["suppliers"].as_array().is_some_and(|rows| rows.iter().any(|row| row["name"].as_str().is_some_and(|value| value.trim().to_lowercase()==name_key))) { return Err("تأمین‌کننده‌ای با این نام در نسخهٔ محلی وجود دارد".into()); }
+        let pending=self.workspace_inventory_supplier_commands()?;
+        if pending.as_array().is_some_and(|rows| rows.iter().any(|row| row["state"]=="pending" && row["action"]=="supplier_create" && row["payload"]["supplier"]["name"].as_str().is_some_and(|value| value.trim().to_lowercase()==name_key))) { return Err("ثبت تأمین‌کننده‌ای با این نام در صف است".into()); }
+        let id=uuid::Uuid::new_v4().to_string();let business_id=number(&snapshot,"businessId")?;
+        let command=json!({"schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory","action":"supplier_create","baseDataset":"inventory","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],"payload":{"supplier":{"name":name,"contactPerson":contact_person,"phone":phone,"address":address,"taxId":tax_id,"bankInfo":bank_info,"note":note,"isActive":is_active}}});
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":"supplier_create"}))
+    }
+
+    pub fn enqueue_inventory_supplier_update_with_pin(&mut self, pin: &str, supplier_id: i64, patch: &Value) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if supplier_id<1 { return Err("شناسهٔ تأمین‌کننده معتبر نیست".into()); }
+        let changes=patch.as_object().ok_or("تغییرات تأمین‌کننده معتبر نیست")?;
+        let allowed=["name","contactPerson","phone","address","taxId","bankInfo","note","isActive"];
+        if changes.is_empty() || changes.keys().any(|key| !allowed.contains(&key.as_str())) { return Err("فیلدهای تغییر تأمین‌کننده معتبر نیستند".into()); }
+        let limits=[("name",100usize),("contactPerson",80),("phone",30),("address",300),("taxId",40),("bankInfo",80),("note",300)];
+        for (key,max) in limits { if let Some(value)=changes.get(key) { let value=value.as_str().ok_or("مقدار مشخصات تأمین‌کننده معتبر نیست")?;if value.chars().count()>max { return Err("یکی از مشخصات تأمین‌کننده بیش از حد طولانی است".into()); } } }
+        if let Some(value)=changes.get("isActive") { if !value.is_boolean() { return Err("وضعیت فعال‌بودن تأمین‌کننده معتبر نیست".into()); } }
+        if let Some(value)=changes.get("name") { if value.as_str().unwrap_or("").trim().chars().count()<2 { return Err("نام تأمین‌کننده باید دست‌کم دو نویسه باشد".into()); } }
+        let snapshot=self.workspace_inventory_snapshot()?.ok_or_else(|| "نسخهٔ محلی انبار دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool()==Some(true) { return Err("نسخهٔ انبار منقضی است؛ ابتدا اطلاعات تازه بگیرید".into()); }
+        let supplier=snapshot["payload"]["suppliers"].as_array().and_then(|rows| rows.iter().find(|row| row["id"].as_i64()==Some(supplier_id))).ok_or("تأمین‌کننده در نسخهٔ این دستگاه پیدا نشد")?;
+        if let Some(name)=changes.get("name").and_then(Value::as_str) {
+            let name_key=name.trim().to_lowercase();
+            if snapshot["payload"]["suppliers"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_i64()!=Some(supplier_id)&&row["name"].as_str().is_some_and(|value| value.trim().to_lowercase()==name_key))) { return Err("تأمین‌کنندهٔ دیگری با این نام در نسخهٔ محلی وجود دارد".into()); }
+        }
+        let pending=self.workspace_inventory_supplier_commands()?;
+        if pending.as_array().is_some_and(|rows| rows.iter().any(|row| row["state"]=="pending" && row["action"]=="supplier_update" && row["payload"]["supplierId"].as_i64()==Some(supplier_id))) { return Err("برای این تأمین‌کننده تغییری در صف همگام‌سازی وجود دارد".into()); }
+        let expected=json!({"id":supplier["id"],"name":supplier["name"],"contactPerson":supplier["contactPerson"],"phone":supplier["phone"],"address":supplier["address"],"taxId":supplier["taxId"],"bankInfo":supplier["bankInfo"],"note":supplier["note"],"isActive":supplier["isActive"],"hasPayableAccount":supplier["hasPayableAccount"]});
+        for (key,value) in changes { if expected.get(key)==Some(value) { return Err("تغییر واردشده با مقدار فعلی یکسان است".into()); } }
+        let id=uuid::Uuid::new_v4().to_string();let business_id=number(&snapshot,"businessId")?;
+        let command=json!({"schemaVersion":1,"id":id,"businessId":business_id,"module":"inventory","action":"supplier_update","baseDataset":"inventory","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],"payload":{"supplierId":supplier_id,"expectedSupplier":expected,"patch":changes}});
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","action":"supplier_update","supplierId":supplier_id}))
     }
 
     pub fn has_pending_inventory_commands(&self) -> Result<bool> {

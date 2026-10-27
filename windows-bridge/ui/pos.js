@@ -4,6 +4,7 @@
   const esc = value => String(value ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = value => Number(value || 0).toLocaleString('fa-IR');
   const digits = value => String(value).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,٬\s]/g,'');
+  let activeInventorySupplierEdit=null;
   let state, catalog, workspaceMenu, workspaceTables, workspaceTablesLoaded=false, workspaceCustomers, workspaceInventory, workspaceOrders, workspaceOrdersLoaded=false, workspaceReservations, workspaceReservationsLoaded=false, workspaceShifts, workspaceShiftsLoaded=false, workspaceAccounting, workspaceAccountingLoaded=false, workspaceReceivables, workspaceReceivablesLoaded=false, workspaceCashShifts, workspaceCashShiftsLoaded=false, workspaceReports, workspaceReportsLoaded=false, workspaceBank, workspaceBankLoaded=false, workspaceCheques, workspaceChequesLoaded=false, workspacePayroll=null, payrollSelectedRunId=null, payrollPrintVisible=false, payrollRefreshMessage='', workspaceReceivablesMetaKey='', workspaceReceivablesSyncKey='', workspaceCashShiftsMetaKey='', workspaceCashShiftsSyncKey='', workspaceReportsMetaKey='', workspaceReportsSyncKey='', workspaceBankMetaKey='', workspaceBankSyncKey='', workspaceChequesMetaKey='', workspaceChequesSyncKey='', workspaceSyncKey='', workspaceCustomerMetaKey='', workspaceCustomerSyncKey='', workspaceInventoryMetaKey='', workspaceInventorySyncKey='', workspaceOrdersMetaKey='', workspaceOrdersSyncKey='', workspaceOrderHistorySyncKey='', workspaceOrderHistoryChangesSyncKey='', workspaceReservationsMetaKey='', workspaceReservationsSyncKey='', workspaceReservationHistorySyncKey='', workspaceShiftsMetaKey='', workspaceShiftsSyncKey='', workspaceAccountingMetaKey='', workspaceAccountingSyncKey='', workspaceCommandsKey='', showPairPanel=false, cart=[], draftId=crypto.randomUUID(), manualDiscountAmount=0, total=0, chosen, payingId=null, activeCustomerEdit=null, activeMenuRecipe=null, activeInventoryWasteItem=null, activeInventoryMovement=null, activeInventoryTransferDecision=null, activeReservationStatus=null, activeServerOrderStatus=null, activeReceivablePayment=null, activeChequeStatus=null, activeTableStatus=null, activeTableEdit=null, activeTableDelete=null, inventoryPaidEdited=false, busy=false, ready=false, timer, toastTimer, historyOlder=[], historyHasMore=true, historyNewestId=null, serverOrderSales=[];
   let workspaceLocalSalesKey='';
   function notify(message,bad=false){const el=$('pos-toast');el.textContent=message;el.style.background=bad?'#903737':'#173564';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6500);}
@@ -101,7 +102,7 @@
       renderWorkspaceCommands();
       renderWorkspaceReservations();
       renderWorkspaceAccountingCommands();
-      if(!$('inventory-app').hidden){renderWorkspaceInventoryWasteRequests();renderWorkspaceInventoryTransfers();}
+      if(!$('inventory-app').hidden){renderWorkspaceInventorySuppliers();renderWorkspaceInventoryWasteRequests();renderWorkspaceInventoryTransfers();}
       if(!$('workspace-menu-app').hidden&&((localMenuMeta&&(!workspaceMenu||workspaceMenu.revision!==localMenuMeta.revision||workspaceMenu.validUntil!==localMenuMeta.validUntil))||workspaceSyncChanged||workspaceCommandsChanged))void loadWorkspaceMenu();
       if(!$('tables-app').hidden&&(!workspaceTablesLoaded||(localMenuMeta&&workspaceTables?.snapshotId!==localMenuMeta.snapshotId)||workspaceCommandsChanged))void loadWorkspaceTables();
       if(!$('customers-app').hidden&&(customerMetaChanged||customerSyncChanged||!workspaceCustomers))void loadWorkspaceCustomers();
@@ -677,6 +678,27 @@
   function inventoryCreateExpiryDate(){
     const value=$('inventory-create-item-expiry').value.trim();if(!value)return null;const date=jalaliToGregorian(value);if(!date)return undefined;const pad=part=>String(part).padStart(2,'0');return `${date.year}-${pad(date.month)}-${pad(date.day)}`;
   }
+  const inventorySupplierFields=['name','contactPerson','phone','address','taxId','bankInfo','note'];
+  function renderWorkspaceInventorySuppliers(){
+    const snapshot=workspaceInventory,payload=snapshot?.payload,commands=state?.workspaceInventorySupplierCommands||[],rows=Array.isArray(payload?.suppliers)?payload.suppliers:[];
+    const states={pending:'در انتظار همگام‌سازی',applied:'در سرور ثبت شد',synced:'در سرور ثبت شد',conflict:'نیازمند بازبینی',rejected:'رد شد'};
+    if(!snapshot||!payload){$('inventory-suppliers-state').textContent='ابتدا snapshot انبار را هنگام اتصال دریافت کنید.';$('inventory-supplier-create-open').disabled=true;$('inventory-suppliers').innerHTML='<p class="muted">فهرست تأمین‌کنندگان روی این دستگاه موجود نیست.</p>';return;}
+    const canEdit=!snapshot.expired&&!!state?.localManagerPinConfigured;$('inventory-supplier-create-open').disabled=!canEdit;
+    const latestUpdates=new Map();for(const change of [...commands].sort((a,b)=>Number(a.sequence)-Number(b.sequence))){if(change.action==='supplier_update')latestUpdates.set(Number(change.payload?.supplierId),change);}
+    const serverRows=rows.map(supplier=>{const change=latestUpdates.get(Number(supplier.id));return `<tr><td><b>${esc(supplier.name)}</b><small>${esc(supplier.contactPerson||'بدون مسئول')}</small></td><td dir="ltr">${esc(supplier.phone||'—')}</td><td>${supplier.isActive?'فعال':'غیرفعال'}${change?`<small class="offline-event-status ${esc(change.state)}">${states[change.state]||esc(change.state)}${change.error?` · ${esc(change.error)}`:''}</small>`:''}</td><td>${supplier.hasPayableAccount?'حساب پرداختنی آماده':'حساب پرداختنی ندارد'}</td><td><button class="button secondary" type="button" data-inventory-supplier-edit="${supplier.id}" ${canEdit&&!(change&&change.state==='pending')?'':'disabled'}>ویرایش</button></td></tr>`;}).join('');
+    const localCreates=commands.filter(change=>change.action==='supplier_create'&&!(change.state==='applied'&&rows.some(supplier=>supplier.name.trim().toLocaleLowerCase('fa-IR')===String(change.payload?.supplier?.name||'').trim().toLocaleLowerCase('fa-IR'))));
+    const localRows=localCreates.map(change=>{const supplier=change.payload?.supplier||{};return `<tr class="customer-local-row"><td><b>${esc(supplier.name||'تأمین‌کنندهٔ جدید')}</b><small>${esc(supplier.contactPerson||'بدون مسئول')}</small></td><td dir="ltr">${esc(supplier.phone||'—')}</td><td>${supplier.isActive?'فعال':'غیرفعال'}<small class="offline-event-status ${esc(change.state)}">${states[change.state]||esc(change.state)}${change.error?` · ${esc(change.error)}`:''}</small></td><td>پس از تأیید سرور ساخته می‌شود</td><td>—</td></tr>`;}).join('');
+    const pending=commands.filter(change=>['pending','conflict','rejected'].includes(change.state)).length;
+    $('inventory-suppliers-state').textContent=`${money(rows.length)} تأمین‌کنندهٔ سرور · ${money(pending)} فرمان محلی در انتظار یا بازبینی${snapshot.expired?' · snapshot منقضی است':''}`;
+    $('inventory-suppliers').innerHTML=serverRows||localRows?`<table class="pos-table"><thead><tr><th>تأمین‌کننده</th><th>تماس</th><th>وضعیت</th><th>حساب پرداختنی</th><th>عملیات</th></tr></thead><tbody>${serverRows}${localRows}</tbody></table>`:'<p class="muted">تأمین‌کننده‌ای در نسخهٔ محلی ثبت نشده است.</p>';
+  }
+  function openInventorySupplierEditor(supplier=null){
+    if(!workspaceInventory||workspaceInventory.expired||!state?.localManagerPinConfigured){notify('برای تغییر تأمین‌کننده، snapshot تازه و PIN مدیر محلی لازم است.',true);return;}
+    activeInventorySupplierEdit=supplier?{id:Number(supplier.id),original:supplier}:null;
+    $('inventory-supplier-title').textContent=supplier?'ویرایش تأمین‌کننده':'ثبت تأمین‌کننده';
+    $('inventory-supplier-name').value=supplier?.name||'';$('inventory-supplier-contact').value=supplier?.contactPerson||'';$('inventory-supplier-phone').value=supplier?.phone||'';$('inventory-supplier-address').value=supplier?.address||'';$('inventory-supplier-tax-id').value=supplier?.taxId||'';$('inventory-supplier-bank').value=supplier?.bankInfo||'';$('inventory-supplier-note').value=supplier?.note||'';$('inventory-supplier-active').checked=supplier?.isActive??true;
+    $('inventory-supplier-active-wrap').hidden=!supplier;$('inventory-supplier-pin').value='';$('inventory-supplier-error').textContent='';$('inventory-supplier-submit').disabled=false;$('inventory-supplier-dialog').showModal();$('inventory-supplier-name').focus();
+  }
   function openInventoryReceipt(){
     const snapshot=workspaceInventory,payload=snapshot?.payload,available=(payload?.items||[]).filter(item=>item.isActive&&item.trackStock);
     if(!snapshot||snapshot.expired||!state?.localManagerPinConfigured||!available.length){notify('برای ثبت فاکتور، snapshot تازهٔ انبار، کالای قابل ردیابی و PIN مدیر لازم است.',true);return;}
@@ -691,7 +713,7 @@
     if(!snapshot||!payload){
       $('inventory-sync').textContent=sync?.message||'داده‌ای دریافت نشده';$('inventory-sync').className='pos-status';
       $('inventory-state').textContent=sync?.message||'برای دریافت فهرست انبار، دستگاه را هنگام اتصال به اینترنت همگام‌سازی کنید.';
-      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';$('inventory-receipt-open').disabled=true;$('inventory-create-item-open').disabled=true;renderWorkspaceInventoryWasteRequests();renderWorkspaceInventoryTransfers();return;
+      $('inventory-summary').innerHTML='';$('inventory-list').innerHTML='';$('inventory-movements').innerHTML='';$('inventory-receipt-open').disabled=true;$('inventory-create-item-open').disabled=true;renderWorkspaceInventorySuppliers();renderWorkspaceInventoryWasteRequests();renderWorkspaceInventoryTransfers();return;
     }
     const items=Array.isArray(payload.items)?payload.items:[],warehouses=Array.isArray(payload.warehouses)?payload.warehouses:[],movements=Array.isArray(payload.movements)?payload.movements:[];
     const warehouseById=new Map(warehouses.map(warehouse=>[warehouse.id,warehouse.name]));
@@ -716,7 +738,7 @@
     const itemNameById=new Map(items.map(item=>[item.id,item.name]));
     const movementLabels={in:'ورود',out:'خروج',waste:'ضایعات',adjust:'اصلاح',sale:'مصرف فروش',transfer:'انتقال'};
     $('inventory-movements').innerHTML=movements.length?`<table class="pos-table inventory-table"><thead><tr><th>زمان</th><th>کالا</th><th>نوع</th><th>مقدار</th><th>مانده پس از گردش</th><th>مبلغ</th></tr></thead><tbody>${movements.map(movement=>`<tr><td>${new Date(movement.createdAt).toLocaleString('fa-IR')}</td><td>${esc(itemNameById.get(movement.itemId)||`کالای ${movement.itemId}`)}</td><td>${movementLabels[movement.type]||esc(movement.type)}</td><td>${Number(movement.delta)>0?'+':''}${money(movement.delta)}</td><td>${money(movement.balanceAfter)}</td><td>${money(movement.amount)} تومان</td></tr>`).join('')}</tbody></table>`:'<p class="muted">گردشی در نسخهٔ محلی موجود نیست.</p>';
-    renderWorkspaceInventoryWasteRequests();renderWorkspaceInventoryTransfers();
+    renderWorkspaceInventorySuppliers();renderWorkspaceInventoryWasteRequests();renderWorkspaceInventoryTransfers();
   }
   async function loadWorkspaceInventory(){
     try{workspaceInventory=await call('offline_workspace_inventory');renderWorkspaceInventory();}
@@ -940,6 +962,20 @@
       submit.disabled=true;await call('offline_workspace_create_inventory_item',{payload,managerPin:digits($('inventory-create-item-pin').value)});
       $('inventory-create-item-dialog').close();$('inventory-create-item-form').reset();notify('تعریف کالا در صف رمز‌شدهٔ دستگاه ذخیره شد؛ تا تأیید سرور برای فاکتور و رسپی قابل انتخاب نیست.');await refresh();
     }catch(exception){error.textContent=String(exception);}finally{submit.disabled=false;}
+  };
+  $('inventory-supplier-create-open').onclick=()=>openInventorySupplierEditor();
+  $('inventory-suppliers').onclick=event=>{const button=event.target.closest('[data-inventory-supplier-edit]');if(!button||button.disabled)return;const supplier=(workspaceInventory?.payload?.suppliers||[]).find(row=>Number(row.id)===Number(button.dataset.inventorySupplierEdit));if(supplier)openInventorySupplierEditor(supplier);};
+  $('inventory-supplier-form').onsubmit=async event=>{
+    event.preventDefault();const submit=$('inventory-supplier-submit');if(submit.disabled)return;submit.disabled=true;$('inventory-supplier-error').textContent='';
+    try{
+      const fields={name:$('inventory-supplier-name').value.trim(),contactPerson:$('inventory-supplier-contact').value.trim(),phone:$('inventory-supplier-phone').value.trim(),address:$('inventory-supplier-address').value.trim(),taxId:$('inventory-supplier-tax-id').value.trim(),bankInfo:$('inventory-supplier-bank').value.trim(),note:$('inventory-supplier-note').value.trim()};
+      if(fields.name.length<2||fields.name.length>100)throw new Error('نام تأمین‌کننده باید بین ۲ تا ۱۰۰ نویسه باشد.');
+      for(const [key,max] of [['contactPerson',80],['phone',30],['address',300],['taxId',40],['bankInfo',80],['note',300]])if([...fields[key]].length>max)throw new Error('یکی از مشخصات تأمین‌کننده از حد مجاز طولانی‌تر است.');
+      const managerPin=digits($('inventory-supplier-pin').value);
+      if(activeInventorySupplierEdit){const patch={};for(const key of inventorySupplierFields)if(fields[key]!==String(activeInventorySupplierEdit.original[key]||''))patch[key]=fields[key];const isActive=$('inventory-supplier-active').checked;if(isActive!==activeInventorySupplierEdit.original.isActive)patch.isActive=isActive;if(!Object.keys(patch).length)throw new Error('تغییری برای ثبت وارد نشده است.');await call('offline_workspace_update_supplier',{supplierId:activeInventorySupplierEdit.id,patch,managerPin});}
+      else await call('offline_workspace_create_supplier',{payload:{...fields,isActive:true},managerPin});
+      $('inventory-supplier-dialog').close();$('inventory-supplier-form').reset();activeInventorySupplierEdit=null;notify('تغییر تأمین‌کننده در پایگاه رمز‌شدهٔ دستگاه صف شد؛ پس از تأیید سرور در فاکتورهای جدید اعمال می‌شود.');await refresh();await loadWorkspaceInventory();renderWorkspaceInventorySuppliers();
+    }catch(error){$('inventory-supplier-error').textContent=String(error);}finally{submit.disabled=false;}
   };
   $('inventory-receipt-open').onclick=openInventoryReceipt;
   $('inventory-receipt-add-line').onclick=()=>addInventoryReceiptLine();

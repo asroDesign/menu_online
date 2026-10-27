@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, inventoryCategories, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
+import { accAccounts, businesses, inventoryCategories, inventoryItems, offlineTerminals, offlineWorkspaceCommands, offlineWorkspaceSnapshots, stockMovements, stockTransferLines, stockTransfers, suppliers, users, warehouses } from "@/db/schema";
 import { HttpError } from "@/lib/auth";
-import { C, ensureAccounting, postDocumentInTransaction } from "@/lib/accounting";
+import { C, ensureAccounting, insertSupplierAccountInTransaction, postDocumentInTransaction } from "@/lib/accounting";
 import { offlineAuth } from "@/lib/offline-pos";
 import { hasAny } from "@/lib/plans";
 import { allocateStockValue, stockReceiptTotal } from "@/lib/stock-receipt-totals";
@@ -617,5 +617,112 @@ export async function syncOfflineInventoryCreateItem(req: Request, raw: unknown)
   }, { isolationLevel: "repeatable read" });
 
   if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "تعریف کالای آفلاین اعمال نشد");
+  return outcome.response;
+}
+
+type OfflineSupplierFields = {
+  name: string; contactPerson: string; phone: string; address: string; taxId: string; bankInfo: string; note: string; isActive: boolean;
+};
+type OfflineSupplierCommand = {
+  schemaVersion: 1; id: string; businessId: number; module: "inventory"; action: "supplier_create" | "supplier_update";
+  baseDataset: "inventory"; baseSnapshotId: string; baseRevision: number;
+  payload: { supplier?: OfflineSupplierFields; supplierId?: number; expectedSupplier?: OfflineSupplierFields & { id: number; hasPayableAccount: boolean }; patch?: Partial<OfflineSupplierFields> };
+};
+const SUPPLIER_TEXT_LIMITS = { name: 100, contactPerson: 80, phone: 30, address: 300, taxId: 40, bankInfo: 80, note: 300 } as const;
+const SUPPLIER_FIELD_NAMES = Object.keys(SUPPLIER_TEXT_LIMITS) as (keyof typeof SUPPLIER_TEXT_LIMITS)[];
+
+function parseOfflineSupplier(raw: unknown): OfflineSupplierCommand {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HttpError(400, "فرمان تأمین‌کنندهٔ آفلاین معتبر نیست");
+  const command = raw as Record<string, unknown>;
+  const commandKeys = ["schemaVersion", "id", "businessId", "module", "action", "baseDataset", "baseSnapshotId", "baseRevision", "payload"];
+  if (Object.keys(command).some((key) => !commandKeys.includes(key)) || command.schemaVersion !== 1 || command.module !== "inventory" || !["supplier_create", "supplier_update"].includes(String(command.action)) || command.baseDataset !== "inventory") throw new HttpError(400, "نسخه یا نوع فرمان تأمین‌کننده پشتیبانی نمی‌شود");
+  if (typeof command.id !== "string" || !UUID.test(command.id) || !Number.isSafeInteger(command.businessId) || Number(command.businessId) < 1 || typeof command.baseSnapshotId !== "string" || !UUID.test(command.baseSnapshotId) || !Number.isSafeInteger(command.baseRevision) || Number(command.baseRevision) < 1) throw new HttpError(400, "شناسهٔ فرمان یا snapshot انبار معتبر نیست");
+  if (!command.payload || typeof command.payload !== "object" || Array.isArray(command.payload)) throw new HttpError(400, "اطلاعات تأمین‌کننده معتبر نیست");
+  const payload = command.payload as Record<string, unknown>;
+  const fieldsValid = (value: unknown, { allowId = false, allowHasPayable = false, allowActive = true } = {}) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const fields = value as Record<string, unknown>;
+    const allowed = [...SUPPLIER_FIELD_NAMES, ...(allowId ? ["id"] : []), ...(allowHasPayable ? ["hasPayableAccount"] : []), ...(allowActive ? ["isActive"] : [])];
+    if (Object.keys(fields).some((key) => !allowed.includes(key))) return false;
+    if (SUPPLIER_FIELD_NAMES.some((key) => typeof fields[key] !== "string" || [...String(fields[key])].length > SUPPLIER_TEXT_LIMITS[key])) return false;
+    if (allowActive && typeof fields.isActive !== "boolean") return false;
+    if (allowId && (!Number.isSafeInteger(fields.id) || Number(fields.id) < 1)) return false;
+    if (allowHasPayable && typeof fields.hasPayableAccount !== "boolean") return false;
+    return true;
+  };
+  if (command.action === "supplier_create") {
+    if (Object.keys(payload).length !== 1 || !fieldsValid(payload.supplier) || typeof (payload.supplier as Record<string, unknown>).isActive !== "boolean" || String((payload.supplier as Record<string, unknown>).name).trim().length < 2) throw new HttpError(400, "مشخصات تأمین‌کنندهٔ جدید معتبر نیست");
+  } else {
+    const patch = payload.patch;
+    const patchValid = patch && typeof patch === "object" && !Array.isArray(patch) && Object.keys(patch).length > 0 && Object.keys(patch).every((key) => [...SUPPLIER_FIELD_NAMES, "isActive"].includes(key as keyof typeof SUPPLIER_TEXT_LIMITS | "isActive")) && SUPPLIER_FIELD_NAMES.every((key) => !(key in (patch as object)) || typeof (patch as Record<string, unknown>)[key] === "string" && [...String((patch as Record<string, unknown>)[key])].length <= SUPPLIER_TEXT_LIMITS[key]) && (!("isActive" in (patch as object)) || typeof (patch as Record<string, unknown>).isActive === "boolean");
+    if (Object.keys(payload).length !== 3 || !Number.isSafeInteger(payload.supplierId) || Number(payload.supplierId) < 1 || !fieldsValid(payload.expectedSupplier, { allowId: true, allowHasPayable: true }) || !(payload.expectedSupplier as Record<string, unknown>).name || !patchValid || ("name" in (patch as object) && !String((patch as Record<string, unknown>).name).trim())) throw new HttpError(400, "تغییر تأمین‌کننده معتبر نیست");
+  }
+  return raw as OfflineSupplierCommand;
+}
+
+/** Sync only supplier create/edit/deactivate. The linked payable detail account
+ * and supplier row are committed together; delete is intentionally unavailable
+ * because historical stock/accounting rows may reference the supplier. */
+export async function syncOfflineInventorySupplier(req: Request, raw: unknown) {
+  const command = parseOfflineSupplier(raw);
+  const { terminal, business, features } = await offlineAuth(req);
+  if (!hasAny(features, "cashier_pos") || !hasAny(features, "inventory") || !hasAny(features, "accounting")) throw new HttpError(403, "صندوق آفلاین، انبار و حسابداری باید در اشتراک فعال باشند");
+  if (command.businessId !== business.id) throw new HttpError(403, "فرمان تأمین‌کننده متعلق به کسب‌وکار این دستگاه نیست");
+  const payloadHash = createHash("sha256").update(canonical(command)).digest("hex");
+  await ensureAccounting(business);
+  const outcome = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db;
+    // Take the tenant inventory lock before any reads so name checks run only
+    // after a competing inventory command has committed.
+    await tx.execute(sql`select pg_advisory_xact_lock(${business.id})`);
+    const [lockedTerminal] = await tx.select().from(offlineTerminals).where(eq(offlineTerminals.id, terminal.id)).for("update");
+    if (!lockedTerminal || lockedTerminal.revokedAt || lockedTerminal.businessId !== business.id) throw new HttpError(401, "دسترسی این دستگاه لغو شده است");
+    const [activeBusiness] = await tx.select({ id: businesses.id }).from(businesses).where(and(eq(businesses.id, business.id), eq(businesses.isSuspended, false)));
+    if (!activeBusiness) throw new HttpError(403, "کسب‌وکار فعال نیست");
+    const [previous] = await tx.select().from(offlineWorkspaceCommands).where(eq(offlineWorkspaceCommands.id, command.id)).for("update");
+    if (previous) {
+      if (previous.terminalId !== terminal.id || previous.businessId !== business.id || previous.payloadHash !== payloadHash) return { httpStatus: 409, response: { commandId: command.id, state: "conflict", receipt: "", error: "شناسه فرمان قبلاً با محتوای دیگری ثبت شده است" } };
+      return { httpStatus: previous.httpStatus, response: previous.result };
+    }
+    const record = async (state: "applied" | "conflict" | "rejected", httpStatus: 200 | 409 | 422, error = "", receipt = "") => {
+      const response = { commandId: command.id, state, receipt, ...(error ? { error } : {}) };
+      await tx.insert(offlineWorkspaceCommands).values({ id: command.id, terminalId: terminal.id, businessId: business.id, actorId: terminal.createdBy, module: command.module, action: command.action, payloadHash, payload: command as unknown as Record<string, unknown>, state, httpStatus, error, receipt, result: response });
+      return { httpStatus, response };
+    };
+    const [snapshot] = await tx.select().from(offlineWorkspaceSnapshots).where(and(eq(offlineWorkspaceSnapshots.id, command.baseSnapshotId), eq(offlineWorkspaceSnapshots.terminalId, terminal.id), eq(offlineWorkspaceSnapshots.businessId, business.id), eq(offlineWorkspaceSnapshots.dataset, "inventory"), eq(offlineWorkspaceSnapshots.revision, command.baseRevision))).for("update");
+    if (!snapshot || snapshot.validUntil <= new Date()) return record("conflict", 409, "نسخهٔ مبنای تأمین‌کنندگان منقضی شده یا پیدا نمی‌شود؛ snapshot تازه دریافت کنید");
+    const baseSuppliers = Array.isArray(snapshot.payload.suppliers) ? snapshot.payload.suppliers as Record<string, unknown>[] : [];
+    if (command.action === "supplier_create") {
+      const fields = command.payload.supplier!;
+      const normalized = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])) as OfflineSupplierFields;
+      if (normalized.name.length < 2) throw new HttpError(400, "نام تأمین‌کننده باید دست‌کم دو نویسه باشد");
+      if (baseSuppliers.some((supplier) => String(supplier.name).trim().toLocaleLowerCase("fa-IR") === normalized.name.toLocaleLowerCase("fa-IR"))) return record("conflict", 409, "تأمین‌کننده‌ای با این نام در snapshot فعلی وجود دارد");
+      const [duplicate] = await tx.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.businessId, business.id), sql`lower(trim(${suppliers.name})) = lower(trim(${normalized.name}))`)).limit(1);
+      if (duplicate) return record("conflict", 409, "تأمین‌کننده‌ای با این نام در سرور ثبت شده است");
+      const account = await insertSupplierAccountInTransaction(tx, business, normalized.name);
+      const [created] = await tx.insert(suppliers).values({ businessId: business.id, accountId: account.id, ...normalized }).returning({ id: suppliers.id });
+      return record("applied", 200, "", `supplier:${created.id}`);
+    }
+    const supplierId = command.payload.supplierId!;
+    const expected = command.payload.expectedSupplier!;
+    const baseline = baseSuppliers.find((supplier) => supplier.id === supplierId);
+    if (!baseline || Object.keys(expected).some((key) => baseline[key] !== (expected as unknown as Record<string, unknown>)[key])) return record("conflict", 409, "اطلاعات تأمین‌کننده با snapshot محلی سازگار نیست");
+    const [supplier] = await tx.select().from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.businessId, business.id))).for("update");
+    if (!supplier) return record("conflict", 409, "تأمین‌کننده در سرور پیدا نشد");
+    const snapshotMatches = supplier.name === expected.name && supplier.contactPerson === expected.contactPerson && supplier.phone === expected.phone && supplier.address === expected.address && supplier.taxId === expected.taxId && supplier.bankInfo === expected.bankInfo && supplier.note === expected.note && supplier.isActive === expected.isActive && Boolean(supplier.accountId) === expected.hasPayableAccount;
+    if (!snapshotMatches) return record("conflict", 409, "تأمین‌کننده پس از دریافت snapshot تغییر کرده است؛ نسخهٔ تازه بگیرید و تغییر را بازبینی کنید");
+    const patch = command.payload.patch!;
+    const normalizedPatch = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])) as Partial<OfflineSupplierFields>;
+    const name = typeof normalizedPatch.name === "string" ? normalizedPatch.name : undefined;
+    if (name) {
+      const [duplicate] = await tx.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.businessId, business.id), sql`lower(trim(${suppliers.name})) = lower(trim(${name}))`, sql`${suppliers.id} <> ${supplier.id}`)).limit(1);
+      if (duplicate) return record("conflict", 409, "تأمین‌کنندهٔ دیگری با این نام ثبت شده است");
+    }
+    const set = { ...normalizedPatch, ...(name ? { name } : {}) };
+    await tx.update(suppliers).set(set).where(and(eq(suppliers.id, supplier.id), eq(suppliers.businessId, business.id)));
+    if (name && supplier.accountId) await tx.update(accAccounts).set({ name: `تأمین‌کننده — ${name}`.slice(0, 100) }).where(and(eq(accAccounts.id, supplier.accountId), eq(accAccounts.businessId, business.id)));
+    return record("applied", 200, "", `supplier:${supplier.id}`);
+  }, { isolationLevel: "read committed" });
+  if (outcome.httpStatus !== 200) throw new HttpError(outcome.httpStatus, typeof outcome.response.error === "string" ? outcome.response.error : "تغییر تأمین‌کنندهٔ آفلاین اعمال نشد");
   return outcome.response;
 }

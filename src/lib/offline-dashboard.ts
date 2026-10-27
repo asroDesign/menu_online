@@ -37,7 +37,10 @@ type InventoryPayload = {
   items: { id: number; warehouseId: number | null; categoryId: number | null; name: string; sku: string | null; unit: string; recipeUnit: string; recipeToStockFactor: number; stock: number; minStock: number; reorderPoint: number; trackStock: boolean; isActive: boolean; expiryDate: string | null; costPerUnit: number; lastPurchaseCost: number }[];
   warehouses: { id: number; name: string; location: string }[];
   categories: { id: number; name: string }[];
-  suppliers: { id: number; name: string; isActive: boolean; hasPayableAccount: boolean }[];
+  suppliers: {
+    id: number; name: string; contactPerson: string; phone: string; address: string;
+    taxId: string; bankInfo: string; note: string; isActive: boolean; hasPayableAccount: boolean;
+  }[];
   movements: { id: number; itemId: number; type: string; delta: number; balanceAfter: number; unitCost: number; invoiceNo: string; amount: number; createdAt: string }[];
   transfers: { id: number; status: string; note: string; createdAt: string; decidedAt: string | null; lines: { id: number; transferId: number; sourceItemId: number; destinationItemId: number; quantity: number; unitCost: number; source: { id: number; name: string; unit: string; warehouseId: number | null } | null; destination: { id: number; name: string; unit: string; warehouseId: number | null } | null }[] }[];
   totalItems: number;
@@ -527,7 +530,11 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       const categoryRows = await tx.select({ id: inventoryCategories.id, name: inventoryCategories.name })
         .from(inventoryCategories).where(eq(inventoryCategories.businessId, business.id)).orderBy(asc(inventoryCategories.name), asc(inventoryCategories.id)).limit(1001);
       if (categoryRows.length > 1000) throw new HttpError(413, "فهرست دسته‌بندی‌های انبار برای snapshot بیش از سقف ۱٬۰۰۰ دسته است");
-      const supplierRows = await tx.select({ id: suppliers.id, name: suppliers.name, isActive: suppliers.isActive, hasPayableAccount: sql<boolean>`${suppliers.accountId} is not null` })
+      const supplierRows = await tx.select({
+        id: suppliers.id, name: suppliers.name, contactPerson: suppliers.contactPerson, phone: suppliers.phone,
+        address: suppliers.address, taxId: suppliers.taxId, bankInfo: suppliers.bankInfo, note: suppliers.note,
+        isActive: suppliers.isActive, hasPayableAccount: sql<boolean>`${suppliers.accountId} is not null`,
+      })
         .from(suppliers).where(eq(suppliers.businessId, business.id)).orderBy(asc(suppliers.name), asc(suppliers.id)).limit(1001);
       if (supplierRows.length > 1000) throw new HttpError(413, "فهرست فروشندگان برای snapshot انبار بیش از سقف ۱٬۰۰۰ نفر است");
       const movementRows = await tx.select({

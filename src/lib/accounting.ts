@@ -819,15 +819,24 @@ void desc; void fromJ; void jl;
 
 
 /* ------------------------------------------------------------------ suppliers */
-/** One tafsili account (under «حساب‌های پرداختنی» 2101) per supplier: its balance is what we owe that supplier. */
+/** Insert a supplier detail account in the caller's transaction. The lock also
+ * serializes online and offline supplier creation so a shared chart never
+ * allocates the same per-business code twice. */
+export async function insertSupplierAccountInTransaction(tx: Q, biz: Biz, name: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(${biz.id + 778001})`);
+  const [parent] = await tx.select().from(accAccounts).where(and(eq(accAccounts.businessId, biz.id), eq(accAccounts.code, C.AP))).limit(1);
+  if (!parent) throw new HttpError(409, "حساب پرداختنی تأمین‌کنندگان در کدینگ پیدا نشد؛ حسابداری را تازه‌سازی کنید");
+  const children = await tx.select({ code: accAccounts.code }).from(accAccounts).where(and(eq(accAccounts.businessId, biz.id), eq(accAccounts.parentId, parent.id)));
+  const codes = children.map((row) => Number(row.code)).filter(Number.isFinite);
+  const code = String(codes.length ? Math.max(...codes) + 1 : Number(`${C.AP}01`));
+  const [row] = await tx.insert(accAccounts).values({ businessId: biz.id, code, name: `تأمین‌کننده — ${name}`.slice(0, 100), level: "tafsili", parentId: parent.id, type: "liability", nature: "credit", refType: "supplier" }).returning();
+  return row;
+}
+
+/** One tafsili account (under «حساب‌های پرداختنی» 2101) per supplier. */
 export async function ensureSupplierAccount(biz: Biz, name: string) {
   await ensureAccounting(biz);
-  const { all, byCode } = await codeMap(biz.id);
-  const parent = byCode.get(C.AP)!;
-  const kids = all.filter((a) => a.parentId === parent.id).map((a) => Number(a.code)).filter(Number.isFinite);
-  const code = String(kids.length ? Math.max(...kids) + 1 : Number(`${C.AP}01`));
-  const [row] = await db.insert(accAccounts).values({ businessId: biz.id, code, name: `تأمین‌کننده — ${name}`.slice(0, 100), level: "tafsili", parentId: parent.id, type: "liability", nature: "credit", refType: "supplier" }).returning();
-  return row;
+  return db.transaction((tx) => insertSupplierAccountInTransaction(tx as unknown as Q, biz, name));
 }
 
 /** debit = payments made, credit = purchases on credit; balance (credit − debit) = amount still owed */
