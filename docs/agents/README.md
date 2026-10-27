@@ -112,6 +112,7 @@
 | راهنما | کارکرد |
 |---|---|
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
+| [core-pages/restaurant-digital-menu.md](core-pages/restaurant-digital-menu.md) | `/restaurant-digital-menu`: لندینگ QR و سفارش رستوران، ماشین‌حساب چاپ، دمو، تعرفه و پرسش‌های متداول |
 | [core-pages/offline-pos-marketing.md](core-pages/offline-pos-marketing.md) | صفحه عمومی معرفی صندوق آفلاین Windows، مراحل کار، CTA دانلود و مرزهای قابلیت |
 | [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه، تنظیم برند، و ناوبری موبایل بدون نوار هدر سراسری |

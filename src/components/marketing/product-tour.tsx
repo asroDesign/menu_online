@@ -18,7 +18,7 @@ export function ProductTour() {
   return <div className="mp-explorer">
     <div className="mp-feature-tabs" role="group" aria-label="بخش‌های نرم‌افزار">{areas.map(({ id, icon: Icon, label }) => <button key={id} type="button" aria-pressed={active === id} aria-controls={`feature-${id}`} onClick={() => setActive(id)}><Icon size={19}/>{label}</button>)}</div>
     {areas.map(({ id, icon: Icon, label, title, text, features, steps, note }) => <section key={id} id={`feature-${id}`} hidden={active !== id} className="mp-feature-panel" aria-label={label}>
-      <div className="mp-feature-copy"><span className="mp-kicker">{label}</span><h3>{title}</h3><p>{text}</p><ul>{features.map(feature => <li key={feature}><Check size={17}/><span>{feature}</span></li>)}</ul><Link href="/plans#comparison" className="mp-text-link">بررسی دسترسی این امکانات در پلان‌ها <ArrowUpLeft size={17}/></Link></div>
+      <div className="mp-feature-copy"><span className="mp-kicker">{label}</span><h3>{title}</h3><p>{text}</p><ul>{features.map(feature => <li key={feature}><Check size={17}/><span>{feature}</span></li>)}</ul><Link href="/plans#comparison" className="mp-text-link">بررسی دسترسی این امکانات در پلان‌ها <ArrowUpLeft size={17}/></Link>{id === "menu" && <Link href="/restaurant-digital-menu" className="mp-text-link">صفحهٔ اختصاصی منوی رستوران <ArrowUpLeft size={17}/></Link>}</div>
       <div className="mp-feature-diagram"><div className="mp-diagram-top"><span className="mp-icon"><Icon size={28}/></span><span>یک جریان متصل<small>{label}</small></span></div><ol>{steps.map((step, index) => <li key={step}><span>{["۱", "۲", "۳"][index]}</span>{step}<Check size={16}/></li>)}</ol><p>{note}</p></div>
     </section>)}
   </div>;
