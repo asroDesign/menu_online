@@ -1,0 +1,6 @@
+.term-switch{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:min(100%,850px)}
+.term-switch button{min-width:0;white-space:nowrap;padding-inline:14px}
+.term-switch button span{white-space:normal;line-height:1.5}
+.price-amount>strong{margin-top:5px}
+.price-amount>small b{color:inherit;font-weight:800}
+@media(max-width:700px){.term-switch{grid-template-columns:repeat(2,minmax(0,1fr));width:min(100%,480px);gap:5px}.term-switch button{min-width:0;padding:10px 9px;font-size:11px}.term-switch button span{font-size:8px}.price-amount>small{max-width:250px}}

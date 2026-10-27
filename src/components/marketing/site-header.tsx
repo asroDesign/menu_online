@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ArrowUpLeft, Menu, UtensilsCrossed, X } from "lucide-react";
 import { BrandLogo, usePlatformBranding } from "@/components/brand";
-const links = [["/", "خانه"], ["/plans", "تعرفه‌ها و امکانات"], ["/blog", "مجله رستوران"], ["/tutorials", "آموزش"], ["/contact", "ارتباط با ما"]];
+const links = [["/", "خانه"], ["/plans", "تعرفه‌ها و امکانات"], ["/pos-system", "صندوق ویندوز"], ["/blog", "مجله رستوران"], ["/tutorials", "آموزش"], ["/contact", "ارتباط با ما"]];
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const path = usePathname();

@@ -4,14 +4,15 @@ import { couponRedemptions, promoCoupons, subscriptionInvoices } from "@/db/sche
 import { getPlanList } from "@/lib/app-settings";
 import { HttpError } from "@/lib/auth";
 import { PLAN_KEYS } from "@/lib/plans";
+import { isBillingTerm, type BillingTerm } from "@/lib/plan-pricing";
 
-export type SubscriptionQuote = { plan: string; months: 6 | 12; base: number; termDiscount: number; couponDiscount: number; amount: number; couponCode: string };
+export type SubscriptionQuote = { plan: string; months: BillingTerm; base: number; termDiscount: number; couponDiscount: number; amount: number; couponCode: string };
 
 export async function subscriptionQuote(planInput: unknown, monthsInput: unknown, couponInput: unknown, lock = false, executor: any = db, ignoreReservedBusinessId?: number): Promise<SubscriptionQuote> {
   const plan = String(planInput ?? "");
   const months = Number(monthsInput);
   if (!PLAN_KEYS.includes(plan as never)) throw new HttpError(400, "پلن نامعتبر است");
-  if (months !== 6 && months !== 12) throw new HttpError(400, "دوره اشتراک باید شش‌ماهه یا سالانه باشد");
+  if (!isBillingTerm(months)) throw new HttpError(400, "دوره اشتراک باید ۱، ۳، ۶ یا ۱۲ ماهه باشد");
   const plans = await getPlanList();
   const selected = plans.find((p) => p.key === plan)!.terms[months];
   const code = String(couponInput ?? "").trim().toUpperCase().slice(0, 32);
@@ -26,5 +27,5 @@ export async function subscriptionQuote(planInput: unknown, monthsInput: unknown
     if (Number(used.count) >= coupon.maxRedemptions) throw new HttpError(400, "ظرفیت استفاده از این کد تخفیف تکمیل شده است");
   }
   const couponDiscount = Math.min(selected.total, coupon.kind === "percent" ? Math.floor(selected.total * coupon.value / 100) : coupon.value);
-  return { plan, months: months as 6 | 12, base: selected.base, termDiscount: selected.base - selected.total, couponDiscount, amount: selected.total - couponDiscount, couponCode: code };
+  return { plan, months, base: selected.base, termDiscount: selected.base - selected.total, couponDiscount, amount: selected.total - couponDiscount, couponCode: code };
 }

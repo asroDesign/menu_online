@@ -14,6 +14,7 @@ import { effectivePlan, getPlanOverrides, invalidatePlanCache } from "@/lib/enti
 import { jMonthRange, jYearRange, toJ } from "@/lib/jalali";
 import { normalizeRichContent } from "@/lib/rich-document";
 import { FEATURES, PLAN_KEYS, planName } from "@/lib/plans";
+import { isBillingTerm } from "@/lib/plan-pricing";
 import { getPlatformSms, notifyPlatformManager, type PlatformSmsConfig, normalizedPhone } from "@/lib/platform-sms";
 
 const J = (d: unknown, s = 200) => Response.json(d, { status: s });
@@ -252,7 +253,7 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       const plan = String(b.plan);
       if (!PLAN_KEYS.includes(plan as never)) throw new HttpError(400, "پلن نامعتبر است");
       const months = num(b.months, 12);
-      if (months !== 6 && months !== 12) throw new HttpError(400, "دوره اشتراک باید شش‌ماهه یا سالانه باشد");
+      if (!isBillingTerm(months)) throw new HttpError(400, "دوره اشتراک باید ۱، ۳، ۶ یا ۱۲ ماهه باشد");
       const list = await getPlanList();
       const quote = list.find((p) => p.key === plan)!.terms[months];
       const additionalDiscount = Math.min(quote.total, Math.max(0, num(b.discount, 0)));
@@ -539,9 +540,17 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
         const out: Record<string, Record<string, number>> = {};
         for (const k of PLAN_KEYS) {
           const p = v[k] as Record<string, unknown> | undefined;
-          if (!p || typeof p !== "object" || ["oldPrice", "sixMonthPrice", "sixMonthDiscount", "annualDiscount"].some(key => typeof p[key] !== "number")) throw new HttpError(400, "قیمت و تخفیف همه دوره‌ها را وارد کنید");
-          const values = Object.fromEntries(["price", "oldPrice", "sixMonthPrice", "sixMonthDiscount", "annualDiscount"].map(key => [key, Number(p[key] ?? 0)]));
-          if (Object.values(values).some(n => !Number.isFinite(n) || n < 0 || n > 2000000000) || values.sixMonthDiscount > 100 || values.annualDiscount > 100) throw new HttpError(400, "قیمت نامعتبر است؛ تخفیف باید بین صفر و صد باشد");
+          const required = ["oldPrice", "sixMonthPrice", "sixMonthDiscount", "annualDiscount"];
+          const keys = ["price", "oldPrice", "monthlyPrice", "monthlyDiscount", "threeMonthPrice", "threeMonthDiscount", "sixMonthPrice", "sixMonthDiscount", "annualDiscount"];
+          if (!p || typeof p !== "object" || required.some(key => typeof p[key] !== "number")) throw new HttpError(400, "قیمت و تخفیف همه دوره‌ها را وارد کنید");
+          const values: Record<string, number> = {};
+          for (const key of keys) {
+            if (p[key] === undefined) continue; // Older admin clients keep using the existing derived monthly prices.
+            if (typeof p[key] !== "number") throw new HttpError(400, "قیمت هر دوره باید عددی باشد");
+            values[key] = p[key];
+          }
+          const discounts = ["monthlyDiscount", "threeMonthDiscount", "sixMonthDiscount", "annualDiscount"];
+          if (Object.values(values).some(n => !Number.isFinite(n) || n < 0 || n > 2000000000) || discounts.some(key => values[key] !== undefined && values[key] > 100)) throw new HttpError(400, "قیمت نامعتبر است؛ تخفیف باید بین صفر و صد باشد");
           out[k] = values;
         }
         await setSetting("planPrices", out);

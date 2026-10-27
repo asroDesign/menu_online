@@ -1,5 +1,5 @@
 "use client";
-import { TERM_LABELS, type BillingTerm, type PricedPlan } from "@/lib/plan-pricing";
+import { BILLING_TERMS, TERM_LABELS, type BillingTerm, type PricedPlan } from "@/lib/plan-pricing";
 
 import { notifySetupSaved } from "@/lib/onboarding-tour";
 import Link from "next/link";
@@ -547,7 +547,7 @@ export function PlanPage() {
       {sp.get("payment") === "failed" && <div className="mb-5 rounded-2xl bg-rose-50 p-4 text-sm font-semibold text-rose-800 ring-1 ring-rose-200">پرداخت تأیید نشد. می‌توانید دوباره تلاش کنید یا روش پرداخت دیگری را انتخاب کنید.</div>}
       <IconText>{lockedDef && <div className="mb-5 flex items-start gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200"><span className="text-xl">{<EmojiIcon emoji="" />}</span><p>امکان «<b>{lockedDef.label}</b>» در پلن فعلی شما (<b>{planName(d.plan)}</b>) فعال نیست. برای استفاده، پلن خود را ارتقا دهید.</p></div>}</IconText>
       <IconText>{d.upgradeRequest && <div className="mb-5 rounded-2xl bg-sky-50 p-4 text-sm text-sky-900 ring-1 ring-sky-200">{<EmojiIcon emoji="" />} درخواست ارتقا به پلن <b>{planName(d.upgradeRequest)}</b> در انتظار تأیید است.</div>}</IconText>
-      <div className="mb-5 flex gap-2" role="group" aria-label="دوره تعرفه">{([6,12] as const).map(t=><Button key={t} variant={term===t ? "primary" : "secondary"} aria-pressed={term===t} onClick={()=>setTerm(t)}>{TERM_LABELS[t]}</Button>)}</div>
+      <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="دوره تعرفه">{BILLING_TERMS.map(t=><Button key={t} variant={term===t ? "primary" : "secondary"} aria-pressed={term===t} onClick={()=>setTerm(t)}>{TERM_LABELS[t]}</Button>)}</div>
       <div className="grid gap-4 md:grid-cols-3">
         {d.plans.map((p) => {
           const cur = p.key === d.plan;

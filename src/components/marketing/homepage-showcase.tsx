@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
-import { ArrowDownUp, Banknote, Beef, BellRing, CalendarDays, ChartNoAxesCombined, Check, ChefHat, ChevronLeft, CircleCheck, Coffee, Gift, Heart, Landmark, Leaf, Milk, Pizza, QrCode, ReceiptText, ShoppingBag, Sparkles, Star, TrendingUp, UsersRound, WalletCards, Weight, Wheat } from "lucide-react";
+import { ArrowDownUp, Banknote, Beef, BellRing, CalendarDays, ChartNoAxesCombined, Check, ChefHat, ChevronLeft, CircleAlert, CircleCheck, Coffee, Database, Gift, Heart, Landmark, Leaf, Milk, Package, Pizza, QrCode, ReceiptText, ShoppingBag, Sparkles, Star, TrendingUp, UsersRound, WalletCards, Weight, Wheat } from "lucide-react";
 import { cn } from "@/components/ui";
 
 const scenes = [
@@ -12,6 +12,7 @@ const scenes = [
   { id: "accounting", label: "حسابداری", icon: ReceiptText },
   { id: "menu", label: "منوی دیجیتال", icon: Coffee },
   { id: "reservation", label: "رزرو میز", icon: CalendarDays },
+  { id: "inventory", label: "انبار هوشمند", icon: Package },
 ];
 
 const salesToman = [635_000, 418_000, 724_000, 512_000];
@@ -135,6 +136,27 @@ function CustomerAtTable({ pizzaServed }: { pizzaServed: boolean }) {
 }
 
 type MenuPhase = "browse" | "scrolling" | "checkout" | "flying" | "delivered";
+type InventoryPhase = "order" | "recipe" | "deduct" | "low";
+
+function InventorySmartScene({ phase }: { phase: InventoryPhase }) {
+  const after = phase === "deduct" || phase === "low";
+  const stocks = [
+    { name: "خمیر پیتزا", unit: "کیلوگرم", before: "۸٫۲۰", after: "۷٫۷۰", fill: 62, color: "dough" },
+    { name: "پنیر موزارلا", unit: "کیلوگرم", before: "۲٫۶۰", after: "۲٫۳۶", fill: 28, color: "cheese" },
+    { name: "پپرونی", unit: "کیلوگرم", before: "۱٫۸۰", after: "۱٫۶۸", fill: 46, color: "meat" },
+    { name: "جعبه پیتزا", unit: "عدد", before: "۱۴۰", after: "۱۳۸", fill: 72, color: "box" },
+  ];
+  const labels: Record<InventoryPhase, string> = { order: "۱ · سفارش وارد شد", recipe: "۲ · دستور تهیه بررسی شد", deduct: "۳ · مصرف از انبار ثبت شد", low: "هشدار · نزدیک نقطه سفارش" };
+  return <div className="hp-inventory-scene" data-phase={phase}>
+    <div className="hp-inventory-heading"><div><span className="hp-inventory-kicker"><Package size={13}/> دستور تهیه و ردیابی موجودی</span><h2>هر سفارش، موجودی را به‌روز می‌کند</h2></div><span className="hp-inventory-step">{labels[phase]}</span></div>
+    <div className="hp-inventory-workspace">
+      <article className={`hp-inventory-order ${phase === "order" ? "is-active" : ""}`}><div className="hp-inventory-card-head"><span><ReceiptText size={13}/> سفارش تازه</span><b>#۱۲۸</b></div><strong>میز ۴ · همین حالا</strong><div className="hp-inventory-order-line"><span>پیتزا پپرونی</span><b>× ۲</b></div><div className="hp-inventory-order-line"><span>لیموناد</span><b>× ۲</b></div><span className="hp-inventory-order-status"><i/> در حال آماده‌سازی</span></article>
+      <article className={`hp-inventory-recipe ${phase === "recipe" ? "is-active" : ""}`}><div className="hp-inventory-card-head"><span><ChefHat size={13}/> رسپی هر پیتزا</span><small>برای ۲ عدد</small></div>{[["خمیر نیمه‌آماده", "۵۰۰ گرم"], ["پنیر موزارلا", "۲۴۰ گرم"], ["پپرونی", "۱۲۰ گرم"], ["سس گوجه", "۸۰ گرم"], ["جعبه پیتزا", "۲ عدد"]].map(([name, quantity], i) => <div key={name} className={`hp-inventory-ingredient ${phase === "recipe" && i < 3 ? "is-active" : ""}`}><span className="hp-inventory-ingredient-check"><Check size={9}/></span><b>{name}</b><small>{quantity}</small></div>)}<div className="hp-inventory-recipe-cost"><span>بهای مواد هر پیتزا</span><b>۱۰۸٬۰۰۰ <small>تومان</small></b></div></article>
+      <article className={`hp-inventory-stock ${after ? "is-deducted" : ""}`}><div className="hp-inventory-card-head"><span><Database size={13}/> انبار آشپزخانه</span><small>موجودی زنده</small></div>{stocks.map((item, i) => <div key={item.name} className={`hp-inventory-stock-row ${item.color} ${phase === "low" && i === 1 ? "is-low" : ""}`}><div><b>{item.name}</b><span><strong>{after ? item.after : item.before}</strong> {item.unit}</span></div><div className="hp-inventory-stock-track"><i style={{ width: `${item.fill}%` }}/></div><small>{after ? `${item.before} ← ${item.after}` : `موجودی قبل از سفارش ${item.before}`}</small></div>)}{phase === "low" && <div className="hp-inventory-alert" role="status"><CircleAlert size={13}/><span><b>پنیر موزارلا زیر نقطه سفارش است</b><small>برای خرید بعدی برنامه‌ریزی کنید</small></span></div>}</article>
+    </div>
+    <div className="hp-inventory-foot"><span><i/> مصرف نمونه بر اساس مقدار رسپی ثبت‌شده</span><span>موجودی و خرید از پنل انبار مدیریت می‌شود</span></div>
+  </div>;
+}
 
 function DigitalMenuScene({ phase, onOrder }: { phase: MenuPhase; onOrder: () => void }) {
   const phaseLabels: Record<MenuPhase, string> = { browse: "منو را ورق بزنید", scrolling: "انتخاب از منوی گوشی", checkout: "ثبت سفارش آنلاین", flying: "سفارش به‌سمت میز می‌آید", delivered: "پیتزا روی میز آماده است" };
@@ -250,6 +272,7 @@ export function HomepageShowcase() {
   const [loyaltyPhase, setLoyaltyPhase] = useState<LoyaltyPhase>("purchase");
   const [accountingPhase, setAccountingPhase] = useState<AccountingPhase>("payment");
   const [menuPhase, setMenuPhase] = useState<MenuPhase>("browse");
+  const [inventoryPhase, setInventoryPhase] = useState<InventoryPhase>("order");
   const saleSequence = useRef(0);
 
   useEffect(() => {
@@ -353,6 +376,22 @@ export function HomepageShowcase() {
     return () => { window.clearInterval(loop); timers.forEach((timer) => window.clearTimeout(timer)); };
   }, [active, prefersReducedMotion]);
 
+  useEffect(() => {
+    if (active !== 6 || prefersReducedMotion) return;
+    const cycle = () => {
+      setInventoryPhase("order");
+      const timers = [
+        window.setTimeout(() => setInventoryPhase("recipe"), 2_500),
+        window.setTimeout(() => setInventoryPhase("deduct"), 5_300),
+        window.setTimeout(() => setInventoryPhase("low"), 8_100),
+      ];
+      return timers;
+    };
+    let timers = cycle();
+    const loop = window.setInterval(() => { timers.forEach((timer) => window.clearTimeout(timer)); timers = cycle(); }, 11_000);
+    return () => { window.clearInterval(loop); timers.forEach((timer) => window.clearTimeout(timer)); };
+  }, [active, prefersReducedMotion]);
+
   function playOrderAnimation() {
     if (prefersReducedMotion) { setMenuPhase("delivered"); return; }
     setMenuPhase("checkout");
@@ -368,8 +407,8 @@ export function HomepageShowcase() {
     </div>
     <div id="hp-showcase-panel" role="tabpanel" aria-labelledby={`hp-tab-${scene.id}`} className="hp-dashboard" key={scene.id}>
       <div className="hp-dashboard-top"><span className="hp-dashboard-brand"><span><ShoppingBag size={15}/></span> محیط مدیریت MenuPeak</span><span className="hp-connection"><i/> دادهٔ نمونه · اجرای زنده</span></div>
-      {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene phase={prefersReducedMotion ? "phone" : costPhase}/> : active === 2 ? <LoyaltyScene phase={prefersReducedMotion ? "reward" : loyaltyPhase}/> : active === 3 ? <AccountingScene phase={prefersReducedMotion ? "balanced" : accountingPhase}/> : active === 4 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : <ReservationScene/>}
+      {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene phase={prefersReducedMotion ? "phone" : costPhase}/> : active === 2 ? <LoyaltyScene phase={prefersReducedMotion ? "reward" : loyaltyPhase}/> : active === 3 ? <AccountingScene phase={prefersReducedMotion ? "balanced" : accountingPhase}/> : active === 4 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : active === 5 ? <ReservationScene/> : <InventorySmartScene phase={prefersReducedMotion ? "low" : inventoryPhase}/>}
     </div>
-    <div className="hp-showcase-caption"><span><QrCode size={16}/> منوی مشتری</span><i/><span><ReceiptText size={16}/> حسابداری و صندوق</span><i/><span><Heart size={16}/> باشگاه مشتریان</span><i/><span><CalendarDays size={16}/> رزرو و سالن</span><i/><span><ChartNoAxesCombined size={16}/> گزارش مدیریت</span></div>
+    <div className="hp-showcase-caption"><span><QrCode size={16}/> منوی مشتری</span><i/><span><ReceiptText size={16}/> حسابداری و صندوق</span><i/><span><Heart size={16}/> باشگاه مشتریان</span><i/><span><CalendarDays size={16}/> رزرو و سالن</span><i/><span><ChartNoAxesCombined size={16}/> گزارش مدیریت</span><i/><span><Package size={16}/> انبار و دستور تهیه</span></div>
   </section>;
 }

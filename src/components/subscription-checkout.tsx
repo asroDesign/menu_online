@@ -4,11 +4,11 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatNumber, formatPrice, toFa } from "@/lib/format";
 import { PLAN_KEYS, planName } from "@/lib/plans";
-import type { BillingTerm, PricedPlan } from "@/lib/plan-pricing";
+import { BILLING_TERMS, isBillingTerm, TERM_LABELS, type BillingTerm, type PricedPlan } from "@/lib/plan-pricing";
 import { Badge, Button, Card, Field, Icon, Input, Select, Skeleton, useToast } from "@/components/ui";
 
 type PlanData = { plan: string; plans: PricedPlan[]; endsAt: string | null };
-type Quote = { plan: string; months: 6 | 12; base: number; termDiscount: number; couponDiscount: number; amount: number; couponCode: string };
+type Quote = { plan: string; months: BillingTerm; base: number; termDiscount: number; couponDiscount: number; amount: number; couponCode: string };
 type Invoice = { id: number; number: number; amount: number; plan: string; months: number; discount: number; couponCode: string; createdAt: string };
 
 export function SubscriptionCheckout({ initialPlan, initialMonths, invoiceId }: { initialPlan?: string; initialMonths?: number; invoiceId?: number }) {
@@ -17,7 +17,7 @@ export function SubscriptionCheckout({ initialPlan, initialMonths, invoiceId }: 
   const [gateways, setGateways] = useState<{ id: string; name: string }[]>([]);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [plan, setPlan] = useState(initialPlan && PLAN_KEYS.includes(initialPlan as never) ? initialPlan : "premium");
-  const [months, setMonths] = useState<BillingTerm>(initialMonths === 6 ? 6 : 12);
+  const [months, setMonths] = useState<BillingTerm>(isBillingTerm(initialMonths) ? initialMonths : 12);
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -74,7 +74,7 @@ export function SubscriptionCheckout({ initialPlan, initialMonths, invoiceId }: 
     <main className="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12" dir="rtl">
       <header className="mb-6"><Link href="/dashboard/plan" className="text-sm font-bold text-primary">← بازگشت به پلن‌ها</Link><h1 className="mt-4 text-2xl font-black sm:text-3xl">پرداخت اشتراک</h1><p className="mt-2 text-sm text-base-content/60">فاکتور خرید یا تمدید پلن را بررسی و درگاه پرداخت را انتخاب کنید.</p></header>
       {fixedInvoice ? <Card className="mb-5 space-y-3 p-5"><div className="flex items-center justify-between"><h2 className="font-extrabold">فاکتور #{toFa(fixedInvoice.number)}</h2><Badge color="amber">در انتظار پرداخت</Badge></div><p>پلن {planName(fixedInvoice.plan)} · دوره {toFa(fixedInvoice.months)} ماهه</p>{fixedInvoice.couponCode && <p className="text-sm text-emerald-700">کد تخفیف: {fixedInvoice.couponCode}</p>}<p className="text-xl font-black">{formatPrice(fixedInvoice.amount)}</p></Card> : invoiceId ? <p className="mb-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error || "فاکتور پرداخت‌نشده پیدا نشد یا مهلت پرداخت آن پایان یافته است."}</p> : data && (
-        <Card className="mb-5 space-y-5 p-5 sm:p-6"><div className="grid gap-4 sm:grid-cols-2"><Field label="پلن"><Select value={plan} onChange={(e) => { setPlan(e.target.value); setAppliedCoupon(""); setCouponInput(""); setQuote(null); }}><option value="basic">{data.plans.find((p) => p.key === "basic")?.name ?? "پایه"}</option>{data.plans.filter((p) => p.key !== "basic").map((p) => <option key={p.key} value={p.key}>{p.name}{p.key === data.plan ? " · پلن فعلی" : ""}</option>)}</Select></Field><Field label="مدت اشتراک"><Select value={months} onChange={(e) => { setMonths(Number(e.target.value) as BillingTerm); setAppliedCoupon(""); setCouponInput(""); setQuote(null); }}><option value={6}>شش‌ماهه</option><option value={12}>سالانه</option></Select></Field></div>
+        <Card className="mb-5 space-y-5 p-5 sm:p-6"><div className="grid gap-4 sm:grid-cols-2"><Field label="پلن"><Select value={plan} onChange={(e) => { setPlan(e.target.value); setAppliedCoupon(""); setCouponInput(""); setQuote(null); }}><option value="basic">{data.plans.find((p) => p.key === "basic")?.name ?? "پایه"}</option>{data.plans.filter((p) => p.key !== "basic").map((p) => <option key={p.key} value={p.key}>{p.name}{p.key === data.plan ? " · پلن فعلی" : ""}</option>)}</Select></Field><Field label="مدت اشتراک"><Select value={months} onChange={(e) => { setMonths(Number(e.target.value) as BillingTerm); setAppliedCoupon(""); setCouponInput(""); setQuote(null); }}>{BILLING_TERMS.map((term) => <option key={term} value={term}>{TERM_LABELS[term]}</option>)}</Select></Field></div>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="کد تخفیف"><Input dir="ltr" className="text-left uppercase" value={couponInput} onChange={(e) => setCouponInput(e.target.value.toUpperCase())} placeholder="کد را وارد کنید" /></Field><Button variant="secondary" onClick={applyCoupon} loading={busy === "coupon"}>اعمال کد</Button></div>
           {quote && <div className="space-y-2 rounded-2xl bg-base-200/60 p-4 text-sm"><div className="flex justify-between"><span>قیمت دوره</span><span>{formatNumber(quote.base)} تومان</span></div>{quote.termDiscount > 0 && <div className="flex justify-between text-emerald-700"><span>تخفیف دوره</span><span>− {formatNumber(quote.termDiscount)} تومان</span></div>}{quote.couponDiscount > 0 && <div className="flex justify-between text-emerald-700"><span>تخفیف کد {quote.couponCode}</span><span>− {formatNumber(quote.couponDiscount)} تومان</span></div>}<div className="flex justify-between border-t border-base-300 pt-2 text-base font-extrabold"><span>مبلغ قابل پرداخت</span><span>{formatNumber(quote.amount)} تومان</span></div></div>}
         </Card>
