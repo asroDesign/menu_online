@@ -766,6 +766,86 @@ impl Store {
         }))).transpose()
     }
 
+    pub fn workspace_payroll_commands(&self) -> Result<Value> {
+        let business_id = self.paired_business_id()?;
+        let mut query = self.conn.prepare(
+            "SELECT id,state,error,payload,created_at,server_receipt FROM workspace_commands WHERE business_id=?1 AND module='payroll' AND action='settlement' ORDER BY sequence DESC LIMIT 100",
+        ).map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((
+            row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?,
+            row.get::<_,Vec<u8>>(3)?, row.get::<_,String>(4)?, row.get::<_,String>(5)?,
+        ))).map_err(err)?;
+        let items = rows.map(|row| {
+            let (id,state,error,payload,created_at,receipt) = row.map_err(err)?;
+            let command = value(payload)?;
+            Ok(json!({
+                "id":id,"state":state,"error":error,"createdAt":created_at,"receipt":receipt,
+                "runId":command["payload"]["runId"],"kind":command["payload"]["kind"],
+                "from":command["payload"]["from"],"bankAccountId":command["payload"]["bankAccountId"],
+            }))
+        }).collect::<Result<Vec<_>>>()?;
+        Ok(json!(items))
+    }
+
+    pub fn enqueue_payroll_settlement_with_pin(
+        &mut self,
+        pin: &str,
+        run_id: i64,
+        kind: &str,
+        from: &str,
+        bank_account_id: Option<i64>,
+    ) -> Result<Value> {
+        self.verify_local_manager_pin(pin)?;
+        if run_id < 1 || !["salary", "insurance", "tax"].contains(&kind) || !["cash", "bank"].contains(&from)
+            || (from == "cash" && bank_account_id.is_some()) || (from == "bank" && bank_account_id.is_none_or(|id| id < 1)) {
+            return Err("نوع پرداخت یا حساب حقوق معتبر نیست".into());
+        }
+        let snapshot = self.workspace_snapshot("payroll")?.ok_or_else(|| "آرشیو محلی حقوق دریافت نشده است".to_string())?;
+        if snapshot["expired"].as_bool() == Some(true) {
+            return Err("آرشیو حقوق منقضی است؛ برای ثبت پرداخت ابتدا نسخهٔ تازه دریافت کنید".into());
+        }
+        let runs = snapshot["payload"]["runs"].as_array().ok_or("فهرست دوره‌های حقوق محلی معتبر نیست")?;
+        let run = runs.iter().find(|row| row["id"].as_i64() == Some(run_id)).ok_or("دورهٔ حقوق در snapshot محلی پیدا نشد")?;
+        if run["status"].as_str() != Some("approved") {
+            return Err("فقط لیست حقوق قطعی و تأییدشده قابل پرداخت است".into());
+        }
+        if run["settlements"].as_array().is_some_and(|rows| rows.iter().any(|row| row["kind"].as_str() == Some(kind))) {
+            return Err("این نوع پرداخت در snapshot محلی قبلاً ثبت شده است؛ ابتدا نسخهٔ تازه بگیرید".into());
+        }
+        if let Some(bank_id) = bank_account_id {
+            let banks = snapshot["payload"]["bankAccounts"].as_array().ok_or("فهرست حساب‌های بانکی محلی معتبر نیست")?;
+            if !banks.iter().any(|row| row["id"].as_i64() == Some(bank_id)) {
+                return Err("حساب بانکی در snapshot محلی پیدا نشد".into());
+            }
+        }
+        let totals = &run["totals"];
+        let amount = match kind {
+            "salary" => totals["net"].as_i64(),
+            "insurance" => totals["employeeInsurance"].as_i64().and_then(|employee| totals["employerInsurance"].as_i64().and_then(|employer| employee.checked_add(employer))),
+            "tax" => totals["tax"].as_i64(),
+            _ => None,
+        }.ok_or("جمع مبلغ دورهٔ حقوق محلی معتبر نیست")?;
+        if amount <= 0 { return Err("برای این نوع پرداخت مبلغی در دورهٔ حقوق وجود ندارد".into()); }
+
+        let business_id = number(&snapshot, "businessId")?;
+        let local_commands = self.workspace_payroll_commands()?;
+        if local_commands.as_array().is_some_and(|rows| rows.iter().any(|row| {
+            row["runId"].as_i64() == Some(run_id) && row["kind"].as_str() == Some(kind)
+                && ["pending", "synced", "conflict"].contains(&row["state"].as_str().unwrap_or(""))
+        })) {
+            return Err("برای این نوع پرداخت، درخواست محلی تعیین‌تکلیف‌نشده وجود دارد؛ وضعیت همگام‌سازی را بررسی کنید".into());
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = json!({
+            "schemaVersion":1,"id":id,"businessId":business_id,"module":"payroll","action":"settlement",
+            "baseDataset":"payroll","baseSnapshotId":snapshot["snapshotId"],"baseRevision":snapshot["revision"],
+            "payload":{"runId":run_id,"kind":kind,"from":from,"bankAccountId":bank_account_id,"occurredAt":Utc::now().to_rfc3339()}
+        });
+        self.enqueue_workspace_command(&command)?;
+        Ok(json!({"commandId":id,"state":"pending","runId":run_id,"kind":kind,"amountToman":amount}))
+    }
+
     pub fn delete_workspace_snapshot(&mut self, dataset: &str) -> Result<()> {
         if !WORKSPACE_DATASETS.contains(&dataset) {
             return Err("این مجموعهٔ داده برای حذف محلی مجاز نیست".into());
@@ -2705,7 +2785,7 @@ impl Store {
     }
 
     fn claim_workspace_commands_filtered(&mut self, module: &str, action: Option<&str>) -> Result<Vec<Value>> {
-        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "cash_shifts", "tables"].contains(&module) {
+        if !["menu", "customers", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "cash_shifts", "tables", "payroll"].contains(&module) {
             return Err("همگام‌سازی این ماژول هنوز فعال نیست".into());
         }
         let business_id = self.paired_business_id()?;

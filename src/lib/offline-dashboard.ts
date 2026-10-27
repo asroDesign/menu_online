@@ -8,6 +8,7 @@ import { offlineAuth } from "@/lib/offline-pos";
 import * as Accounting from "@/lib/accounting";
 import { syncOfflineAccountingCommand } from "@/lib/offline-accounting";
 import { syncOfflineChequeCommand } from "@/lib/offline-cheques";
+import { syncOfflinePayrollSettlementCommand } from "@/lib/offline-payroll-settlement";
 import { syncOfflineTableStatusCommand } from "@/lib/offline-tables";
 import { outstandingAmount, receivableState } from "@/lib/receivables-core";
 import { cashShiftTotals, cashShiftTotalsByShift } from "@/lib/cash-shifts";
@@ -832,6 +833,9 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       };
     } else if (dataset === "payroll") {
       const [businessRow] = await tx.select({ name: businesses.name }).from(businesses).where(eq(businesses.id, business.id)).limit(1);
+      const bankRows = await tx.select({ id: bankAccounts.id, name: bankAccounts.name, bank: bankAccounts.bank })
+        .from(bankAccounts).where(eq(bankAccounts.businessId, business.id)).orderBy(asc(bankAccounts.name), asc(bankAccounts.id)).limit(501);
+      if (bankRows.length > 500) throw new HttpError(413, "تعداد حساب‌های بانکی برای پرداخت آفلاین حقوق از سقف ۵۰۰ حساب بیشتر است");
       const runRows = await tx.select({
         id: payrollRuns.id, jalaliYear: payrollRuns.jalaliYear, jalaliMonth: payrollRuns.jalaliMonth, status: payrollRuns.status,
         salaryDocumentId: payrollRuns.salaryDocumentId, createdAt: payrollRuns.createdAt, approvedAt: payrollRuns.approvedAt,
@@ -868,6 +872,7 @@ export async function offlineDashboardSnapshot(req: Request, dataset: string) {
       });
       payload = {
         businessName: businessRow?.name ?? "",
+        bankAccounts: bankRows,
         runs: runRows.map((run) => {
           const items = asItems(run.id);
           return {
@@ -1096,6 +1101,7 @@ export async function syncOfflineDashboardCommand(req: Request, raw: unknown) {
   if (isRecord(raw) && raw.module === "tables") return syncOfflineTableStatusCommand(req, raw);
   if (isRecord(raw) && raw.module === "cash_shifts") return syncOfflineCashShiftCommand(req, parseCashShiftCommand(raw));
   if (isRecord(raw) && raw.module === "cheques") return syncOfflineChequeCommand(req, raw);
+  if (isRecord(raw) && raw.module === "payroll") return syncOfflinePayrollSettlementCommand(req, raw);
   if (isRecord(raw) && raw.module === "orders") return syncOfflineOrderStatusCommand(req, raw);
   if (isRecord(raw) && raw.module === "staff") return syncOfflineStaffRequest(req, parseStaffCommand(raw));
   if (isRecord(raw) && raw.module === "accounting") return syncOfflineAccountingCommand(req, raw);

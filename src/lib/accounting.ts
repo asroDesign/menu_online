@@ -206,6 +206,32 @@ export async function bankDetailId(biz: Biz, bankId: number | null | undefined) 
   return r.id;
 }
 
+/** Resolve or create a bank detail account inside the caller's accounting transaction. */
+export async function bankDetailIdInTransaction(tx: Q, biz: Biz, bankId: number) {
+  await tx.execute(sql`select pg_advisory_xact_lock(${biz.id + 779003})`);
+  const [bankMoein] = await tx.select().from(accAccounts).where(and(
+    eq(accAccounts.businessId, biz.id), eq(accAccounts.code, C.BANK), eq(accAccounts.isActive, true),
+  )).for("update").limit(1);
+  if (!bankMoein || bankMoein.level !== "moein") throw new HttpError(409, "حساب معین بانک‌ها در کدینگ فعال نیست");
+  const [bank] = await tx.select().from(bankAccounts).where(and(eq(bankAccounts.id, bankId), eq(bankAccounts.businessId, biz.id))).limit(1);
+  if (!bank) throw new HttpError(409, "حساب بانکی متعلق به این کسب‌وکار نیست");
+  const [existing] = await tx.select().from(accAccounts).where(and(
+    eq(accAccounts.businessId, biz.id), eq(accAccounts.refType, "bank"), eq(accAccounts.refId, bankId),
+  )).limit(1);
+  if (existing) {
+    if (!existing.isActive || existing.level !== "tafsili" || existing.parentId !== bankMoein.id) throw new HttpError(409, "حساب تفصیلی بانک با کدینگ فعال سازگار نیست");
+    return existing.id;
+  }
+  const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(accAccounts).where(and(
+    eq(accAccounts.businessId, biz.id), eq(accAccounts.parentId, bankMoein.id),
+  ));
+  const [created] = await tx.insert(accAccounts).values({
+    businessId: biz.id, code: `${C.BANK}${String(count + 1).padStart(2, "0")}`, name: `بانک — ${bank.name}`,
+    level: "tafsili", parentId: bankMoein.id, type: "asset", nature: "debit", refType: "bank", refId: bankId, isSystem: true,
+  }).returning({ id: accAccounts.id });
+  return created.id;
+}
+
 /* ------------------------------------------------------------- fiscal year */
 export async function yearFor(bizId: number, date: Date, create = true, query: Q = db) {
   const [y] = await query.select().from(accFiscalYears).where(and(eq(accFiscalYears.businessId, bizId), lte(accFiscalYears.startDate, date), gte(accFiscalYears.endDate, date)));

@@ -160,7 +160,7 @@ impl OfflineState {
                             }
                         }
                     }
-                    'workspace_modules: for module in ["menu", "customers", "orders", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "tables"] {
+                    'workspace_modules: for module in ["menu", "customers", "orders", "reservations", "staff", "inventory", "accounting", "receivables", "cheques", "tables", "payroll"] {
                       let workspace_commands = state
                         .store.lock().ok()
                         .and_then(|mut store| store.claim_workspace_commands(module).ok())
@@ -207,6 +207,7 @@ impl OfflineState {
                                         None,
                                         "",
                                     );
+                                    if module == "payroll" { let _ = store.set("workspace_payroll_refresh", &json!(true)); }
                                     if module == "menu" || module == "customers" || module == "orders" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" || module == "tables" { let _ = store.set("workspace_refresh", &json!(true)); }
                                 }
                             }
@@ -228,6 +229,7 @@ impl OfflineState {
                                         Some(message),
                                         failure,
                                     );
+                                    if status == 409 && module == "payroll" { let _ = store.set("workspace_payroll_refresh", &json!(true)); }
                                     if status == 409 && (module == "menu" || module == "customers" || module == "orders" || module == "reservations" || module == "inventory" || module == "staff" || module == "accounting" || module == "receivables" || module == "cheques" || module == "tables") {
                                         let _ = store.set("workspace_refresh", &json!(true));
                                     }
@@ -249,6 +251,14 @@ impl OfflineState {
                             }
                         }
                       }
+                    }
+
+                    if state.store.lock().ok()
+                        .and_then(|store| store.get("workspace_payroll_refresh").ok().flatten())
+                        .is_some_and(|value| value == true)
+                    {
+                        if let Ok(store) = state.store.lock() { let _ = store.set("workspace_payroll_refresh", &json!(false)); }
+                        refresh_payroll_snapshot(&state, &client, server, token, pair["businessId"].as_i64().unwrap_or(0));
                     }
 
                     let inventory_commands_waiting = state.store.lock().ok()
@@ -1695,7 +1705,28 @@ pub fn offline_workspace_bank(state: State<'_, OfflineState>) -> Result<Option<V
 pub fn offline_workspace_payroll(manager_pin: String, state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let mut store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
     store.verify_local_manager_pin(&manager_pin)?;
-    store.workspace_snapshot("payroll")
+    let mut snapshot = store.workspace_snapshot("payroll")?;
+    if let Some(snapshot) = snapshot.as_mut() { snapshot["localSettlements"] = store.workspace_payroll_commands()?; }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn offline_workspace_set_payroll_settlement(
+    run_id: i64,
+    kind: String,
+    from: String,
+    bank_account_id: Option<i64>,
+    manager_pin: String,
+    state: State<'_, OfflineState>,
+) -> Result<Value> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.enqueue_payroll_settlement_with_pin(
+        &manager_pin, run_id, &kind, &from, bank_account_id,
+    )
+}
+
+#[tauri::command]
+pub fn offline_refresh_payroll(state: State<'_, OfflineState>) -> Result<()> {
+    state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?.set("workspace_payroll_refresh", &json!(true))
 }
 
 #[tauri::command]
