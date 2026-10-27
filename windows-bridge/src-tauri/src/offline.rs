@@ -1686,7 +1686,9 @@ pub fn offline_workspace_reports(state: State<'_, OfflineState>) -> Result<Optio
 #[tauri::command]
 pub fn offline_workspace_bank(state: State<'_, OfflineState>) -> Result<Option<Value>> {
     let store = state.store.lock().map_err(|_| "پایگاه محلی مشغول است")?;
-    store.workspace_snapshot("bank")
+    let mut snapshot = store.workspace_snapshot("bank")?.unwrap_or_else(|| json!({"payload":null,"expired":true}));
+    snapshot["localTransactions"] = store.workspace_bank_local_transactions()?;
+    Ok(Some(snapshot))
 }
 
 #[tauri::command]

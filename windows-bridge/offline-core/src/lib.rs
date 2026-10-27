@@ -1951,6 +1951,31 @@ impl Store {
         Ok(json!({"commandId":command_id,"state":"pending","action":"create_transaction","amount":amount}))
     }
 
+    pub fn workspace_bank_local_transactions(&self) -> Result<Value> {
+        let Some(business_id) = self.get("pairing")?.and_then(|pair| pair["businessId"].as_i64()) else {
+            return Ok(json!([]));
+        };
+        let mut query = self.conn.prepare(
+            "SELECT id,state,error,created_at,payload FROM workspace_commands WHERE business_id=?1 AND module='accounting' AND action='create_transaction' AND state!='synced' ORDER BY sequence DESC LIMIT 200",
+        ).map_err(err)?;
+        let rows = query.query_map([business_id], |row| Ok((
+            row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?, row.get::<_, Vec<u8>>(4)?,
+        ))).map_err(err)?;
+        let mut local = Vec::new();
+        for row in rows {
+            let (id,state,error,created_at,payload) = row.map_err(err)?;
+            let command = value(payload)?;
+            let fields = &command["payload"];
+            local.push(json!({
+                "id":id,"state":state,"error":error,"createdAt":created_at,
+                "kind":fields["kind"],"category":fields["category"],"amount":fields["amount"],
+                "bankAccountId":fields["bankAccountId"],"description":fields["description"],"date":fields["date"]
+            }));
+        }
+        Ok(Value::Array(local))
+    }
+
     pub fn enqueue_cheque_register_with_pin(&mut self, pin: &str, payload: &Value) -> Result<Value> {
         self.verify_local_manager_pin(pin)?;
         let snapshot = self.workspace_snapshot("cheques")?.ok_or_else(|| "نسخهٔ دفتر چک دریافت نشده است".to_string())?;
