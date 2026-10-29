@@ -77,11 +77,27 @@ const costPhaseLabels: Record<CostPhase, string> = {
   phone: "۹ · نمایش آیتم در منوی موبایل",
 };
 
+const costPipeline = ["مواد و رسپی", "حاشیهٔ سود", "قیمت فروش", "عکس در منو", "نمایش موبایل"];
+const costPipelineStep: Record<CostPhase, number> = {
+  weighing: 0,
+  dough: 0,
+  meat: 0,
+  cheese: 0,
+  seasoning: 0,
+  profit: 1,
+  price: 2,
+  photo: 3,
+  phone: 4,
+};
+
 function IngredientPricingScene({ phase }: { phase: CostPhase }) {
   const completedCount = costPhaseProgress[phase];
   const activeIngredient = phase === "dough" || phase === "meat" || phase === "cheese" || phase === "seasoning" ? phase : null;
   return <div className={cn("hp-cost-scene", `is-${phase}`)}>
     <div className="hp-cost-heading"><div><span className="hp-cost-kicker"><Weight size={13}/> تحلیل خودکار مواد اولیه</span><h2>از انبار تا قیمت منو</h2></div><span className="hp-cost-step">{costPhaseLabels[phase]}</span></div>
+    <ol className="hp-cost-process" aria-label={`فرایند انبار تا منو، مرحلهٔ ${costPipelineStep[phase] + 1} از ${costPipeline.length}`}>
+      {costPipeline.map((label, index) => <li key={label} className={cn(index < costPipelineStep[phase] && "is-complete", index === costPipelineStep[phase] && "is-current")} aria-current={index === costPipelineStep[phase] ? "step" : undefined}><span>{numberFa.format(index + 1)}</span><b>{label}</b></li>)}
+    </ol>
     <div className="hp-cost-workspace">
       <div className="hp-ingredient-list" aria-label="مواد اولیه در حال وزن‌کشی">
         {ingredients.map(({ key, name, amount, cost, icon: IngredientIcon, color }, index) => {
@@ -241,7 +257,7 @@ function AccountingScene({ phase }: { phase: AccountingPhase }) {
 
 export function HomepageShowcase() {
   const prefersReducedMotion = usePrefersReducedMotion();
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(1);
   const [salesTotal, setSalesTotal] = useState(18_420_000);
   const [orders, setOrders] = useState(128);
   const [salesPulse, setSalesPulse] = useState(0);

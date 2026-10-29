@@ -1193,6 +1193,14 @@
 .hp-cost-heading {margin-bottom:9px}
 .hp-cost-kicker {color:#588274}
 .hp-cost-step {max-width:46%;border:1px solid #dcefe8;border-radius:999px;background:#f1faf6;padding:7px 10px;color:#26765b;font-size:8px;font-weight:800;text-align:center}
+.hp-cost-process {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:0 0 10px;padding:0;list-style:none}
+.hp-cost-process li {display:flex;min-width:0;align-items:center;gap:6px;border:1px solid #e9edf2;border-radius:9px;background:#fff;padding:5px 7px;color:#8a96a6;transition:background .3s,border-color .3s,color .3s,box-shadow .3s}
+.hp-cost-process li>span {display:grid;width:18px;height:18px;flex:none;place-items:center;border-radius:50%;background:#f1f4f8;color:#7a8798;font-size:7px;font-weight:850}
+.hp-cost-process li>b {overflow:hidden;font-size:7px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
+.hp-cost-process li.is-complete {border-color:#d5ecdf;background:#f7fcf9;color:#398365}
+.hp-cost-process li.is-complete>span {background:#e0f4e9;color:#16845a}
+.hp-cost-process li.is-current {border-color:#9bd4b7;background:linear-gradient(110deg,#ebf8f0,#fff);color:#176b4b;box-shadow:0 4px 14px #23754d13}
+.hp-cost-process li.is-current>span {background:#25865e;color:#fff;animation:hp-check-pop .45s ease both}
 .hp-cost-workspace {display:grid;grid-template-columns:1.02fr .98fr;gap:12px;align-items:stretch}
 .hp-ingredient-list {display:grid;align-content:start;gap:6px}
 .hp-ingredient-row {position:relative;display:flex;min-width:0;align-items:center;gap:8px;border:1px solid #edf0f5;border-radius:11px;background:#fff;padding:7px 8px;transition:border-color .35s,background .35s,transform .35s,box-shadow .35s}
@@ -1480,6 +1488,10 @@
   .hp-sale-toast>strong {font-size:8px}
   .hp-live-footer,.hp-cost-foot,.hp-digital-foot,.hp-reservation-foot {font-size:7px}
   .hp-cost-step {max-width:43%;padding:6px 7px;font-size:7px}
+  .hp-cost-process {gap:3px;margin-bottom:7px}
+  .hp-cost-process li {gap:3px;padding:4px 3px}
+  .hp-cost-process li>span {width:15px;height:15px;font-size:6px}
+  .hp-cost-process li>b {font-size:6px}
   .hp-cost-workspace {grid-template-columns:1.05fr .95fr;gap:6px}
   .hp-ingredient-list {gap:5px}
   .hp-ingredient-row {gap:5px;padding:6px 5px}
