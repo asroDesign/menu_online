@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata(): Promise<Metadata> {
   const branding = await getPlatformBranding();
   const title = `ساخت منوی هوشمند و ابزارهای AI رستوران | ${branding.siteName}`;
-  const description = "منوی دیجیتال کافه و رستوران را از فهرست یا عکس بسازید، توضیح و تصویر غذا آماده کنید و با تحلیل فروش، پیشنهاد مکمل و سفارش QR در یک مسیر کار کنید.";
+  const description = "از فهرست غذا یا عکس منوی چاپی، پیش‌نویس منوی دیجیتال بسازید؛ توضیح و تصویر محصول آماده کنید و با تحلیل داده‌محور فروش، بهتر تصمیم بگیرید.";
   const canonical = `${getSiteUrl()}/ai`;
   return {
     metadataBase: new URL(getSiteUrl()),
@@ -38,7 +38,7 @@ export default async function AiMarketingPage() {
     "@context": "https://schema.org",
     "@type": "WebPage",
     name: `دستیار هوشمند منوی دیجیتال ${branding.siteName}`,
-    description: "ابزارهای ساخت منوی دیجیتال، آماده‌سازی توضیحات و تصاویر محصول، پیشنهاد مکمل و تحلیل فروش برای کافه و رستوران.",
+    description: "ساخت پیش‌نویس منوی دیجیتال از فهرست یا عکس، آماده‌سازی توضیحات و تصاویر محصول و مرور داده‌های فروش برای کافه و رستوران.",
     url: `${getSiteUrl()}/ai`,
     inLanguage: "fa-IR",
   };
@@ -51,15 +51,15 @@ export default async function AiMarketingPage() {
         <div className={`${styles.container} ${styles.heroGrid}`}>
           <div className={styles.heroCopy}>
             <span className={styles.eyebrow}><Sparkles size={15}/>دستیار هوشمند منوی دیجیتال</span>
-            <h1>منوی رستوران را <em>هوشمندتر</em> بسازید و بهتر بفروشید</h1>
-            <p>از فهرست غذا یا عکس منوی چاپی شروع کنید. توضیحات و تصاویر را آماده کنید، نتیجه را خودتان بازبینی کنید و بعد منوی QR، سفارش‌ها و تحلیل فروش را کنار هم داشته باشید.</p>
+            <h1>از فهرست ساده تا <em>منویی چشم‌نواز</em></h1>
+            <p>عکس منوی چاپی، فهرست غذاها یا یک محصول را وارد کنید؛ پیش‌نویس منو، توضیحات و تصاویر را آماده کنید. شما بازبینی می‌کنید و وقتی آماده‌اید، QR را در اختیار مشتری می‌گذارید.</p>
             <div className={styles.heroActions}>
               <Link className={styles.primaryCta} href="/register?trial=demo">شروع رایگان {days} روزه <ArrowUpLeft size={17}/></Link>
               <Link className={styles.secondaryCta} href="#builders">دیدن روش‌های ساخت منو <ArrowUpLeft size={16}/></Link>
             </div>
             <div className={styles.heroNotes}>
-              <span><Check size={13}/>مناسب کافه، رستوران و فست‌فود</span>
-              <span><Check size={13}/>پیش‌نویس پیش از انتشار</span>
+              <span><Check size={13}/>فهرست، عکس، متن و تصویر</span>
+              <span><Check size={13}/>بازبینی و انتشار با شما</span>
               <span><Clock3 size={13}/>بدون نصب اپ برای مشتری</span>
             </div>
           </div>
