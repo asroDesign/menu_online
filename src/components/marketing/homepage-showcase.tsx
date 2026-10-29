@@ -243,12 +243,12 @@ function AccountingScene({ phase }: { phase: AccountingPhase }) {
           <path className="hp-accounting-dash" d="M48 52 C145 52 170 112 242 145 M48 150 C138 150 165 150 242 150 M48 248 C145 248 170 188 242 155 M512 52 C415 52 390 112 318 145 M512 150 C422 150 395 150 318 150 M512 248 C415 248 390 188 318 155" fill="none" stroke="#a8c6ff" strokeWidth="1.5" strokeDasharray="4 8"/>
           <circle className="hp-accounting-dot" cx="48" cy="52" r="3"/><circle className="hp-accounting-dot hp-accounting-dot-alt" cx="512" cy="248" r="3"/>
         </svg>
-        <div className="hp-accounting-node hp-accounting-node-pos"><i><ShoppingBag size={14}/></i><b>صندوق</b><small>فروش و دریافت</small></div>
-        <div className="hp-accounting-node hp-accounting-node-qr"><i><QrCode size={14}/></i><b>منوی QR</b><small>سفارش آنلاین</small></div>
-        <div className="hp-accounting-node hp-accounting-node-club"><i><Heart size={14}/></i><b>باشگاه</b><small>تخفیف مشتری</small></div>
-        <div className="hp-accounting-node hp-accounting-node-stock"><i><ChefHat size={14}/></i><b>انبار</b><small>بهای غذا</small></div>
-        <div className="hp-accounting-node hp-accounting-node-bank"><i><Landmark size={14}/></i><b>بانک و چک</b><small>تسویه‌ها</small></div>
-        <div className="hp-accounting-node hp-accounting-node-books"><i><WalletCards size={14}/></i><b>دفتر حساب</b><small>گزارش مالی</small></div>
+        <div className="hp-accounting-node hp-accounting-node-pos"><i><ShoppingBag size={19}/></i><b>صندوق</b><small>فروش و دریافت</small></div>
+        <div className="hp-accounting-node hp-accounting-node-qr"><i><QrCode size={19}/></i><b>منوی QR</b><small>سفارش آنلاین</small></div>
+        <div className="hp-accounting-node hp-accounting-node-club"><i><Heart size={19}/></i><b>باشگاه</b><small>تخفیف مشتری</small></div>
+        <div className="hp-accounting-node hp-accounting-node-stock"><i><ChefHat size={19}/></i><b>انبار</b><small>بهای غذا</small></div>
+        <div className="hp-accounting-node hp-accounting-node-bank"><i><Landmark size={19}/></i><b>بانک و چک</b><small>تسویه‌ها</small></div>
+        <div className="hp-accounting-node hp-accounting-node-books"><i><WalletCards size={19}/></i><b>دفتر حساب</b><small>گزارش مالی</small></div>
         <div className="hp-accounting-ledger">
           <div className="hp-accounting-ledger-head"><span><ReceiptText size={12}/> سند حسابداری · #۱۰۲۴</span><b><i/> متوازن</b></div>
           <div className="hp-accounting-ledger-total"><small>فروش نمونه</small><strong>۶۳۵٬۰۰۰ <em>تومان</em></strong></div>
