@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { ArrowUpLeft, BarChart3, CakeSlice, Camera, Check, CheckCheck, Coffee, FileText, ImagePlus, List, Menu as MenuIcon, MoveHorizontal, Pizza, Plus, QrCode, Sparkles, TrendingUp, UtensilsCrossed, WandSparkles } from "lucide-react";
+import { ArrowUpLeft, BarChart3, BookOpen, Bot, CakeSlice, Camera, Check, CheckCheck, Coffee, FileText, ImagePlus, LayoutTemplate, List, Menu as MenuIcon, MoveHorizontal, Pizza, Plus, QrCode, RotateCw, Sparkles, TrendingUp, UtensilsCrossed, WandSparkles } from "lucide-react";
 import { toFa } from "@/lib/format";
 import styles from "./ai-page.module.css";
 
@@ -13,6 +13,18 @@ const methods = [
   { id: "image", label: "ساخت و بهبود عکس", icon: ImagePlus, title: "برای منو عکس یکدست بسازید", text: "برای محصول بی‌عکس تصویر بسازید یا عکس موجود را بهبود دهید؛ تصویر را ببینید و فقط در صورت تأیید نگه دارید.", rows: [["نور و رنگ", "متعادل و خوش‌خوان"], ["کادر", "تمرکز روی غذا"], ["بازبینی", "انتخاب نهایی با شما"]] },
 ];
 
+const menuChoices = [
+  { id: "print", icon: BookOpen, title: "منوی چاپی", tag: "آشنای همیشگی", fit: "مناسب منویی که کم تغییر می‌کند و بیشتر روی میز در دسترس است.", detail: "برای تغییر قیمت یا اقلام، فایل منو باید اصلاح و دوباره چاپ شود؛ سفارش و تغییرات لحظه‌ای در خود برگه ثبت نمی‌شوند.", points: ["خواندن ساده و بدون گوشی", "هزینهٔ بازچاپ هنگام تغییر", "بدون پیوند مستقیم به سفارش آنلاین"] },
+  { id: "digital", icon: LayoutTemplate, title: "منوی دیجیتال معمولی", tag: "مدیریت روزمره", fit: "مناسب کسب‌وکاری که می‌خواهد منو را آنلاین و همیشه به‌روز نگه دارد.", detail: "اقلام و قیمت‌ها را از پنل ویرایش کنید و منو را با لینک یا QR در اختیار مشتری بگذارید؛ محتوا را خودتان وارد و مرتب می‌کنید.", points: ["ویرایش آنلاین منو", "دسترسی از QR و لینک", "ورود و نگهداری محتوا با تیم شما"] },
+  { id: "ai", icon: Bot, title: "منوی دیجیتال با هوش مصنوعی", tag: "شروع سریع‌تر", fit: "مناسب تیمی که می‌خواهد آماده‌سازی منو و محتوای محصول را سریع‌تر انجام دهد.", detail: "از فهرست یا تصویر منو پیش‌نویس بگیرید، توضیح و تصویر محصول آماده کنید و بعد از بازبینی خودتان منتشر کنید.", points: ["کمک به ساخت پیش‌نویس منو", "پیشنهاد متن و تصویر محصول", "تأیید نهایی و انتشار با شما"] },
+];
+
+const businessMenus = {
+  cafe: { label: "کافه", icon: Coffee, menu: "منوی کافه آبان", categories: ["قهوهٔ گرم", "نوشیدنی سرد", "شیرینی"], items: [["لاته وانیلی", "۱۵۵ هزار تومان", "قهوهٔ تازه · شیر · وانیل"], ["آیس‌موکا", "۱۷۵ هزار تومان", "اسپرسو · شکلات · یخ"], ["کروسان کره‌ای", "۹۵ هزار تومان", "خمیر لایه‌ای · کره"]] },
+  restaurant: { label: "رستوران", icon: UtensilsCrossed, menu: "منوی رستوران نارنج", categories: ["پیش‌غذا", "غذای اصلی", "نوشیدنی"], items: [["چلو جوجه زعفرانی", "۳۴۵ هزار تومان", "مرغ مزه‌دار · برنج ایرانی"], ["کباب لقمه", "۳۹۵ هزار تومان", "گوشت تازه · گوجه کبابی"], ["سالاد فصل", "۱۴۵ هزار تومان", "سبزی روز · چاشنی لیمو"]] },
+  fastfood: { label: "فست‌فود", icon: Pizza, menu: "منوی برگرخانهٔ هفت", categories: ["برگر", "پیتزا", "کنار غذا"], items: [["چیزبرگر دوبل", "۲۸۵ هزار تومان", "گوشت گریل · پنیر چدار"], ["پیتزا پپرونی", "۳۵۰ هزار تومان", "خمیر تازه · پنیر · پپرونی"], ["سیب‌زمینی ویژه", "۱۲۵ هزار تومان", "سیب‌زمینی · ادویهٔ دست‌ساز"]] },
+} as const;
+
 function MenuPhone() {
   const items = [[Coffee, "لاته وانیلی", "۱۵۵٬۰۰۰"], [UtensilsCrossed, "کروسان کره‌ای", "۹۵٬۰۰۰"], [CakeSlice, "چیزکیک روز", "۱۳۵٬۰۰۰"]] as const;
   return <div className={styles.phone}><div className={styles.phoneNotch}/><div className={styles.phoneTop}><span>منوی کافه آبان</span><QrCode size={15}/></div><div className={styles.phoneCover}><span>منوی امروز</span><i><Sparkles size={22}/></i></div><div className={styles.phoneCategories}><span>همه</span><span>قهوه</span><span>صبحانه</span></div>{items.map(([Icon, name, price]) => <div className={styles.phoneProduct} key={name}><span><Icon size={19}/></span><div><b>{name}</b><small>{price} تومان</small></div><button type="button" aria-label={`افزودن ${name}`}><Plus size={14}/></button></div>)}<div className={styles.phoneOrder}><MenuIcon size={14}/> مشاهده سبد خرید <b>۲ قلم</b></div></div>;
@@ -20,14 +32,64 @@ function MenuPhone() {
 
 export function AiPageInteractions() {
   const [active, setActive] = useState(0);
+  const [activeChoice, setActiveChoice] = useState("ai");
+  const [business, setBusiness] = useState<keyof typeof businessMenus>("cafe");
+  const [studioRun, setStudioRun] = useState(0);
   const [orders, setOrders] = useState(80);
   const [rate, setRate] = useState(10);
   const [price, setPrice] = useState(60);
   const current = methods[active];
+  const selectedChoice = menuChoices.find((choice) => choice.id === activeChoice) ?? menuChoices[2];
+  const studio = businessMenus[business];
+  const BusinessIcon = studio.icon;
   const estimate = useMemo(() => orders * 30 * (rate / 100) * price * 1000, [orders, rate, price]);
   return <>
+    <section className={styles.comparison} id="menu-types">
+      <div className={styles.container}>
+        <div className={styles.sectionIntro}><span className={styles.kicker}>انتخابی متناسب با شیوهٔ کار شما</span><h2>منوی چاپی، منوی دیجیتال معمولی یا منوی دیجیتال با هوش مصنوعی؟</h2><p>هر سه راه می‌توانند بخشی از تجربهٔ مشتری باشند؛ تفاوت در به‌روزرسانی، آماده‌سازی محتوا و مسیر سفارش است. برای دیدن جزئیات هر گزینه، آن را انتخاب کنید.</p></div>
+        <div className={styles.choiceGrid} role="tablist" aria-label="مقایسهٔ انواع منو">
+          {menuChoices.map(({ id, icon: Icon, title, tag }) => <button key={id} type="button" role="tab" aria-selected={activeChoice === id} aria-controls="menu-choice-detail" onClick={() => setActiveChoice(id)} className={`${styles.choiceCard} ${activeChoice === id ? styles.choiceCardActive : ""}`}>
+            <span className={styles.choiceIcon}><Icon size={21}/></span><span className={styles.choiceTitle}>{title}</span><span className={styles.choiceTag}>{tag}</span><span className={styles.choiceSelect}>{activeChoice === id ? <Check size={15}/> : <ArrowUpLeft size={15}/>}</span>
+          </button>)}
+        </div>
+        <div className={styles.choiceDetail} id="menu-choice-detail" role="tabpanel" aria-live="polite" key={selectedChoice.id}>
+          <div className={styles.choiceDetailCopy}><span className={styles.detailEyebrow}><Sparkles size={14}/>مناسب برای شما اگر</span><h3>{selectedChoice.fit}</h3><p>{selectedChoice.detail}</p></div>
+          <ul>{selectedChoice.points.map((point) => <li key={point}><Check size={15}/>{point}</li>)}</ul>
+          {selectedChoice.id === "ai" && <Link className={styles.textCta} href="#builders">دیدن روش‌های طراحی با هوش مصنوعی <ArrowUpLeft size={16}/></Link>}
+        </div>
+        <p className={styles.choiceNote}>هوش مصنوعی در این صفحه برای آماده‌سازی پیش‌نویس و محتوا معرفی می‌شود؛ قیمت، مواد تشکیل‌دهنده و متن نهایی را پیش از انتشار بررسی کنید.</p>
+      </div>
+    </section>
+
     <section className={styles.methods} id="builders">
-      <div className={styles.sectionIntro}><span className={styles.kicker}>از هر جا شروع کنید</span><h2>از منوی کاغذی تا ویترین آمادهٔ سفارش</h2><p>با فهرست غذاها یا عکس منوی فعلی آغاز کنید؛ متن و تصویر محصول را هم در همان مسیر آماده کنید. همه‌چیز پیش از ثبت، پیش‌نویس می‌ماند.</p></div>
+      <div className={styles.sectionIntro}><span className={styles.kicker}>برای هر منو، یک نقطهٔ شروع</span><h2>طراحی منو با هوش مصنوعی برای کافه، رستوران و فست فود</h2><p>نوع کسب‌وکار را انتخاب کنید و روند آماده‌شدن یک پیش‌نمایش را ببینید؛ از فهرست یا عکس منو تا توضیح محصول. خروجی این صحنه نمونهٔ نمایشی است و در این صفحه به سرویس تولید متصل نیست.</p></div>
+      <div className={styles.studio}>
+        <div className={styles.studioControls}>
+          <span className={styles.studioLabel}><WandSparkles size={15}/>استودیوی نمایشی طراحی منو</span>
+          <p>نمونهٔ محتوا و دسته‌ها با تغییر نوع کسب‌وکار عوض می‌شوند. برای دیدن دوبارهٔ حرکت‌ها، پیش‌نمایش را اجرا کنید.</p>
+          <div className={styles.businessTabs} role="tablist" aria-label="نوع کسب‌وکار">
+            {(Object.keys(businessMenus) as Array<keyof typeof businessMenus>).map((key) => { const Icon = businessMenus[key].icon; return <button key={key} type="button" role="tab" aria-selected={business === key} aria-controls="ai-studio-preview" onClick={() => setBusiness(key)} className={business === key ? styles.businessTabActive : ""}><Icon size={15}/>{businessMenus[key].label}</button>; })}
+          </div>
+          <button className={styles.replayButton} type="button" onClick={() => setStudioRun((run) => run + 1)}><RotateCw size={15}/>اجرای دوبارهٔ پیش‌نمایش</button>
+          <div className={styles.studioStages} aria-live="polite"><span><i>۱</i>دریافت فهرست نمونه</span><span><i>۲</i>مرتب‌سازی دسته‌ها</span><span><i>۳</i>نمایش منو برای بازبینی</span></div>
+          <small className={styles.studioDisclaimer}>این صحنه انیمیشن رابط کاربری است؛ محصول، قیمت یا اطلاعاتی را ذخیره یا منتشر نمی‌کند.</small>
+        </div>
+        <div className={styles.studioCanvas} id="ai-studio-preview" role="tabpanel" aria-label={`پیش‌نمایش منوی ${studio.label}`}>
+          <div className={styles.studioGlow}/>
+          <div className={styles.studioSource} key={`${business}-${studioRun}`}>
+            <span className={styles.sourceBadge}><List size={13}/>فهرست ورودی</span><b>{studio.label}</b><span>{studio.categories.join(" · ")}</span><i><BusinessIcon size={18}/></i>
+          </div>
+          <div className={styles.studioConnector} aria-hidden="true"><span/><span/><span/></div>
+          <div className={styles.studioResult} key={`result-${business}-${studioRun}`}>
+            <div className={styles.resultHead}><div><small>پیش‌نمایش قابل ویرایش</small><b>{studio.menu}</b></div><span><Sparkles size={15}/>AI</span></div>
+            <div className={styles.resultCategories}>{studio.categories.map((category) => <span key={category}>{category}</span>)}</div>
+            <div className={styles.resultItems}>{studio.items.map(([name, amount, detail], index) => <div className={styles.resultItem} key={name} style={{ "--item-index": index } as CSSProperties}><span className={styles.resultFood}><BusinessIcon size={17}/></span><span className={styles.resultItemCopy}><b>{name}</b><small>{detail}</small></span><strong>{amount}</strong><Check size={14}/></div>)}</div>
+            <div className={styles.resultFoot}><span><Check size={13}/>پیش‌نویس آمادهٔ بازبینی</span><span>قیمت‌ها را شما تأیید می‌کنید</span></div>
+          </div>
+          <div className={`${styles.studioSpark} ${styles.studioSparkOne}`}><Sparkles size={15}/></div><div className={`${styles.studioSpark} ${styles.studioSparkTwo}`}><Check size={13}/></div>
+        </div>
+      </div>
+      <div className={styles.builderHeading}><span className={styles.kicker}>چه چیزی را آماده می‌کنید؟</span><p>یکی از مسیرهای طراحی را انتخاب کنید تا جزئیات و پیش‌نمایش آن را ببینید.</p></div>
       <div className={styles.builderTabs} role="tablist" aria-label="روش‌های ساخت منو با هوش مصنوعی">{methods.map(({ label, icon: Icon }, index) => <button key={label} type="button" role="tab" id={`ai-method-tab-${index}`} aria-selected={active === index} aria-controls="ai-method-panel" onClick={() => setActive(index)} className={active === index ? styles.activeTab : ""}><Icon size={16}/>{label}</button>)}</div>
       <div className={styles.builderPanel} id="ai-method-panel" role="tabpanel" aria-labelledby={`ai-method-tab-${active}`} key={current.id}>
         <div className={styles.panelCopy}><span className={styles.panelIndex}>{["۰۱", "۰۲", "۰۳", "۰۴"][active]} / ۰۴</span><h3>{current.title}</h3><p>{current.text}</p><ul>{current.rows.map(([title, detail]) => <li key={title}><Check size={15}/><span><b>{title}</b><small>{detail}</small></span></li>)}</ul><Link className={styles.textCta} href="/dashboard/ai">شروع در پنل <ArrowUpLeft size={16}/></Link></div>
