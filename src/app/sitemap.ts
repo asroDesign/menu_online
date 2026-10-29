@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = getSiteUrl();
   const [posts, tutorials] = await Promise.all([getPublicPosts(1000), getPublicTutorials(1000)]);
-  const staticRoutes = ["", "/ai", "/plans", "/preview", "/pos-system", "/about", "/contact", "/consultation", "/terms", "/demo", "/faq", "/blog", "/tutorials", "/testimonials"];
+  const staticRoutes = ["", "/ai", "/accounting-software", "/plans", "/preview", "/pos-system", "/about", "/contact", "/consultation", "/terms", "/demo", "/faq", "/blog", "/tutorials", "/testimonials"];
   return [
     ...staticRoutes.map((path) => ({ url: `${base}${path || "/"}`, lastModified: new Date(), changeFrequency: path === "/blog" || path === "/tutorials" ? "daily" as const : "monthly" as const, priority: path === "" ? 1 : 0.6 })),
     ...posts.filter((x) => !x.noIndex).map((x) => ({ url: `${base}/blog/${x.slug}`, lastModified: x.updatedAt, changeFrequency: "weekly" as const, priority: 0.7 })),

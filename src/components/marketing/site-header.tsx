@@ -4,12 +4,12 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ArrowUpLeft, Menu, UtensilsCrossed, X } from "lucide-react";
 import { BrandLogo, usePlatformBranding } from "@/components/brand";
-const links = [["/", "خانه"], ["/ai", "طراحی منو با هوش مصنوعی"], ["/plans", "تعرفه‌ها و امکانات"], ["/blog", "مجله رستوران"], ["/tutorials", "آموزش"], ["/contact", "ارتباط با ما"]];
+const links = [["/", "خانه"], ["/ai", "طراحی منو با هوش مصنوعی"], ["/accounting-software", "حسابداری رستوران"], ["/plans", "تعرفه‌ها و امکانات"], ["/blog", "مجله رستوران"], ["/tutorials", "آموزش"], ["/contact", "ارتباط با ما"]];
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const path = usePathname();
   const branding = usePlatformBranding();
-  const navigation = path === "/" ? [["/#why-us", "چرا ما؟"], ["/#features", "امکانات"], ["/ai", "هوش مصنوعی"], ["/#buying-guide", "راهنمای خرید"], ["/#pricing", "تعرفه‌ها"], ["/contact", "ارتباط با ما"]] : links;
+  const navigation = path === "/" ? [["/#why-us", "چرا ما؟"], ["/#features", "امکانات"], ["/ai", "هوش مصنوعی"], ["/accounting-software", "حسابداری"], ["/#buying-guide", "راهنمای خرید"], ["/#pricing", "تعرفه‌ها"], ["/contact", "ارتباط با ما"]] : links;
   return <header className="site-header"><div className="site-nav">
     <Link href="/" className="site-brand" aria-label={`${branding.siteName}، صفحه اصلی`}><span><BrandLogo url={branding.logoUrl} alt="" className="size-8 object-contain" fallback={<UtensilsCrossed size={21}/>} /></span><div>{branding.siteName}<small>همراه هر روز رستوران شما</small></div></Link>
     <nav className="desktop-nav" aria-label="منوی اصلی">{navigation.map(([href,label])=><Link key={href} href={href} aria-current={path === href ? "page" : undefined}>{label}</Link>)}</nav>

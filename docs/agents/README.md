@@ -113,6 +113,7 @@
 |---|---|
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
 | [core-pages/ai-menu-builder.md](core-pages/ai-menu-builder.md) | صفحهٔ معرفی AI با چهار روش ساخت منو، مراحل، ابزارهای متصل و حسابگر تعاملی؛ پیش‌نویس‌های عملیاتی در `/dashboard/ai` |
+| [core-pages/accounting-software.md](core-pages/accounting-software.md) | لندینگ معرفی حسابداری، گردش نمونهٔ سند، تب‌های اتصال به مسیرهای واقعی پنل و فهرست محدودیت‌های فعلی |
 | [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه، تنظیم برند، و ناوبری موبایل بدون نوار هدر سراسری |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
