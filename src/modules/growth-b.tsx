@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api, useCollection } from "@/lib/api";
 import { useFeatures } from "@/components/features";
+import { AiMenuBuilder } from "@/components/ai-menu-builder";
 import { ModelViewer } from "@/components/model-viewer";
 import { SettingCard } from "@/components/setting-card";
 import { formatDate, formatNumber, formatPrice, formatTime, timeAgo, toFa } from "@/lib/format";
@@ -393,6 +394,7 @@ export function AiPage() {
   return (
     <div className="animate-fade-in">
       <PageHeader title="هوش مصنوعی" subtitle="تحلیل فروش و پیشنهادهای هوشمند، به‌علاوه نویسنده‌ی خودکار توضیح محصولات" actions={ins && <Badge color={ins.engine === "openai" ? "violet" : "stone"}>{ins.engine === "openai" ? "موتور: OpenAI" : "موتور: تحلیل داخلی"}</Badge>} />
+      <AiMenuBuilder />
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="p-5">
           <h3 className="mb-4 font-bold"><IconText>{<EmojiIcon emoji="" />}</IconText> تحلیل کسب‌وکار (۱۴ روز اخیر)</h3>
