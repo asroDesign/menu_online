@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { BrandLogo, usePlatformBranding } from "@/components/brand";
 import { Icon } from "@/components/ui";
+import type { PlatformBranding } from "@/lib/app-settings";
 import { brandThemeStyle } from "@/lib/brand-color";
 
 type ErrorVariant = "not-found" | "server";
@@ -58,13 +59,14 @@ const CONTENT: Record<ErrorVariant, {
   },
 };
 
-export function SystemErrorScreen({ variant, onRetry, errorDigest }: { variant: ErrorVariant; onRetry?: () => void; errorDigest?: string }) {
-  const branding = usePlatformBranding();
+export function SystemErrorScreen({ variant, onRetry, errorDigest, initialBranding }: { variant: ErrorVariant; onRetry?: () => void; errorDigest?: string; initialBranding?: PlatformBranding }) {
+  const currentBranding = usePlatformBranding();
+  const branding = initialBranding ?? currentBranding;
   const content = CONTENT[variant];
   const siteName = branding.siteName || "MenuPeak";
 
   return (
-    <main dir="rtl" className="min-h-dvh bg-brand-50 text-base-content" style={{ ...brandThemeStyle(branding.brandColor), backgroundImage: "linear-gradient(color-mix(in srgb, var(--color-primary) 5%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 5%, transparent) 1px, transparent 1px)", backgroundSize: "48px 48px" }}>
+    <main dir="rtl" className="min-h-dvh bg-brand-50 text-base-content" style={{ ...brandThemeStyle(branding.brandColor), backgroundColor: "var(--color-brand-50)", backgroundImage: "linear-gradient(color-mix(in srgb, var(--color-primary) 5%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 5%, transparent) 1px, transparent 1px)", backgroundSize: "48px 48px" }}>
       <div dir="ltr" className="mx-auto grid min-h-dvh w-full max-w-[1700px] place-items-center p-2.5 sm:p-5">
         <div className="grid w-full grid-cols-1 gap-3 rounded-[30px] border border-brand-100 bg-white p-3 shadow-xl sm:gap-5 sm:rounded-[38px] sm:p-5 lg:min-h-[calc(100dvh-64px)] lg:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]">
           <aside dir="rtl" className="relative flex min-h-[370px] flex-col overflow-hidden rounded-[26px] bg-gradient-to-br from-brand-800 via-primary to-brand-700 p-4 text-primary-content sm:min-h-[430px] sm:rounded-[30px] sm:p-6 lg:min-h-0 lg:p-7 xl:p-8">

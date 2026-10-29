@@ -1,3 +1,6 @@
+import { DEFAULT_PLATFORM_BRANDING, getPlatformBranding } from "@/lib/app-settings";
+import { brandThemeStyle } from "@/lib/brand-color";
+
 const PAGE = `<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
@@ -31,8 +34,39 @@ const PAGE = `<!doctype html>
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
-  return new Response(PAGE, {
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] ?? character);
+}
+
+function themedPage(brandColor: string, siteName: string) {
+  const variables = Object.entries(brandThemeStyle(brandColor))
+    .map(([name, value]) => `${name}:${String(value)}`)
+    .join(";");
+  const theme = `
+    <style>
+      :root{${variables}}
+      body{background-color:var(--color-brand-50)!important;background-image:linear-gradient(color-mix(in srgb,var(--color-primary) 5%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--color-primary) 5%,transparent) 1px,transparent 1px)!important;color:var(--color-base-content)!important}
+      .frame{border-color:var(--color-brand-100)!important;box-shadow:0 28px 90px color-mix(in srgb,var(--color-primary) 9%,transparent)!important}
+      .brand{background:linear-gradient(145deg,var(--color-brand-800),var(--color-primary),var(--color-brand-700))!important}
+      .brand:before{background:color-mix(in srgb,var(--color-primary) 28%,transparent)!important}.brand:after{background:color-mix(in srgb,var(--color-primary) 12%,transparent)!important}
+      .brand-logo,.brand-name,.status svg,.error-art strong{color:var(--color-primary-content)!important}
+      .error-art{border-color:color-mix(in srgb,var(--color-primary-content) 28%,transparent)!important}
+      .tile{border-color:var(--color-brand-100)!important;color:var(--color-brand-900)!important}.tile:nth-child(2),.tile:nth-child(3){border-color:var(--color-brand-200)!important;background:var(--color-brand-50)!important}.tile svg,.quick-icon{color:var(--color-brand-700)!important}
+      .badge,.badge.warning{border-color:var(--color-brand-200)!important;background:var(--color-brand-50)!important;color:var(--color-brand-800)!important}.eyebrow{color:var(--color-primary)!important}
+      .actions a{border-color:var(--color-brand-200)!important;color:var(--color-brand-800)!important}.actions a:hover{background:var(--color-brand-50)!important}.actions a.primary,.actions a.primary:hover{border-color:var(--color-primary)!important;background:var(--color-primary)!important;color:var(--color-primary-content)!important}
+      .actions a:focus-visible,.quick a:focus-visible{outline-color:var(--color-brand-400)!important}
+      .quick{border-color:var(--color-brand-100)!important;background:var(--color-brand-50)!important}.quick a{border-color:var(--color-brand-100)!important;color:var(--color-brand-900)!important}.quick a:hover{border-color:var(--color-brand-300)!important;box-shadow:0 8px 22px color-mix(in srgb,var(--color-primary) 8%,transparent)!important}.quick-icon{background:var(--color-brand-50)!important}.quick small,.quick-head span{color:color-mix(in srgb,var(--color-base-content) 55%,transparent)!important}
+    </style>`;
+  const safeSiteName = escapeHtml(siteName);
+  return PAGE
+    .replace('content="#F3F9F6"', `content="${brandColor}"`)
+    .replaceAll("MenuPeak", () => safeSiteName)
+    .replace("</head>", `${theme}</head>`);
+}
+
+export async function GET() {
+  const branding = await getPlatformBranding().catch(() => DEFAULT_PLATFORM_BRANDING);
+  return new Response(themedPage(branding.brandColor, branding.siteName), {
     status: 502,
     headers: {
       "Content-Type": "text/html; charset=utf-8",

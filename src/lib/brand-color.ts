@@ -33,6 +33,7 @@ export function brandThemeStyle(input: unknown): CSSProperties {
   const foreground = readableForeground(color);
   const mix = (amount: number, into: "white" | "black") => `color-mix(in srgb, ${color} ${amount}%, ${into})`;
   return {
+    "--color-base-content": "#182b49",
     "--color-primary": color,
     "--color-primary-content": foreground,
     "--color-brand-50": mix(5, "white"),
