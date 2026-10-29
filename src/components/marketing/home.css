@@ -1144,6 +1144,12 @@
 .hp-dashboard.is-costing .hp-dashboard-brand>span {background:#172747;color:#8ab8ff}
 .hp-dashboard.is-costing .hp-connection {color:#a5b3d0}
 .hp-dashboard.is-costing .hp-connection i {background:#34d399;box-shadow:0 0 0 3px #34d39924}
+.hp-dashboard.is-accounting {border-color:#18264a;background:#081126}
+.hp-dashboard.is-accounting .hp-dashboard-top {border-color:#ffffff12;background:#0a1530;color:#a8b5d0}
+.hp-dashboard.is-accounting .hp-dashboard-brand {color:#edf3ff}
+.hp-dashboard.is-accounting .hp-dashboard-brand>span {background:#15294d;color:#9ec2ff}
+.hp-dashboard.is-accounting .hp-connection {color:#a8b5d0}
+.hp-dashboard.is-accounting .hp-connection i {background:#42d4a1;box-shadow:0 0 0 3px #42d4a124}
 .hp-dashboard-brand,.hp-connection {display:inline-flex;align-items:center;gap:8px}
 .hp-dashboard-brand {font-weight:850;color:#24344d}
 .hp-dashboard-brand>span {display:grid;place-items:center;width:27px;height:27px;border-radius:9px;background:#edf3ff;color:#3167b5}
@@ -1407,49 +1413,67 @@
 .hp-loyalty-foot>span:first-child,.hp-accounting-foot>span:first-child {display:inline-flex;align-items:center;gap:7px}
 .hp-loyalty-foot>span:first-child i,.hp-accounting-foot>span:first-child i {width:5px;height:5px;flex:none;border-radius:50%;background:#29b87a;box-shadow:0 0 0 3px #29b87a1c}
 
-/* Split POS receipts into balanced bank, cash and sales journal lines. */
-.hp-accounting-scene {--accounting:#4875c7}
-.hp-accounting-heading {margin-bottom:9px}
-.hp-accounting-kicker {display:inline-flex;align-items:center;gap:6px;color:#5877b0;font-size:9px;font-weight:800}
-.hp-accounting-phase {border-color:#dfe8f6;background:#f4f7fc;color:#66799a}
-.hp-accounting-sale {display:flex;min-width:0;align-items:center;gap:8px;border:1px solid #e4eaf3;border-radius:10px;background:#fff;padding:7px 9px}
-.hp-accounting-sale-icon {display:grid;width:27px;height:27px;flex:none;place-items:center;border-radius:8px;background:#edf3ff;color:#4f78c6}
-.hp-accounting-sale>span:nth-child(2) {display:grid;min-width:0;flex:1;gap:2px}.hp-accounting-sale b {color:#354860;font-size:8px}.hp-accounting-sale small {color:#8794a5;font-size:6px}
-.hp-accounting-sale>strong {color:#274c88;font-size:11px;font-weight:900;white-space:nowrap}.hp-accounting-sale>strong small {font-size:6px}
-.hp-payment-split {display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) auto;align-items:center;gap:6px;margin-top:6px}
-.hp-payment-method {display:grid;min-width:0;gap:4px;border:1px solid #e8edf4;border-radius:9px;background:#fbfcfe;padding:6px 8px;transition:border-color .3s,background .3s,transform .3s,box-shadow .3s}
-.hp-payment-method>span {display:inline-flex;min-width:0;align-items:center;gap:4px;color:#758399;font-size:6px;font-weight:750;white-space:nowrap}.hp-payment-method>span svg {flex:none}
-.hp-payment-method>b {color:#3a4d68;font-size:9px;white-space:nowrap}.hp-payment-method>b small {font-size:6px;font-weight:600}
-.hp-payment-pos>span svg {color:#527bc4}.hp-payment-cash>span svg {color:#318c66}
-.hp-payment-flow {justify-self:center;color:#94a3b9;transition:color .3s;animation:hp-account-flow 1.4s ease-in-out infinite}
-.hp-payment-total {display:grid;justify-items:end;gap:3px;white-space:nowrap}.hp-payment-total>span {color:#8692a2;font-size:6px}.hp-payment-total>b {color:#283e5c;font-size:9px}.hp-payment-total>b small {font-size:6px;font-weight:600}
-.hp-accounting-scene[data-phase="routing"] .hp-payment-method,.hp-accounting-scene[data-phase="journal"] .hp-payment-method,.hp-accounting-scene[data-phase="balanced"] .hp-payment-method {border-color:#d1e8dc;background:#f4fbf7;box-shadow:0 3px 10px #20845710}
-.hp-accounting-scene[data-phase="routing"] .hp-payment-pos {transform:translateY(-2px);animation:hp-ledger-pulse .85s ease-in-out infinite alternate}
-.hp-accounting-scene[data-phase="routing"] .hp-payment-cash {transform:translateY(2px);animation:hp-ledger-pulse .85s .2s ease-in-out infinite alternate}
-.hp-accounting-scene[data-phase="routing"] .hp-payment-flow {color:#26845c}
-.hp-journal-card {overflow:hidden;margin-top:8px;border:1px solid #e4eaf2;border-radius:11px;background:#fff;box-shadow:0 5px 15px #31415a09}
-.hp-journal-head {display:flex;min-height:31px;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #eef1f5;background:#fafbfd;padding:5px 9px;color:#4a5c74;font-size:7px;font-weight:850}
-.hp-journal-head>span {display:inline-flex;align-items:center;gap:5px}.hp-journal-head>span svg {color:#6685bb}.hp-journal-head>b {color:#7d8ba0;font-size:6px}
-.hp-journal-columns,.hp-journal-row {display:grid;grid-template-columns:minmax(0,1fr) 66px 66px;align-items:center;gap:5px;padding-inline:9px}
-.hp-journal-columns {min-height:22px;border-bottom:1px solid #edf0f4;background:#fff;color:#8a96a7;font-size:6px;font-weight:750}.hp-journal-columns>span:not(:first-child) {text-align:center}
-.hp-journal-row {min-height:34px;border-bottom:1px solid #f0f2f6;opacity:.42;transform:translateY(3px);transition:opacity .35s,transform .35s,background .35s}
-.hp-journal-row>span:first-child {display:flex;min-width:0;align-items:center;gap:6px}.hp-journal-row>span:first-child>i {display:grid;width:22px;height:22px;flex:none;place-items:center;border-radius:7px;background:#eef4ff;color:#537cc1;font-style:normal}.hp-journal-row.is-debit>span:first-child>i {background:#edf8f2;color:#348a67}
-.hp-journal-row>span:first-child>span {display:grid;min-width:0;gap:2px}.hp-journal-row b {color:#42536a;font-size:7px;font-weight:800;text-align:center;white-space:nowrap}.hp-journal-row>span:first-child b {overflow:hidden;text-align:start;text-overflow:ellipsis;white-space:nowrap}.hp-journal-row small {overflow:hidden;color:#929dac;font-size:5px;text-overflow:ellipsis;white-space:nowrap}.hp-journal-row em {color:#a4adba;font-size:8px;font-style:normal;text-align:center}
-.hp-journal-row.is-credit {border-bottom:0;background:#fcfdfc}.hp-journal-row.is-credit>span:first-child>i {background:#f1edff;color:#7663b5}
-.hp-accounting-scene[data-phase="journal"] .hp-journal-row,.hp-accounting-scene[data-phase="balanced"] .hp-journal-row {opacity:1;transform:translateY(0)}
-.hp-accounting-scene[data-phase="journal"] .hp-journal-row:nth-of-type(3) {transition-delay:.08s}.hp-accounting-scene[data-phase="journal"] .hp-journal-row:nth-of-type(4) {transition-delay:.18s}.hp-accounting-scene[data-phase="journal"] .hp-journal-row:nth-of-type(5) {transition-delay:.28s}
-.hp-accounting-scene[data-phase="balanced"] .hp-journal-row {animation:hp-ledger-row .65s ease both}.hp-accounting-scene[data-phase="balanced"] .hp-journal-row:nth-of-type(4) {animation-delay:.1s}.hp-accounting-scene[data-phase="balanced"] .hp-journal-row:nth-of-type(5) {animation-delay:.2s}
-.hp-journal-foot {display:flex;min-height:28px;align-items:center;justify-content:space-between;gap:7px;background:#fafbfd;padding:5px 9px;color:#7d899a;font-size:6px}
-.hp-journal-foot>span {display:inline-flex;align-items:center;gap:4px;color:#aa8540}.hp-journal-foot>span.is-balanced {color:#218458}.hp-journal-foot>b {color:#52627a;font-size:6px;white-space:nowrap}.hp-journal-foot>b>i {display:inline-block;width:3px;height:3px;margin:0 3px;border-radius:50%;background:#9eabbb;vertical-align:middle}
-.hp-accounting-foot {margin-top:7px}
-.hp-accounting-scene[data-phase="balanced"] .hp-journal-card {border-color:#bee4ce;box-shadow:0 0 0 3px #34a66d12,0 8px 20px #286b4512}
-.hp-accounting-scene[data-phase="balanced"] .hp-journal-foot {background:#f3fbf6}
+/* Accounting preview follows Biameno's connected-systems hero: one ledger at the center. */
+.hp-accounting-scene {position:relative;overflow:hidden;isolation:isolate;background:radial-gradient(ellipse at 12% 9%,#24447c66,transparent 47%),radial-gradient(ellipse at 84% 85%,#17375d52,transparent 42%),linear-gradient(130deg,#0b142b,#0a1020 64%,#111a31);color:#edf3ff}
+.hp-accounting-scene:before {position:absolute;z-index:-1;inset:0;background-image:linear-gradient(#92a9d00c 1px,transparent 1px),linear-gradient(90deg,#92a9d00c 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(110deg,#000 0%,transparent 80%);content:""}
+.hp-accounting-heading {position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.hp-accounting-kicker {display:inline-flex;align-items:center;gap:6px;color:#9cbcff;font-size:9px;font-weight:800}
+.hp-accounting-phase {border-color:#a8c2ff29;background:#a9c5ff0e;color:#c4d4f4}
+.hp-accounting-layout {display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:12px;align-items:center;direction:rtl}
+.hp-accounting-copy {min-width:0;padding:4px 4px 4px 10px}
+.mp-home .hp-accounting-copy h2 {color:#f5f8ff;font-size:clamp(17px,2vw,23px);font-weight:850;line-height:1.55;letter-spacing:-.55px}
+.hp-accounting-copy>p {margin-top:8px;color:#b7c2d8;font-size:9px;line-height:2.05}
+.hp-accounting-points {display:grid;gap:7px;margin-top:12px}
+.hp-accounting-points>span {display:flex;min-width:0;align-items:center;gap:7px;color:#d3deef;font-size:8px;font-weight:700}
+.hp-accounting-points svg {flex:none;color:#57d7ad}
+.hp-accounting-network {position:relative;min-width:0;min-height:268px;overflow:hidden;border:1px solid #8ea8d522;border-radius:15px;background:radial-gradient(ellipse at center,#192c50a8,transparent 70%),#08112666}
+.hp-accounting-network:before,.hp-accounting-network:after {position:absolute;z-index:0;width:180px;height:180px;border:1px solid #7098d210;border-radius:50%;content:"";inset:50% auto auto 50%;transform:translate(-50%,-50%)}
+.hp-accounting-network:after {width:236px;height:236px;border-color:#7098d20b}
+.hp-accounting-connections {position:absolute;z-index:0;inset:0;width:100%;height:100%}
+.hp-accounting-dash {animation:hp-account-dash 8s linear infinite}
+.hp-accounting-dot {fill:#75b6ff;filter:drop-shadow(0 0 4px #61a8ff);animation:hp-account-dot 3s ease-in-out infinite alternate}
+.hp-accounting-dot-alt {fill:#52e0b5;animation-delay:1s}
+.hp-accounting-node {position:absolute;z-index:1;display:grid;width:78px;justify-items:center;gap:3px;color:#dbe7f9;text-align:center}
+.hp-accounting-node>i {display:grid;width:31px;height:31px;place-items:center;border:1px solid #94b3f044;border-radius:11px;background:#142643;color:#91baff;box-shadow:0 6px 18px #0004;font-style:normal;transition:transform .3s,box-shadow .3s}
+.hp-accounting-node>b {font-size:7px;font-weight:850;white-space:nowrap}
+.hp-accounting-node>small {color:#8596b2;font-size:6px;white-space:nowrap}
+.hp-accounting-node-pos {inset-block-start:4%;inset-inline-start:1%}
+.hp-accounting-node-qr {inset-block-start:4%;inset-inline-end:1%}
+.hp-accounting-node-club {inset-block-start:calc(50% - 29px);inset-inline-start:1%}
+.hp-accounting-node-stock {inset-block-start:calc(50% - 29px);inset-inline-end:1%}
+.hp-accounting-node-bank {inset-block-end:3%;inset-inline-start:1%}
+.hp-accounting-node-books {inset-block-end:3%;inset-inline-end:1%}
+.hp-accounting-ledger {position:absolute;z-index:2;inset-block-start:21%;inset-inline:20%;overflow:hidden;border:1px solid #a4bcf13a;border-radius:13px;background:linear-gradient(155deg,#111e37f5,#0c1528f7);box-shadow:0 14px 36px #0005,0 0 25px #4f81db14;color:#e8effd;transition:border-color .35s,box-shadow .35s}
+.hp-accounting-ledger-head {display:flex;min-height:26px;align-items:center;justify-content:space-between;gap:5px;border-bottom:1px solid #dce6fa15;padding:5px 7px;color:#b5c8e9;font-size:6px;font-weight:800}
+.hp-accounting-ledger-head>span {display:flex;min-width:0;align-items:center;gap:4px;white-space:nowrap}.hp-accounting-ledger-head>span svg {flex:none;color:#8db4ff}
+.hp-accounting-ledger-head>b {display:flex;flex:none;align-items:center;gap:4px;border:1px solid #4bd4a733;border-radius:999px;background:#43d5a210;padding:3px 5px;color:#7be1bd;font-size:5px}
+.hp-accounting-ledger-head>b i {width:4px;height:4px;border-radius:50%;background:#54dbb3;box-shadow:0 0 0 2px #54dbb322}
+.hp-accounting-ledger-total {display:grid;gap:2px;border-bottom:1px solid #dce6fa12;padding:7px 8px}
+.hp-accounting-ledger-total small {color:#8294b2;font-size:6px}
+.hp-accounting-ledger-total strong {color:#f1f5ff;font-size:12px;font-weight:900;letter-spacing:.2px}
+.hp-accounting-ledger-total em {color:#9aaaca;font-size:6px;font-style:normal;font-weight:650}
+.hp-accounting-ledger-row {display:flex;min-height:27px;align-items:center;justify-content:space-between;gap:5px;border-bottom:1px solid #dce6fa0d;padding:4px 7px;opacity:.45;transform:translateY(3px);transition:opacity .35s,transform .35s,background .35s}
+.hp-accounting-ledger-row>span {display:flex;min-width:0;align-items:center;gap:5px}
+.hp-accounting-ledger-row i {display:grid;width:17px;height:17px;flex:none;place-items:center;border-radius:6px;background:#24406b;color:#a7c5ff;font-style:normal}
+.hp-accounting-ledger-row i.is-cash {background:#193e3c;color:#81e1bd}.hp-accounting-ledger-row i.is-income {background:#322b5b;color:#c3b5ff}
+.hp-accounting-ledger-row b {overflow:hidden;color:#bdcbe1;font-size:6px;text-overflow:ellipsis;white-space:nowrap}
+.hp-accounting-ledger-row>strong {flex:none;color:#ecf2ff;font-size:6px;font-weight:850;white-space:nowrap}
+.hp-accounting-ledger-row.is-income {border-bottom:0;background:#a792ff08}
+.hp-accounting-ledger-foot {display:flex;min-height:23px;align-items:center;justify-content:center;gap:5px;background:#101d34;padding:4px;color:#9eb0cc;font-size:5px}
+.hp-accounting-ledger-foot>b {color:#d8e4f7;font-size:6px}.hp-accounting-ledger-foot>i {width:3px;height:3px;border-radius:50%;background:#7188af}
+.hp-accounting-scene[data-phase="routing"] .hp-accounting-node>i,.hp-accounting-scene[data-phase="journal"] .hp-accounting-node>i,.hp-accounting-scene[data-phase="balanced"] .hp-accounting-node>i {transform:translateY(-2px);box-shadow:0 7px 22px #5485df2e,0 0 0 3px #8db5ff0d}
+.hp-accounting-scene[data-phase="routing"] .hp-accounting-node-pos>i,.hp-accounting-scene[data-phase="routing"] .hp-accounting-node-qr>i {border-color:#69a5ff88;color:#c2dcff}
+.hp-accounting-scene[data-phase="journal"] .hp-accounting-ledger-row,.hp-accounting-scene[data-phase="balanced"] .hp-accounting-ledger-row {opacity:1;transform:translateY(0)}
+.hp-accounting-scene[data-phase="journal"] .hp-accounting-ledger-row:nth-of-type(3) {transition-delay:.08s}.hp-accounting-scene[data-phase="journal"] .hp-accounting-ledger-row:nth-of-type(4) {transition-delay:.18s}.hp-accounting-scene[data-phase="journal"] .hp-accounting-ledger-row:nth-of-type(5) {transition-delay:.28s}
+.hp-accounting-scene[data-phase="balanced"] .hp-accounting-ledger {border-color:#54d8a166;box-shadow:0 0 0 3px #43d5a214,0 14px 36px #0005,0 0 30px #43d5a225}
+.hp-accounting-scene[data-phase="balanced"] .hp-accounting-ledger-foot {background:#12312e}
+.hp-accounting-foot {position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px;color:#8191ab;font-size:7px}
+.hp-accounting-foot>span:first-child {display:inline-flex;align-items:center;gap:7px}.hp-accounting-foot>span:first-child i {width:5px;height:5px;flex:none;border-radius:50%;background:#52d7ac;box-shadow:0 0 0 3px #52d7ac24}
 
 @keyframes hp-sparkle-tick {to {transform:rotate(12deg) scale(1.18)}}
 @keyframes hp-reward-bob {50% {transform:translateY(-2px) rotate(-8deg)}}
-@keyframes hp-account-flow {50% {transform:translateY(3px);opacity:.55}}
-@keyframes hp-ledger-pulse {to {box-shadow:0 0 0 3px #34a66d1c}}
-@keyframes hp-ledger-row {0% {background:#eaf8ef}100% {background:#fff}}
+@keyframes hp-account-dash {to {stroke-dashoffset:-96}}
+@keyframes hp-account-dot {to {opacity:.35;transform:scale(.7)}}
 
 @keyframes hp-panel-enter {from {opacity:0;transform:translateY(8px)}to {opacity:1;transform:translateY(0)}}
 @keyframes hp-live-pulse {50% {box-shadow:0 0 0 7px #2bc48510}}
@@ -1529,6 +1553,26 @@
   .hp-loyalty-event {min-height:38px;margin-top:8px;padding:5px 7px}
   .hp-loyalty-foot,.hp-accounting-foot {font-size:6px}
   .hp-loyalty-phase,.hp-accounting-phase {max-width:44%;padding:5px 6px;font-size:6px}
+  .hp-accounting-layout {grid-template-columns:minmax(0,1fr);gap:8px}
+  .hp-accounting-copy {padding:2px 2px 4px}
+  .mp-home .hp-accounting-copy h2 {font-size:16px}
+  .hp-accounting-copy>p {margin-top:5px;font-size:8px;line-height:1.85}
+  .hp-accounting-points {grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 8px;margin-top:8px}
+  .hp-accounting-points>span {font-size:7px}
+  .hp-accounting-points>span:last-child {grid-column:1/-1}
+  .hp-accounting-network {display:grid;min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px;border-radius:12px}
+  .hp-accounting-network:before,.hp-accounting-network:after,.hp-accounting-connections {display:none}
+  .hp-accounting-node {position:static;width:auto;min-height:44px;grid-template-columns:25px minmax(0,1fr);grid-template-rows:1fr 1fr;justify-items:start;align-content:center;gap:1px 6px;border:1px solid #8ea8d51a;border-radius:9px;background:#101b31;padding:5px;text-align:start}
+  .hp-accounting-node>i {width:24px;height:24px;grid-row:1/3;align-self:center;border-radius:8px}
+  .hp-accounting-node>i svg {width:12px;height:12px}
+  .hp-accounting-node>b {align-self:end;font-size:7px}
+  .hp-accounting-node>small {align-self:start;font-size:6px}
+  .hp-accounting-ledger {position:static;grid-column:1/-1;margin-top:1px;border-radius:10px}
+  .hp-accounting-ledger-head {font-size:7px}
+  .hp-accounting-ledger-total {padding:6px 8px}
+  .hp-accounting-ledger-row {min-height:28px}
+  .hp-accounting-ledger-row b,.hp-accounting-ledger-row>strong {font-size:7px}
+  .hp-accounting-ledger-foot {font-size:6px}
   .hp-payment-split {grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr) auto;gap:4px}
   .hp-payment-method {padding:5px 5px}
   .hp-payment-method>b {font-size:8px}
@@ -1550,6 +1594,12 @@
   .hp-loyalty-steps>div {min-width:31px;font-size:5px}
   .hp-loyalty-steps>div>i {width:24px;height:24px}
   .hp-loyalty-connector {margin-top:11px}
+  .hp-accounting-heading {gap:5px}
+  .hp-accounting-kicker {font-size:7px}
+  .hp-accounting-phase {max-width:49%;font-size:5px}
+  .hp-accounting-points {grid-template-columns:1fr;gap:4px}
+  .hp-accounting-points>span:last-child {grid-column:auto}
+  .hp-accounting-ledger-row {padding-inline:6px}
   .hp-payment-split {grid-template-columns:minmax(0,1fr) 13px minmax(0,1fr)}
   .hp-payment-total {grid-column:1 / -1;display:flex;align-items:center;justify-content:flex-end;gap:6px}
   .hp-journal-columns,.hp-journal-row {grid-template-columns:minmax(0,1fr) 45px 45px}

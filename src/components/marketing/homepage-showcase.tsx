@@ -217,25 +217,49 @@ function LoyaltyScene({ phase }: { phase: LoyaltyPhase }) {
 type AccountingPhase = "payment" | "routing" | "journal" | "balanced";
 
 const accountingPhaseLabels: Record<AccountingPhase, string> = {
-  payment: "دریافت مبلغ سفارش",
-  routing: "تفکیک کارت و نقد",
-  journal: "ثبت خودکار سند",
-  balanced: "سند متوازن و نهایی",
+  payment: "جریان‌های مالی به هم متصل‌اند",
+  routing: "فروش و دریافت در یک مسیر",
+  journal: "ثبت جزئیات در سند حسابداری",
+  balanced: "سند فروش متوازن شد",
 };
 
 function AccountingScene({ phase }: { phase: AccountingPhase }) {
   return <div className="hp-accounting-scene" data-phase={phase}>
-    <div className="hp-accounting-heading"><div><span className="hp-accounting-kicker"><ReceiptText size={13}/> حسابداری متصل به فروش</span><h2>هر دریافت، سند خودش را دارد</h2></div><span className="hp-accounting-phase"><i/>{accountingPhaseLabels[phase]}</span></div>
-    <div className="hp-accounting-payment"><div className="hp-accounting-sale"><span className="hp-accounting-sale-icon"><ShoppingBag size={14}/></span><span><b>فاکتور #۱۰۲۴</b><small>پیتزا چهار فصل · یک سفارش</small></span><strong>۶۳۵٬۰۰۰ <small>تومان</small></strong></div><div className="hp-payment-split"><div className="hp-payment-method hp-payment-pos"><span><Landmark size={13}/> کارتخوان POS-02</span><b>۴۵۰٬۰۰۰ <small>تومان</small></b></div><ArrowDownUp className="hp-payment-flow" size={15}/><div className="hp-payment-method hp-payment-cash"><span><Banknote size={13}/> صندوق نقدی</span><b>۱۸۵٬۰۰۰ <small>تومان</small></b></div><div className="hp-payment-total"><span>جمع دریافت</span><b>۶۳۵٬۰۰۰ <small>تومان</small></b></div></div></div>
-    <div className="hp-journal-card">
-      <div className="hp-journal-head"><span><ReceiptText size={13}/> سند حسابداری خودکار</span><b>سند شماره ۰۰۸۴</b></div>
-      <div className="hp-journal-columns"><span>حساب / شرح</span><span>بدهکار</span><span>بستانکار</span></div>
-      <div className="hp-journal-row is-debit"><span><i><Landmark size={11}/></i><span><b>بانک · کارتخوان POS-02</b><small>واریز به حساب تسویهٔ دستگاه</small></span></span><b>۴۵۰٬۰۰۰</b><em>—</em></div>
-      <div className="hp-journal-row is-debit"><span><i><Banknote size={11}/></i><span><b>صندوق · دریافت نقدی</b><small>فروش سفارش #۱۰۲۴</small></span></span><b>۱۸۵٬۰۰۰</b><em>—</em></div>
-      <div className="hp-journal-row is-credit"><span><i><ArrowDownUp size={11}/></i><span><b>درآمد فروش غذا</b><small>ثبت خودکار درآمد سفارش</small></span></span><em>—</em><b>۶۳۵٬۰۰۰</b></div>
-      <div className="hp-journal-foot"><span className={phase === "balanced" || phase === "journal" ? "is-balanced" : ""}><CircleCheck size={13}/>{phase === "payment" || phase === "routing" ? "در انتظار تکمیل دریافت" : "سند متوازن شد"}</span><b>بدهکار ۶۳۵٬۰۰۰ <i/> بستانکار ۶۳۵٬۰۰۰</b></div>
+    <div className="hp-accounting-heading"><span className="hp-accounting-kicker"><ReceiptText size={13}/> حسابداری متصل به عملیات رستوران</span><span className="hp-accounting-phase"><i/>{accountingPhaseLabels[phase]}</span></div>
+    <div className="hp-accounting-layout">
+      <div className="hp-accounting-copy">
+        <h2>حساب‌هایتان خودشان ثبت می‌شوند</h2>
+        <p>صندوق، منوی QR، باشگاه مشتریان و انبار حالا مستقیم به حسابداری MenuPeak وصل‌اند. هر فروش، هر تخفیف و هر کالایی که از انبار می‌رود، خودکار سند می‌شود. شما فقط نگاه می‌کنید: امروز چقدر سود کردید؟</p>
+        <div className="hp-accounting-points">
+          <span><CircleCheck size={13}/> فروش، انبار و تسویه در یک مسیر</span>
+          <span><CircleCheck size={13}/> تفکیک وجه نقد، کارتخوان و بانک</span>
+          <span><CircleCheck size={13}/> بهای غذا از دستور تهیه و موجودی</span>
+        </div>
+      </div>
+      <div className="hp-accounting-network" role="img" aria-label="اتصال نمایشی صندوق، سفارش آنلاین، باشگاه مشتریان، انبار، بانک و حسابداری MenuPeak">
+        <svg className="hp-accounting-connections" viewBox="0 0 560 300" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="hpAccountingLine" x1="0" x2="1"><stop stopColor="#54a8ff" stopOpacity=".15"/><stop offset=".5" stopColor="#84aaff" stopOpacity=".8"/><stop offset="1" stopColor="#57d7b1" stopOpacity=".18"/></linearGradient></defs>
+          <path d="M48 52 C145 52 170 112 242 145 M48 150 C138 150 165 150 242 150 M48 248 C145 248 170 188 242 155 M512 52 C415 52 390 112 318 145 M512 150 C422 150 395 150 318 150 M512 248 C415 248 390 188 318 155" fill="none" stroke="url(#hpAccountingLine)" strokeWidth="1.5"/>
+          <path className="hp-accounting-dash" d="M48 52 C145 52 170 112 242 145 M48 150 C138 150 165 150 242 150 M48 248 C145 248 170 188 242 155 M512 52 C415 52 390 112 318 145 M512 150 C422 150 395 150 318 150 M512 248 C415 248 390 188 318 155" fill="none" stroke="#a8c6ff" strokeWidth="1.5" strokeDasharray="4 8"/>
+          <circle className="hp-accounting-dot" cx="48" cy="52" r="3"/><circle className="hp-accounting-dot hp-accounting-dot-alt" cx="512" cy="248" r="3"/>
+        </svg>
+        <div className="hp-accounting-node hp-accounting-node-pos"><i><ShoppingBag size={14}/></i><b>صندوق</b><small>فروش و دریافت</small></div>
+        <div className="hp-accounting-node hp-accounting-node-qr"><i><QrCode size={14}/></i><b>منوی QR</b><small>سفارش آنلاین</small></div>
+        <div className="hp-accounting-node hp-accounting-node-club"><i><Heart size={14}/></i><b>باشگاه</b><small>تخفیف مشتری</small></div>
+        <div className="hp-accounting-node hp-accounting-node-stock"><i><ChefHat size={14}/></i><b>انبار</b><small>بهای غذا</small></div>
+        <div className="hp-accounting-node hp-accounting-node-bank"><i><Landmark size={14}/></i><b>بانک و چک</b><small>تسویه‌ها</small></div>
+        <div className="hp-accounting-node hp-accounting-node-books"><i><WalletCards size={14}/></i><b>دفتر حساب</b><small>گزارش مالی</small></div>
+        <div className="hp-accounting-ledger">
+          <div className="hp-accounting-ledger-head"><span><ReceiptText size={12}/> سند حسابداری · #۱۰۲۴</span><b><i/> متوازن</b></div>
+          <div className="hp-accounting-ledger-total"><small>فروش نمونه</small><strong>۶۳۵٬۰۰۰ <em>تومان</em></strong></div>
+          <div className="hp-accounting-ledger-row"><span><i className="is-bank"><Landmark size={10}/></i><b>بانک · کارتخوان</b></span><strong>۴۵۰٬۰۰۰</strong></div>
+          <div className="hp-accounting-ledger-row"><span><i className="is-cash"><Banknote size={10}/></i><b>صندوق · نقدی</b></span><strong>۱۸۵٬۰۰۰</strong></div>
+          <div className="hp-accounting-ledger-row is-income"><span><i className="is-income"><ArrowDownUp size={10}/></i><b>درآمد فروش</b></span><strong>۶۳۵٬۰۰۰</strong></div>
+          <div className="hp-accounting-ledger-foot"><span>بدهکار <b>۶۳۵٬۰۰۰</b></span><i/><span>بستانکار <b>۶۳۵٬۰۰۰</b></span></div>
+        </div>
+      </div>
     </div>
-    <div className="hp-accounting-foot"><span><i/> تفکیک بانک، صندوق و شمارهٔ کارتخوان در سند</span><span>ثبت نمونهٔ نمایشی</span></div>
+    <div className="hp-accounting-foot"><span><i/> یک نمای روشن از ثبت‌های مالی روز</span><span>ارقام نمونهٔ نمایشی</span></div>
   </div>;
 }
 
@@ -343,7 +367,7 @@ export function HomepageShowcase() {
     <div className="hp-showcase-tabs" role="tablist" aria-label="مشاهدهٔ بخش‌های مختلف">
       {scenes.map(({ id, label, icon: SceneIcon }, index) => <button key={id} id={`hp-tab-${id}`} type="button" role="tab" aria-selected={active === index} aria-controls="hp-showcase-panel" onClick={() => setActive(index)} className={cn(active === index && "is-active")}><SceneIcon size={16}/><span>{label}</span></button>)}
     </div>
-    <div id="hp-showcase-panel" role="tabpanel" aria-labelledby={`hp-tab-${scene.id}`} className={cn("hp-dashboard", active === 1 && "is-costing")} key={scene.id}>
+    <div id="hp-showcase-panel" role="tabpanel" aria-labelledby={`hp-tab-${scene.id}`} className={cn("hp-dashboard", active === 1 && "is-costing", active === 3 && "is-accounting")} key={scene.id}>
       <div className="hp-dashboard-top"><span className="hp-dashboard-brand"><span><ShoppingBag size={15}/></span> محیط مدیریت MenuPeak</span><span className="hp-connection"><i/> دادهٔ نمونه · اجرای زنده</span></div>
       {active === 0 ? <LiveSalesScene total={salesTotal} orders={orders} pulse={salesPulse} toast={saleToast}/> : active === 1 ? <IngredientPricingScene/> : active === 2 ? <LoyaltyScene phase={prefersReducedMotion ? "reward" : loyaltyPhase}/> : active === 3 ? <AccountingScene phase={prefersReducedMotion ? "balanced" : accountingPhase}/> : active === 4 ? <DigitalMenuScene phase={prefersReducedMotion ? "delivered" : menuPhase} onOrder={playOrderAnimation}/> : <ReservationScene/>}
     </div>
