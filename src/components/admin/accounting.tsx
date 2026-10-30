@@ -7,20 +7,26 @@ import { JalaliInput } from "@/components/jalali-input";
 import { PLANS, planName } from "@/lib/plans";
 import { AmountInput, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, Icon, IconButton, Input, Modal, Select, Skeleton, Textarea, cn, useToast , IconText} from "@/components/ui";
 import { Bars, METHOD, PLAN_COLOR, Stat, useGet, type Me } from "@/components/admin/common";
+import { PlatformLedger } from "@/components/admin/platform-ledger";
 
 const toEn = (s: string) => Number(s.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٬,\s]/g, "")) || 0;
 const INV_ST: Record<string, [string, string]> = { unpaid: ["پرداخت‌نشده", "amber"], paid: ["پرداخت شد", "emerald"], void: ["باطل", "stone"] };
 
 export function AdminAccounting({ me, params }: { me: Me; params: Record<string, string> }) {
-  const [sub, setSub] = useState<"summary" | "invoices" | "expenses" | "documents">((params.sub as any) ?? "summary");
+  const [sub, setSub] = useState<"summary" | "invoices" | "expenses" | "documents" | "journals" | "accounts" | "reports" | "bank" | "cheques">((params.sub as any) ?? "summary");
   return (
     <div className="animate-fade-in">
       <div className="mb-5"><h1 className="text-xl font-extrabold sm:text-2xl">اشتراک‌ها و حسابداری سامانه</h1><p className="mt-1 text-sm text-stone-500">فاکتور فروش اشتراک، دریافت‌ها، هزینه‌ها و گزارش مالی (تاریخ شمسی)</p></div>
-      <div className="mb-5 flex gap-2 overflow-x-auto"><IconText>{([["summary", " گزارش مالی"], ["invoices", " فاکتورهای اشتراک"], ["expenses", " هزینه‌های سامانه"], ["documents", " اسناد حسابداری"]] as const).map(([k, l]) => <button key={k} onClick={() => setSub(k)} className={cn("rounded-xl px-4 py-2.5 text-sm font-semibold", sub === k ? "bg-stone-900 text-white" : "bg-white ring-1 ring-stone-200")}>{l}</button>)}</IconText></div>
+      <div className="mb-5 flex gap-2 overflow-x-auto pb-1"><IconText>{([["summary", "خلاصه وصول / پرداخت"], ["invoices", "فاکتور و دریافت"], ["expenses", "هزینه‌ها"], ["journals", "دفتر روزنامه و اسناد"], ["accounts", "کدینگ حساب‌ها"], ["reports", "دفتر کل و تراز"], ["bank", "بانک و مغایرت"], ["cheques", "دفتر چک سامانه"]] as const).map(([k, l]) => <button key={k} onClick={() => setSub(k)} className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold", sub === k ? "bg-primary text-primary-content shadow-md shadow-primary/15" : "bg-base-100 text-base-content/70 ring-1 ring-base-300 hover:bg-base-200")}>{l}</button>)}</IconText></div>
       {sub === "summary" && <Summary />}
       {sub === "invoices" && <Invoices params={params} />}
       {sub === "expenses" && <Expenses />}
       {sub === "documents" && <AccountingDocuments />}
+      {sub === "journals" && <PlatformLedger view="journals" />}
+      {sub === "accounts" && <PlatformLedger view="accounts" />}
+      {sub === "reports" && <PlatformLedger view="reports" />}
+      {sub === "bank" && <PlatformLedger view="bank" />}
+      {sub === "cheques" && <PlatformLedger view="cheques" />}
       <span className="hidden">{me.id}</span>
     </div>
   );
@@ -41,13 +47,13 @@ function Summary() {
       <IconText>{!d ? <Skeleton className="h-80 rounded-2xl" /> : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat icon="" label="درآمد اشتراک‌ها" value={formatPrice(d.revenue)} tone="text-emerald-600" />
+            <Stat icon="" label="وصول فاکتور اشتراک" value={formatPrice(d.revenue)} tone="text-emerald-600" />
             <Stat icon="" label="هزینه‌های سامانه" value={formatPrice(d.expenses)} tone="text-rose-600" />
-            <Stat icon="" label="سود خالص" value={formatPrice(d.net)} tone={d.net >= 0 ? "text-emerald-600" : "text-rose-600"} />
+            <Stat icon="" label="وصول خالص پس از هزینه" value={formatPrice(d.net)} tone={d.net >= 0 ? "text-emerald-600" : "text-rose-600"} />
             <Stat icon="" label="مطالبات (پرداخت‌نشده)" value={formatPrice(d.unpaidTotal)} tone="text-amber-600" sub={`${toFa(d.unpaid.length)} فاکتور`} />
           </div>
-          <Card className="p-5"><h3 className="mb-4 font-bold">درآمد ماهانه</h3><Bars data={d.months.map((m: any) => ({ label: JMONTHS[m.month - 1].slice(0, 3), value: m.revenue }))} fmt={formatPrice} /></Card>
-          <Card className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">ماه</th><th className="p-3 text-end">فاکتور پرداخت‌شده</th><th className="p-3 text-end">درآمد</th><th className="p-3 text-end">هزینه</th><th className="p-3 text-end">سود</th></tr></thead>
+          <Card className="p-5"><h3 className="mb-4 font-bold">وصول ماهانهٔ فاکتورهای پرداخت‌شده</h3><p className="mb-3 text-xs leading-5 text-base-content/50">این خلاصه بر مبنای وصول فاکتورهای پرداخت‌شده است؛ برای سود تعهدی، گزارش «تراز سود و زیان» را باز کنید.</p><Bars data={d.months.map((m: any) => ({ label: JMONTHS[m.month - 1].slice(0, 3), value: m.revenue }))} fmt={formatPrice} /></Card>
+          <Card className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">ماه</th><th className="p-3 text-end">فاکتور پرداخت‌شده</th><th className="p-3 text-end">وصول</th><th className="p-3 text-end">هزینه</th><th className="p-3 text-end">خالص وصول</th></tr></thead>
             <tbody className="divide-y divide-stone-100">{d.months.map((m: any) => <tr key={m.month}><td className="p-3 font-semibold">{JMONTHS[m.month - 1]}</td><td className="p-3 text-end">{toFa(m.invoices)}</td><td className="p-3 text-end tabular-nums">{formatNumber(m.revenue)}</td><td className="p-3 text-end tabular-nums text-rose-600">{formatNumber(m.expenses)}</td><td className={cn("p-3 text-end font-bold tabular-nums", m.revenue - m.expenses >= 0 ? "text-emerald-600" : "text-rose-600")}>{formatNumber(m.revenue - m.expenses)}</td></tr>)}</tbody>
             <tfoot><tr className="bg-stone-100 font-extrabold"><td className="p-3">جمع سال</td><td /><td className="p-3 text-end">{formatNumber(d.revenue)}</td><td className="p-3 text-end">{formatNumber(d.expenses)}</td><td className="p-3 text-end">{formatNumber(d.net)}</td></tr></tfoot></table></Card>
           <div className="grid gap-4 md:grid-cols-3">
@@ -128,10 +134,10 @@ function Expenses() {
   const [f, setF] = useState<any>(null);
   const [del, setDel] = useState<any>(null);
   const CATS = ["سرور و زیرساخت", "پیامک و ارتباطات", "حقوق و دستمزد", "بازاریابی و تبلیغات", "دامنه و گواهی", "ابزار و نرم‌افزار", "سایر"];
-  const total = (data?.items ?? []).reduce((s, e) => s + e.amount, 0);
+  const total = (data?.items ?? []).filter((e) => e.status !== "void").reduce((s, e) => s + e.amount, 0);
   async function save() {
     try {
-      const body = { category: f.category, amount: toEn(String(f.amount)), date: f.date, description: f.description };
+      const body = { category: f.category, amount: toEn(String(f.amount)), date: f.date, description: f.description, paymentMethod: f.paymentMethod ?? "transfer" };
       if (f.id) await api(`/api/admin/expenses/${f.id}`, { method: "PATCH", body }); else await api("/api/admin/expenses", { method: "POST", body });
       toast("ذخیره شد"); setF(null); reload(true);
     } catch (e) { toast((e as Error).message, "error"); }
@@ -141,12 +147,12 @@ function Expenses() {
       <div className="mb-4 flex items-center justify-between"><p className="text-sm text-stone-500">جمع هزینه‌های ثبت‌شده: <b className="text-rose-600">{formatPrice(total)}</b></p><Button onClick={() => setF({ category: CATS[0], amount: "", date: new Date().toISOString(), description: "" })}><Icon name="plus" className="size-4" /> هزینه جدید</Button></div>
       <IconText>{error ? <ErrorState message={error} onRetry={() => reload()} /> : loading && !data ? <Skeleton className="h-48 rounded-2xl" /> : !data?.items.length ? <EmptyState emoji="" title="هزینه‌ای ثبت نشده" description="هزینه‌های سرور، پیامک، دامنه و… را ثبت کنید تا سود خالص دقیق محاسبه شود." action={<Button onClick={() => setF({ category: CATS[0], amount: "", date: new Date().toISOString(), description: "" })}>ثبت هزینه</Button>} /> : (
         <Card className="overflow-x-auto"><table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b bg-stone-50 text-xs text-stone-500"><th className="p-3 text-start">تاریخ</th><th className="p-3 text-start">دسته</th><th className="p-3 text-start">شرح</th><th className="p-3 text-end">مبلغ</th><th className="p-3" /></tr></thead>
-          <tbody className="divide-y divide-stone-100">{data.items.map((e) => <tr key={e.id}><td className="whitespace-nowrap p-3 text-xs">{fmtJ(e.date)}</td><td className="p-3"><Badge>{e.category}</Badge></td><td className="p-3 text-xs text-stone-600">{e.description}</td><td className="p-3 text-end font-bold text-rose-600">{formatNumber(e.amount)}</td><td className="p-2"><div className="flex justify-end"><IconButton icon="edit" label="ویرایش" onClick={() => setF({ ...e, amount: String(e.amount) })} /><IconButton icon="trash" label="حذف" className="hover:text-rose-600" onClick={() => setDel(e)} /></div></td></tr>)}</tbody></table></Card>
+          <tbody className="divide-y divide-stone-100">{data.items.map((e) => <tr key={e.id} className={e.status === "void" ? "opacity-50" : ""}><td className="whitespace-nowrap p-3 text-xs">{fmtJ(e.date)}</td><td className="p-3"><Badge>{e.category}</Badge>{e.status === "void" && <span className="ms-2 text-[10px] text-stone-400">برگشت‌خورده</span>}</td><td className="p-3 text-xs text-stone-600">{e.description}<p className="mt-1 text-[10px] text-stone-400">پرداخت: {METHOD[e.paymentMethod] ?? "حواله"}</p></td><td className="p-3 text-end font-bold text-rose-600">{formatNumber(e.amount)}</td><td className="p-2"><div className="flex justify-end">{e.status !== "void" && <><IconButton icon="edit" label="اصلاح با سند برگشتی" onClick={() => setF({ ...e, amount: String(e.amount) })} /><IconButton icon="trash" label="برگشت هزینه به‌جای حذف سابقه" className="hover:text-rose-600" onClick={() => setDel(e)} /></>}</div></td></tr>)}</tbody></table></Card>
       )}</IconText>
       <Modal open={!!f} onClose={() => setF(null)} size="sm" title={f?.id ? "ویرایش هزینه" : "هزینه جدید"} footer={<><Button variant="ghost" onClick={() => setF(null)}>انصراف</Button><Button onClick={save}>ذخیره</Button></>}>
-        {f && <div className="space-y-4"><Field label="دسته"><Input list="exp-cats" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /><datalist id="exp-cats">{CATS.map((c) => <option key={c} value={c} />)}</datalist></Field><Field label="مبلغ (تومان)"><AmountInput value={f.amount} onValueChange={(amount) => setF({ ...f, amount })} /></Field><Field label="تاریخ (شمسی)"><JalaliInput value={f.date} onChange={(v) => v && setF({ ...f, date: v })} /></Field><Field label="شرح"><Textarea rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field></div>}
+        {f && <div className="space-y-4"><Field label="دسته"><Input list="exp-cats" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /><datalist id="exp-cats">{CATS.map((c) => <option key={c} value={c} />)}</datalist></Field><Field label="مبلغ (تومان)"><AmountInput value={f.amount} onValueChange={(amount) => setF({ ...f, amount })} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="تاریخ (شمسی)"><JalaliInput value={f.date} onChange={(v) => v && setF({ ...f, date: v })} /></Field><Field label="حساب پرداخت"><Select value={f.paymentMethod ?? "transfer"} onChange={(e) => setF({ ...f, paymentMethod: e.target.value })}><option value="cash">نقد</option><option value="transfer">بانک / حواله</option><option value="card">کارت‌خوان</option><option value="online">درگاه آنلاین</option></Select></Field></div><Field label="شرح"><Textarea rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field><p className="text-[11px] leading-6 text-base-content/50">ثبت هزینه یک سند دوبل می‌سازد. اصلاح یا برگشت، سند معکوس ثبت می‌کند تا سابقه حفظ شود.</p></div>}
       </Modal>
-      <ConfirmDialog open={!!del} title="حذف هزینه" message="این هزینه حذف می‌شود." onClose={() => setDel(null)} onConfirm={async () => { try { await api(`/api/admin/expenses/${del.id}`, { method: "DELETE" }); setData((d) => (d ? { items: d.items.filter((x) => x.id !== del.id) } : d)); toast("حذف شد"); } catch (e) { toast((e as Error).message, "error"); } }} />
+      <ConfirmDialog open={!!del} title="برگشت هزینه" message="سند برگشتی در دفتر ثبت می‌شود و سابقهٔ هزینه باقی می‌ماند." onClose={() => setDel(null)} onConfirm={async () => { try { await api(`/api/admin/expenses/${del.id}`, { method: "DELETE" }); setData((d) => (d ? { items: d.items.map((x) => x.id === del.id ? { ...x, status: "void" } : x) } : d)); toast("سند برگشتی ثبت شد"); } catch (e) { toast((e as Error).message, "error"); } }} />
     </div>
   );
 }

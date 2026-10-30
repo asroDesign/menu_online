@@ -9,10 +9,12 @@ import {
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { AccountingConnections } from "@/components/marketing/accounting-software-interactions";
+import { BusinessStory, ComparisonStory, FeatureExplorer, OfflineStory, ProfitStory, SaleStory, SecurityStory } from "@/components/marketing/accounting-story";
 import { getPlatformBranding } from "@/lib/app-settings";
 import { getSiteUrl } from "@/lib/site-url";
 import "@/components/marketing/marketing.css";
 import styles from "./accounting-software.module.css";
+import story from "./accounting-story.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -94,31 +96,30 @@ export default async function AccountingSoftwarePage() {
         </div>
       </section>
 
-      <section className={`${styles.container} ${styles.question}`} id="why">
-        <div className={styles.sectionIntro}><span className={styles.kicker}>تصویر روشن از دخل‌وخرج</span><h2>«این ماه واقعاً چقدر سود کردیم؟»</h2><p>وقتی اعداد میان دفتر صندوق، اکسل، انبار و پیامک بانک پخش باشند، جواب آخر ماه سخت پیدا می‌شود. دفتر حسابداری واحد، فروش و هزینه‌های ثبت‌شده در MenuPeak را در گزارش‌های مالی کنار هم قرار می‌دهد.</p></div>
-        <div className={styles.problemGrid}>{[
-          ["آخر شب دوباره فروش را وارد می‌کنید؟", "ثبت خودکار برای رویدادهای فروش پشتیبانی‌شده و مشاهدهٔ ردیف منبع در سند."],
-          ["هزینهٔ واقعی هر غذا معلوم نیست؟", "دستور تهیه و بهای مواد، هزینهٔ نظری محصول را برای تحلیل قیمت نشان می‌دهند."],
-          ["تخفیف و تسویه بین چند گزارش گم می‌شود؟", "جزئیات پرداخت، تخفیف و گردش‌های قابل ثبت را در گزارش و سند دنبال کنید."],
-          ["برای ماندهٔ حساب باید چند فایل باز کنید؟", "دفتر کل و معین، تراز آزمایشی و صورت‌های مالی از دفتر مشترک خوانده می‌شوند."],
-        ].map(([title, copy])=><article key={title} className={styles.problemCard}><span><Check size={16}/></span><h3>{title}</h3><p>{copy}</p></article>)}</div>
-      </section>
+      <section className={`${story.scene} ${story.section}`} id="why-profit"><div className={story.shell}><ProfitStory/></div></section>
+
+      <section className={`${story.scene} ${story.section} ${story.wash}`} id="business"><div className={story.shell}><div className={story.intro}><span className={story.kicker}>برای مسئلهٔ روزانهٔ هر صنف</span><h2>حسابداری مخصوص صنف شما</h2><p>منو، خرید و خرج‌های هر کسب‌وکار شکل خودش را دارد. مسیرهای مالی را با نیاز همان کار روزمره ببینید.</p></div><BusinessStory/></div></section>
+
+
 
       <section id="workflow" className={styles.workflow}><div className={styles.container}>
         <div className={styles.sectionIntro}><span className={styles.kicker}>از یک فروش تا دفتر متوازن</span><h2>یک سفارش؛ چند اثر قابل‌ردیابی</h2><p>نمونهٔ زیر یک تصویر آموزشی از نحوهٔ ثبت است. ارقام و نام‌ها نمایشی‌اند و نتیجهٔ واقعی هر سفارش به اقلام، پرداخت، تخفیف، مالیات و دستور تهیه بستگی دارد.</p></div>
-        <AccountingConnections />
-        <div className={styles.journalTable}><div className={styles.tableTitle}><span><ReceiptText size={17}/> نمونهٔ ردیف‌های سند فروش</span><span className={styles.balanced}><BadgeCheck size={14}/> جمع دو طرف برابر</span></div><div className={styles.tableScroll}><table><thead><tr><th>حساب</th><th>شرح رویداد</th><th>بدهکار</th><th>بستانکار</th></tr></thead><tbody><tr><td>بانک / صندوق</td><td>وجه دریافت‌شده پس از تخفیف</td><td>۵۸۵٬۰۰۰</td><td>—</td></tr><tr><td>تخفیف فروش</td><td>تخفیف ثبت‌شده روی فاکتور</td><td>۶۵٬۰۰۰</td><td>—</td></tr><tr><td>فروش غذا و نوشیدنی</td><td>جمع ناخالص اقلام</td><td>—</td><td>۶۵۰٬۰۰۰</td></tr><tr><td>بهای تمام‌شده</td><td>مواد مصرف‌شده طبق رسپی</td><td>۲۱۰٬۰۰۰</td><td>—</td></tr><tr><td>موجودی مواد اولیه</td><td>خروج مواد از موجودی</td><td>—</td><td>۲۱۰٬۰۰۰</td></tr></tbody><tfoot><tr><th colSpan={2}>جمع (تومان)</th><th>۸۶۰٬۰۰۰</th><th>۸۶۰٬۰۰۰</th></tr></tfoot></table></div><div className={styles.profitNote}><ChartNoAxesCombined size={17}/><span><b>سود نمونهٔ سفارش: ۳۷۵٬۰۰۰ تومان</b><small>وجه خالص ۵۸۵٬۰۰۰ − بهای مواد ۲۱۰٬۰۰۰؛ هزینه‌های دیگر در این مثال نیامده‌اند.</small></span></div></div>
+        <SaleStory />
       </div></section>
 
       <section id="connections" className={`${styles.container} ${styles.connections}`}><div className={styles.sectionIntro}><span className={styles.kicker}>اطلاعات یک‌بار ثبت می‌شود</span><h2>بخش‌های عملیاتی به دفتر مالی وصل‌اند</h2><p>این پیوندها به مسیرهای واقعی پنل MenuPeak می‌رسند. هر عمل فقط در محدودهٔ entitlement و نقش مجاز کاربر انجام می‌شود.</p></div><AccountingConnections mode="modules"/></section>
 
-      <section className={styles.offline}><div className={`${styles.container} ${styles.offlineGrid}`}><div><span className={styles.kicker}>برای روزهای ناپایدار</span><h2>قطع اینترنت، سابقهٔ ذخیره‌شده را پاک نمی‌کند.</h2><p>اپ Windows صندوق، سفارش‌های دریافت‌شده و ثبت سند آفلاین محدود را روی همان دستگاه نگه می‌دارد و بعد از اتصال برای همگام‌سازی می‌فرستد. دامنهٔ عملیات آفلاین فعلی محدود است و همهٔ گزارش‌ها و عملیات مالی در قطعی اینترنت در دسترس نیستند.</p><Link href="/pos-system" className={styles.lightCta}>آشنایی با صندوق ویندوز <ArrowUpLeft size={16}/></Link></div><div className={styles.offlineCard}><div><span><Store size={16}/> صندوق محلی</span><b>ثبت فروش و مشاهدهٔ دادهٔ cacheشده</b></div><div className={styles.offlineLine}><i/><span>شبکهٔ داخلی</span><i/></div><div><span><Calculator size={16}/> دفتر همگام‌شونده</span><b>ثبت فرمان یکتا پس از اتصال</b></div><small>اطلاعات تأییدنشدهٔ صف با سند قطعی یکی نیست.</small></div></div></section>
+      <section className={`${story.scene} ${story.section}`} id="offline"><div className={story.shell}><div className={story.offline}><OfflineStory/></div></div></section>
 
-      <section id="features" className={`${styles.container} ${styles.features}`}><div className={styles.sectionIntro}><span className={styles.kicker}>ابزارهای مالی در همان سامانه</span><h2>امکانات حسابداری و مدیریت مالی</h2><p>صاحب کسب‌وکار پاسخ سریع می‌خواهد؛ حسابدار هم دفتر، سند و گزارش قابل بررسی. برای جزئیات هر بخش، مسیر عملیاتی آن را باز کنید.</p></div><div className={styles.featureGroups}>{groups.map(({title,icon:GroupIcon,items})=><section key={title} className={styles.featureGroup}><h3><GroupIcon size={18}/>{title}</h3><div>{items.map(([name,copy,href,link])=><article key={name}><span className={styles.featureCheck}><Check size={13}/></span><div><h4>{name}</h4><p>{copy}</p><Link href={href}>{link}<ArrowDownLeft size={13}/></Link></div></article>)}</div></section>)}</div></section>
+      <section id="features" className={`${styles.container} ${styles.features}`}><div className={styles.sectionIntro}><span className={styles.kicker}>ابزارهای مالی در همان سامانه</span><h2>امکانات حسابداری و مدیریت مالی</h2><p>صاحب کسب‌وکار پاسخ سریع می‌خواهد؛ حسابدار هم دفتر، سند و گزارش قابل بررسی. برای جزئیات هر بخش، مسیر عملیاتی آن را باز کنید.</p></div><FeatureExplorer groups={groups.map(({title,items})=>({title,items}))}/></section>
+
+      <section className={`${story.scene} ${story.section} ${story.wash}`} id="security"><div className={story.shell}><div className={story.intro}><span className={story.kicker}>امنیت مالی، بخشی از اعتماد</span><h2>اطلاعات مالی شما، قفل و امن</h2><p>کنترل دسترسی، جداسازی داده‌ها و حفظ سابقه در رویدادهای مالی را در تجربهٔ واقعی سامانه ببینید.</p></div><SecurityStory/></div></section>
+
+      <section className={`${story.scene} ${story.section}`} id="compare"><div className={story.shell}><div className={story.intro}><span className={story.kicker}>حسابداری متصل به کار روزانه</span><h2>چرا حسابداری MenuPeak؟</h2><p>به‌جای تایپ دوباره، از پیوند سفارش، فروش، بهای مواد و دفاتر برای رسیدگی منظم‌تر استفاده کنید.</p></div><ComparisonStory siteName={siteName}/></div></section>
 
       <section className={styles.roles}><div className={styles.container}><div className={styles.sectionIntro}><span className={styles.kicker}>یک دفتر، دو نمای متفاوت</span><h2>برای صاحب مجموعه ساده؛ برای حسابدار دقیق</h2></div><div className={styles.roleGrid}><article><span className={styles.roleIcon}><ChartNoAxesCombined/></span><h3>برای مدیر کافه و رستوران</h3><p>وضعیت فروش، سود، موجودی، چک و مطالبات را از صفحه‌های متصل ببینید؛ بدون نیاز به ثبت دوبارهٔ رویدادهای عملیاتی.</p><ul><li><Check/> گزارش سود و زیان و روند فروش</li><li><Check/> مشاهدهٔ ماندهٔ صندوق و بانک</li><li><Check/> هشدار و دسترسی به چک و مطالبات</li></ul></article><article><span className={styles.roleIcon}><FileSpreadsheet/></span><h3>برای حسابدار</h3><p>سند تراز‌شده، کدینگ سه‌سطحی، سال مالی شمسی و دفاتر قابل چاپ برای رسیدگی دقیق‌تر در دسترس است.</p><ul><li><Check/> پیش‌نویس، قطعی‌سازی و سند برگشتی</li><li><Check/> دفتر روزنامه، کل و تراز آزمایشی</li><li><Check/> چاپ گزارش و روکش حسابداری</li></ul></article></div></div></section>
 
-      <section className={`${styles.container} ${styles.security}`}><div className={styles.sectionIntro}><span className={styles.kicker}>کنترل و سابقه</span><h2>هر ثبت مالی باید قابل پیگیری باشد</h2><p>دفتر دوطرفه، جداسازی اطلاعات کسب‌وکار، دسترسی نقش‌محور و محدودیت ویرایش سند قطعی، پایهٔ کار حسابداری MenuPeak هستند.</p></div><div className={styles.securityGrid}>{[[ShieldCheck,"تفکیک کسب‌وکارها","داده‌های حسابداری هر رستوران در محدودهٔ کسب‌وکار همان حساب خوانده می‌شود."],[LockKeyhole,"دسترسی نقش‌محور","API و صفحه، نقش و مجوز لازم برای مشاهده یا ثبت را بررسی می‌کنند."],[FileCheck2,"سند برگشتی","برای اصلاح سند قطعی، رد حسابداری باقی می‌ماند و سند جدید ثبت می‌شود."],[BadgeCheck,"کنترل تراز","سند قطعی بدون برابری بدهکار و بستانکار ثبت نمی‌شود."]].map(([IconComponent,title,copy])=>{const Icon=IconComponent as typeof ShieldCheck;return <article key={String(title)}><Icon size={19}/><h3>{String(title)}</h3><p>{String(copy)}</p></article>})}</div></section>
+
 
       <section className={styles.setup}><div className={styles.container}><div className={styles.sectionIntro}><span className={styles.kicker}>از پنل خودتان شروع کنید</span><h2>راه‌اندازی در سه قدم</h2><p>حسابداری بخشی از جریان روزانهٔ کسب‌وکار است؛ لازم نیست فروش و کالا را دوباره تعریف کنید.</p></div><div className={styles.setupGrid}>{[["۱","فعال‌کردن دسترسی","پلن و نقش دارای دسترسی حسابداری را انتخاب کنید."],["۲","بررسی کدینگ و مانده‌ها","سال مالی، سرفصل‌ها و حساب بانکی را بازبینی کنید."],["۳","ثبت روزانه و گزارش","اسناد اتوماتیک را کنترل و گزارش‌های موردنیاز را چاپ کنید."]].map(([number,title,copy])=><article key={number}><span>{number}</span><h3>{title}</h3><p>{copy}</p></article>)}</div><div className={styles.closing}><div><Sparkles size={18}/><span><b>حسابداری را با فروش واقعی مجموعه‌تان ببینید.</b><small>امکانات هر پلن را با ماژول‌های مورد نیازتان تطبیق دهید.</small></span></div><div><Link href="/register?trial=demo" className={styles.primaryCta}>شروع آزمایشی <ArrowUpLeft size={16}/></Link><Link href="/plans#comparison" className={styles.secondaryCta}>مقایسهٔ پلن‌ها <ArrowUpLeft size={15}/></Link></div></div></div></section>
 

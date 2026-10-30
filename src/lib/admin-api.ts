@@ -1,8 +1,8 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  adminAudit, announcements, businesses, categories, customers, diningTables, planFeatures, platformExpenses, products, staff,
+  adminAudit, announcements, businesses, categories, customers, diningTables, planFeatures, platformExpenses, platformAccounts, platformJournals, platformJournalLines, platformBankStatementEntries, platformChecks, products, staff,
   subscriptionInvoices, subscriptionPayments, promoCoupons, couponRedemptions, ticketMessages, tickets, users, sessions, affiliates, affiliateCommissions, affiliateWalletEntries,
   affiliateWithdrawals, blogPosts, tutorials, faqs, testimonials, leadRequests, platformAccountingDocuments, trialGrants,
 } from "@/db/schema";
@@ -16,10 +16,12 @@ import { normalizeRichContent } from "@/lib/rich-document";
 import { FEATURES, PLAN_KEYS, planName } from "@/lib/plans";
 import { isBillingTerm } from "@/lib/plan-pricing";
 import { getPlatformSms, notifyPlatformManager, type PlatformSmsConfig, normalizedPhone } from "@/lib/platform-sms";
+import { expenseAccountCode, listPlatformJournal, paymentAccountCode, postPlatformJournal } from "@/lib/platform-ledger";
 
 const J = (d: unknown, s = 200) => Response.json(d, { status: s });
 const str = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 const num = (v: unknown, d = 0) => { if (v === null || v === undefined || v === "") return d; const n = Math.round(Number(v)); return Number.isFinite(n) ? n : d; };
+const moneyNum = (v: unknown) => { if (typeof v === "number") return num(v); if (typeof v !== "string") return 0; const digits = v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))); return num(digits.replace(/[^0-9.-]/g, "")); };
 const date = (v: unknown) => { if (v === null || v === "" || v === undefined) return null; const d = new Date(String(v)); if (isNaN(d.getTime())) throw new HttpError(400, "تاریخ نامعتبر است"); return d; };
 const addMonths = (d: Date, m: number) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
 const genPassword = () => randomBytes(9).toString("base64url").slice(0, 10);
@@ -234,6 +236,236 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
     }
   }
 
+  /* ---------------------------------------- platform general ledger */
+  if (res === "ledger") {
+    need(auth, "accounting");
+    if (id === "accounts" && m === "GET") {
+      const from = date(q.get("from")), to = date(q.get("to"));
+      const result: any = await db.execute(sql`SELECT a.code,a.name,a.parent_code AS "parentCode",a.level,a.kind,a.normal_balance AS "normalBalance",a.is_system AS "isSystem",a.is_active AS "isActive",
+        coalesce(sum(CASE WHEN j.id IS NULL THEN 0 ELSE l.debit END),0)::float8 AS debit,coalesce(sum(CASE WHEN j.id IS NULL THEN 0 ELSE l.credit END),0)::float8 AS credit
+        FROM platform_accounts a LEFT JOIN platform_journal_lines l ON l.account_code=a.code
+        LEFT JOIN platform_journals j ON j.id=l.journal_id AND (${from}::timestamptz IS NULL OR j.date >= ${from}) AND (${to}::timestamptz IS NULL OR j.date < ${to})
+        WHERE a.is_active=true GROUP BY a.code ORDER BY a.code`);
+      return J({ items: result.rows.map((row: any) => ({ ...row, debit: Number(row.debit), credit: Number(row.credit), balance: Number(row.debit) - Number(row.credit) })) });
+    }
+    if (id === "accounts" && m === "POST") {
+      const b = await readJson(req);
+      const code = str(b.code, 24), name = str(b.name, 120), parentCode = str(b.parentCode, 24);
+      const requestedKind = typeof b.kind === "string" ? b.kind : "";
+      const kind = (["asset","liability","equity","revenue","expense"] as string[]).includes(requestedKind) ? requestedKind : "";
+      if (!/^[0-9]{3,24}$/.test(code) || !name || !kind) throw new HttpError(400, "کد، عنوان و ماهیت معتبر حساب را وارد کنید");
+      let level = "کل";
+      if (parentCode) {
+        const [parent] = await db.select().from(platformAccounts).where(eq(platformAccounts.code, parentCode));
+        if (!parent || !parent.isActive || parent.kind !== kind || !code.startsWith(parentCode)) throw new HttpError(400, "حساب بالادستی فعال و هم‌ماهیت را انتخاب کنید؛ کد حساب باید زیرمجموعهٔ کد والد باشد");
+        const levels = ["کل","معین","تفصیلی"], parentLevel = levels.indexOf(parent.level);
+        if (parentLevel < 0 || parentLevel >= 2) throw new HttpError(400, "حساب تفصیلی دیگر حساب زیرمجموعه نمی‌پذیرد");
+        level = levels[parentLevel + 1];
+      } else level = "کل";
+      const normalBalance = ["asset","expense"].includes(kind) ? "debit" : "credit";
+      const [account] = await db.insert(platformAccounts).values({ code, name, parentCode: parentCode || null, level, kind, normalBalance, isSystem: false }).onConflictDoNothing().returning();
+      if (!account) throw new HttpError(409, "کد حساب تکراری است");
+      await audit(auth, "افزودن حساب سامانه", "platform_account", code, name);
+      return J({ item: account }, 201);
+    }
+    if (id === "journals" && m === "GET") {
+      const rows = await db.select({ id: platformJournals.id }).from(platformJournals).orderBy(desc(platformJournals.documentNo)).limit(300);
+      if (!rows.length) return J({ items: [] });
+      const journals = await db.select().from(platformJournals).where(inArray(platformJournals.id, rows.map((row) => row.id)));
+      const lines = await db.select({ journalId: platformJournalLines.journalId, lineNo: platformJournalLines.lineNo, accountCode: platformJournalLines.accountCode, accountName: platformAccounts.name, description: platformJournalLines.description, debit: platformJournalLines.debit, credit: platformJournalLines.credit }).from(platformJournalLines).innerJoin(platformAccounts, eq(platformAccounts.code, platformJournalLines.accountCode)).where(inArray(platformJournalLines.journalId, rows.map((row) => row.id))).orderBy(asc(platformJournalLines.journalId), asc(platformJournalLines.lineNo));
+      const lineMap = new Map<number, typeof lines>();
+      for (const line of lines) lineMap.set(line.journalId, [...(lineMap.get(line.journalId) ?? []), line]);
+      const journalMap = new Map(journals.map((journal) => [journal.id, journal]));
+      return J({ items: rows.flatMap(({ id: journalId }) => { const journal = journalMap.get(journalId); return journal ? [{ ...journal, lines: lineMap.get(journalId) ?? [] }] : []; }) });
+    }
+    if (id === "journals" && m === "POST") {
+      const b = await readJson(req);
+      const description = str(b.description, 500);
+      const docDate = date(b.date);
+      const lines = Array.isArray(b.lines) ? b.lines.slice(0, 100).map((line: any) => ({ accountCode: str(line.accountCode, 24), description: str(line.description, 240), debit: num(line.debit), credit: num(line.credit) })) : [];
+      if (!description || !docDate || lines.length < 2 || lines.some((line: any) => !line.accountCode || line.debit < 0 || line.credit < 0 || (line.debit > 0) === (line.credit > 0))) throw new HttpError(400, "تاریخ، شرح و حداقل دو ردیف معتبر لازم است");
+      const debit = lines.reduce((sum: number, line: any) => sum + line.debit, 0), credit = lines.reduce((sum: number, line: any) => sum + line.credit, 0);
+      if (debit <= 0 || debit !== credit) throw new HttpError(400, "جمع بدهکار و بستانکار باید برابر و بیشتر از صفر باشد");
+      const journal = await db.transaction(async (tx) => {
+        const item = await postPlatformJournal(tx, { date: docDate, description, sourceType: "manual", createdBy: auth.user.name, lines });
+        if (!item) throw new HttpError(409, "سند مشابه قبلاً ثبت شده است");
+        return listPlatformJournal(tx, item.id);
+      });
+      await audit(auth, "ثبت سند دستی حسابداری سامانه", "platform_journal", journal?.documentNo ?? "", description);
+      return J({ item: journal }, 201);
+    }
+    if (id === "journals" && act && m === "PATCH") {
+      const b = await readJson(req);
+      if (b.action !== "reverse") throw new HttpError(400, "عملیات سند نامعتبر است");
+      const journalId = Number(act);
+      const journal = await db.transaction(async (tx) => {
+        const [original] = await tx.select().from(platformJournals).where(eq(platformJournals.id, journalId)).for("update");
+        if (!original || original.status !== "posted") throw new HttpError(409, "فقط سند قطعی و فعال قابل برگشت است");
+        const originalLines = await tx.select().from(platformJournalLines).where(eq(platformJournalLines.journalId, journalId));
+        const reversal = await postPlatformJournal(tx, { description: `برگشت سند #${original.documentNo} · ${original.description}`, date: new Date(), sourceType: "manual", reversalOf: original.id, createdBy: auth.user.name, lines: originalLines.map((line) => ({ accountCode: line.accountCode, description: `برگشت · ${line.description}`, debit: line.credit, credit: line.debit })) });
+        if (!reversal) throw new HttpError(409, "سند برگشتی قبلاً ثبت شده است");
+        await tx.update(platformJournals).set({ status: "reversed" }).where(eq(platformJournals.id, original.id));
+        return listPlatformJournal(tx, reversal.id);
+      });
+      await audit(auth, "برگشت سند حسابداری سامانه", "platform_journal", journal?.documentNo ?? journalId);
+      return J({ item: journal });
+    }
+    if (id === "cheques" && m === "GET") {
+      const result: any = await db.execute(sql`SELECT c.id,c.direction,c.check_number AS "checkNumber",c.serial_number AS "serialNumber",c.bank_name AS "bankName",c.branch,c.party_name AS "partyName",c.party_phone AS "partyPhone",c.national_id AS "nationalId",c.issue_date AS "issueDate",c.due_date AS "dueDate",c.amount,c.bank_account_code AS "bankAccountCode",c.counter_account_code AS "counterAccountCode",c.status,c.journal_id AS "journalId",c.settlement_journal_id AS "settlementJournalId",c.note,c.created_by AS "createdBy",b.name AS "bankAccountName",x.name AS "counterAccountName",j.document_no AS "journalDocumentNo",s.document_no AS "settlementDocumentNo"
+        FROM platform_checks c JOIN platform_accounts b ON b.code=c.bank_account_code JOIN platform_accounts x ON x.code=c.counter_account_code
+        LEFT JOIN platform_journals j ON j.id=c.journal_id LEFT JOIN platform_journals s ON s.id=c.settlement_journal_id ORDER BY c.due_date DESC,c.id DESC LIMIT 1000`);
+      return J({ items: result.rows });
+    }
+    if (id === "cheques" && m === "POST") {
+      const b = await readJson(req), direction = b.direction === "received" || b.direction === "issued" ? b.direction : "";
+      const checkNumber = str(b.checkNumber, 80), serialNumber = str(b.serialNumber, 80), bankName = str(b.bankName, 100), branch = str(b.branch, 120), partyName = str(b.partyName, 120), partyPhone = str(b.partyPhone, 32), nationalId = str(b.nationalId, 16), issueDate = date(b.issueDate), dueDate = date(b.dueDate), amount = moneyNum(b.amount), bankAccountCode = str(b.bankAccountCode, 24), counterAccountCode = str(b.counterAccountCode, 24), note = str(b.note, 500);
+      if (!direction || !checkNumber || !bankName || !partyName || !issueDate || !dueDate || dueDate < issueDate || amount <= 0 || !bankAccountCode || !counterAccountCode) throw new HttpError(400, "نوع چک، شماره، بانک، طرف حساب، تاریخ‌ها، مبلغ و حساب‌های مرتبط را کامل کنید");
+      const createdCheck = await db.transaction(async (tx) => {
+        const [bank] = await tx.select().from(platformAccounts).where(and(eq(platformAccounts.code, bankAccountCode), eq(platformAccounts.kind, "asset"), eq(platformAccounts.isActive, true), eq(platformAccounts.level, "تفصیلی")));
+        const [bankChild] = await tx.select({ code: platformAccounts.code }).from(platformAccounts).where(eq(platformAccounts.parentCode, bankAccountCode)).limit(1);
+        const [counter] = await tx.select().from(platformAccounts).where(and(eq(platformAccounts.code, counterAccountCode), eq(platformAccounts.isActive, true)));
+        const [counterChild] = await tx.select({ code: platformAccounts.code }).from(platformAccounts).where(eq(platformAccounts.parentCode, counterAccountCode)).limit(1);
+        if (!bank || bankChild || !counter || counterChild || ["10302","20201"].includes(counterAccountCode)) throw new HttpError(400, "حساب بانکی یا حساب مقابل باید فعال و در آخرین سطح کدینگ باشد");
+        const [check] = await tx.insert(platformChecks).values({ direction, checkNumber, serialNumber, bankName, branch, partyName, partyPhone, nationalId, issueDate, dueDate, amount, bankAccountCode, counterAccountCode, note, createdBy: auth.user.name }).returning();
+        const entry = await postPlatformJournal(tx, { sourceType: "platform_check", sourceId: check.id, date: issueDate, description: `${direction === "received" ? "دریافت" : "صدور"} چک ${checkNumber} · ${partyName}`, createdBy: auth.user.name, lines: direction === "received" ? [{ accountCode: "10302", description: `چک دریافتنی ${checkNumber}`, debit: amount }, { accountCode: counterAccountCode, description: `طرف حساب چک ${checkNumber}`, credit: amount }] : [{ accountCode: counterAccountCode, description: `طرف حساب چک ${checkNumber}`, debit: amount }, { accountCode: "20201", description: `چک پرداختنی ${checkNumber}`, credit: amount }] });
+        if (!entry) throw new HttpError(409, "سند چک قبلاً ثبت شده است");
+        const [saved] = await tx.update(platformChecks).set({ journalId: entry.id }).where(eq(platformChecks.id, check.id)).returning();
+        return saved;
+      });
+      await audit(auth, direction === "received" ? "ثبت چک دریافتی سامانه" : "ثبت چک صادره سامانه", "platform_check", createdCheck.id, `${checkNumber} · ${amount}`);
+      return J({ item: createdCheck }, 201);
+    }
+    if (id === "cheques" && act && m === "PATCH") {
+      const checkId = Number(act), b = await readJson(req), action = str(b.action, 20);
+      if (!["clear","return","void"].includes(action)) throw new HttpError(400, "وضعیت درخواستی چک معتبر نیست");
+      const updated = await db.transaction(async (tx) => {
+        const [check] = await tx.select().from(platformChecks).where(eq(platformChecks.id, checkId)).for("update");
+        if (!check || !["registered","cleared"].includes(check.status)) throw new HttpError(409, "چک پیدا نشد یا تعیین تکلیف شده است");
+        const reverse = async (journalId: number | null, label: string) => {
+          if (!journalId) return;
+          const [original] = await tx.select().from(platformJournals).where(eq(platformJournals.id, journalId)).for("update");
+          if (!original || original.status !== "posted") return;
+          const lines = await tx.select().from(platformJournalLines).where(eq(platformJournalLines.journalId, original.id));
+          const reversed = await postPlatformJournal(tx, { sourceType: "manual", reversalOf: original.id, date: new Date(), description: `${label} · برگشت سند چک #${original.documentNo}`, createdBy: auth.user.name, lines: lines.map((line) => ({ accountCode: line.accountCode, description: `برگشت · ${line.description}`, debit: line.credit, credit: line.debit })) });
+          if (!reversed) throw new HttpError(409, "سند برگشتی این چک قبلاً ثبت شده است");
+          await tx.update(platformJournals).set({ status: "reversed" }).where(eq(platformJournals.id, original.id));
+        };
+        if (action === "clear") {
+          if (check.status !== "registered") throw new HttpError(409, "این چک قبلاً تعیین تکلیف شده است");
+          const entry = await postPlatformJournal(tx, { sourceType: "platform_check_settlement", sourceId: check.id, date: new Date(), description: `${check.direction === "received" ? "وصول" : "پرداخت"} چک ${check.checkNumber} · ${check.partyName}`, createdBy: auth.user.name, lines: check.direction === "received" ? [{ accountCode: check.bankAccountCode, description: `واریز چک ${check.checkNumber}`, debit: check.amount }, { accountCode: "10302", description: "انتقال از اسناد دریافتنی", credit: check.amount }] : [{ accountCode: "20201", description: "تسویه اسناد پرداختنی", debit: check.amount }, { accountCode: check.bankAccountCode, description: `پرداخت چک ${check.checkNumber}`, credit: check.amount }] });
+          if (!entry) throw new HttpError(409, "سند تسویه چک قبلاً ثبت شده است");
+          const [row] = await tx.update(platformChecks).set({ status: "cleared", settlementJournalId: entry.id }).where(eq(platformChecks.id, check.id)).returning();
+          return row;
+        }
+        if (action === "return") {
+          if (check.settlementJournalId && check.direction === "received") await reverse(check.settlementJournalId, "برگشت چک دریافتی");
+          if (!check.settlementJournalId || check.direction === "received") await reverse(check.journalId, "برگشت چک");
+          if (check.settlementJournalId && check.direction === "issued") await reverse(check.settlementJournalId, "برگشت پرداخت چک صادره");
+          const [row] = await tx.update(platformChecks).set({ status: "returned" }).where(eq(platformChecks.id, check.id)).returning();
+          return row;
+        }
+        if (check.settlementJournalId) await reverse(check.settlementJournalId, "ابطال تسویه چک");
+        await reverse(check.journalId, "ابطال چک");
+        const [row] = await tx.update(platformChecks).set({ status: "void" }).where(eq(platformChecks.id, check.id)).returning();
+        return row;
+      });
+      await audit(auth, `تعیین وضعیت چک سامانه: ${action}`, "platform_check", checkId);
+      return J({ item: updated });
+    }
+    if (id === "bank-statements" && m === "GET") {
+      const accountCode = str(q.get("accountCode"), 24);
+      const result: any = await db.execute(sql`SELECT e.id,e.account_code AS "accountCode",a.name AS "accountName",e.transaction_date AS "transactionDate",e.description,e.reference,e.amount,e.matched_journal_line_id AS "matchedJournalLineId",j.document_no AS "matchedDocumentNo",l.description AS "matchedLineDescription",e.created_by AS "createdBy"
+        FROM platform_bank_statement_entries e JOIN platform_accounts a ON a.code=e.account_code LEFT JOIN platform_journal_lines l ON l.id=e.matched_journal_line_id LEFT JOIN platform_journals j ON j.id=l.journal_id
+        WHERE (${accountCode}='' OR e.account_code=${accountCode}) ORDER BY e.transaction_date DESC,e.id DESC LIMIT 1000`);
+      return J({ items: result.rows });
+    }
+    if (id === "bank-statements" && m === "POST") {
+      const b = await readJson(req), accountCode = str(b.accountCode, 24);
+      const rows = Array.isArray(b.items) ? b.items.slice(0, 500) : [];
+      if (!accountCode || rows.length === 0) throw new HttpError(400, "حساب بانکی و حداقل یک ردیف صورت‌حساب لازم است");
+      const [account] = await db.select().from(platformAccounts).where(and(eq(platformAccounts.code, accountCode), eq(platformAccounts.kind, "asset"), eq(platformAccounts.isActive, true)));
+      if (!account || account.level !== "تفصیلی") throw new HttpError(400, "حساب بانکی تفصیلی و فعال را انتخاب کنید");
+      const [child] = await db.select({ code: platformAccounts.code }).from(platformAccounts).where(eq(platformAccounts.parentCode, accountCode)).limit(1);
+      if (child) throw new HttpError(400, "صورت‌حساب را به یک حساب بانکیِ بدون زیرحساب متصل کنید");
+      const imported = await db.transaction(async (tx) => {
+        let count = 0;
+        for (const row of rows) {
+          const transactionDate = date(row.date ?? row.transactionDate), amount = moneyNum(row.amount), description = str(row.description, 300), reference = str(row.reference, 120);
+          if (!transactionDate || amount === 0) continue;
+          const fingerprint = createHash("sha256").update([accountCode, transactionDate.toISOString(), amount, description, reference].join("\u0000")).digest("hex");
+          const [inserted] = await tx.insert(platformBankStatementEntries).values({ accountCode, transactionDate, amount, description, reference, fingerprint, createdBy: auth.user.name }).onConflictDoNothing().returning({ id: platformBankStatementEntries.id });
+          if (inserted) count++;
+        }
+        return count;
+      });
+      await audit(auth, "واردکردن صورت‌حساب بانکی سامانه", "platform_bank_statement", accountCode, `${imported} ردیف جدید`);
+      return J({ imported, skipped: rows.length-imported }, 201);
+    }
+    if (id === "bank-candidates" && m === "GET") {
+      const accountCode = str(q.get("accountCode"), 24), amount = moneyNum(q.get("amount"));
+      if (!accountCode || amount === 0) return J({ items: [] });
+      const incoming = amount > 0;
+      const result: any = await db.execute(sql`SELECT l.id AS "journalLineId",j.document_no AS "documentNo",j.date,j.description,l.description AS "lineDescription",l.debit,l.credit
+        FROM platform_journal_lines l JOIN platform_journals j ON j.id=l.journal_id
+        WHERE l.account_code=${accountCode} AND j.status='posted' AND ${incoming ? sql`l.debit=${Math.abs(amount)} AND l.credit=0` : sql`l.credit=${Math.abs(amount)} AND l.debit=0`}
+        AND NOT EXISTS (SELECT 1 FROM platform_bank_statement_entries e WHERE e.matched_journal_line_id=l.id)
+        ORDER BY abs(extract(epoch from (j.date-${date(q.get("date")) ?? new Date()}::timestamptz))),j.document_no DESC LIMIT 100`);
+      return J({ items: result.rows });
+    }
+    if (id === "bank-statements" && act && m === "PATCH") {
+      const entryId = Number(act), b = await readJson(req);
+      const row = await db.transaction(async (tx) => {
+        const [entry] = await tx.select().from(platformBankStatementEntries).where(eq(platformBankStatementEntries.id, entryId)).for("update");
+        if (!entry) throw new HttpError(404, "ردیف صورت‌حساب پیدا نشد");
+        if (b.action === "unmatch") {
+          const [updated] = await tx.update(platformBankStatementEntries).set({ matchedJournalLineId: null }).where(eq(platformBankStatementEntries.id, entry.id)).returning();
+          return updated;
+        }
+        if (b.action !== "match") throw new HttpError(400, "عملیات تطبیق نامعتبر است");
+        const lineId = num(b.journalLineId);
+        const [line] = await tx.select({ line: platformJournalLines, journal: platformJournals }).from(platformJournalLines).innerJoin(platformJournals, eq(platformJournals.id, platformJournalLines.journalId)).where(and(eq(platformJournalLines.id, lineId), eq(platformJournalLines.accountCode, entry.accountCode), eq(platformJournals.status, "posted")));
+        if (!line || (entry.amount > 0 ? Number(line.line.debit) !== entry.amount || Number(line.line.credit) !== 0 : Number(line.line.credit) !== Math.abs(entry.amount) || Number(line.line.debit) !== 0)) throw new HttpError(400, "مبلغ یا جهت ردیف دفتر با صورت‌حساب بانکی برابر نیست");
+        const [duplicate] = await tx.select({ id: platformBankStatementEntries.id }).from(platformBankStatementEntries).where(eq(platformBankStatementEntries.matchedJournalLineId, lineId)).limit(1);
+        if (duplicate && duplicate.id !== entry.id) throw new HttpError(409, "این ردیف دفتر قبلاً با صورت‌حساب دیگری تطبیق داده شده است");
+        const [updated] = await tx.update(platformBankStatementEntries).set({ matchedJournalLineId: lineId }).where(eq(platformBankStatementEntries.id, entry.id)).returning();
+        return updated;
+      });
+      await audit(auth, b.action === "match" ? "تطبیق ردیف بانکی" : "لغو تطبیق بانکی", "platform_bank_statement", row?.id ?? entryId);
+      return J({ item: row });
+    }
+    if (id === "reports" && m === "GET") {
+      const type = q.get("type") ?? "trial", from = date(q.get("from")), to = date(q.get("to"));
+      const code = str(q.get("code"), 24);
+      if (type === "account" && !code) return J({ items: [], account: null });
+      const rows: any = await db.execute(sql`SELECT a.code,a.name,a.level,a.kind,
+        coalesce(sum(l.debit) FILTER (WHERE (${from}::timestamptz IS NULL OR j.date >= ${from}) AND (${to}::timestamptz IS NULL OR j.date < ${to})),0)::float8 AS debit,
+        coalesce(sum(l.credit) FILTER (WHERE (${from}::timestamptz IS NULL OR j.date >= ${from}) AND (${to}::timestamptz IS NULL OR j.date < ${to})),0)::float8 AS credit
+        FROM platform_accounts a LEFT JOIN platform_journal_lines l ON l.account_code=a.code LEFT JOIN platform_journals j ON j.id=l.journal_id
+        WHERE a.is_active=true GROUP BY a.code ORDER BY a.code`);
+      const items = rows.rows.map((row: any) => ({ ...row, debit: Number(row.debit), credit: Number(row.credit), balance: Number(row.debit) - Number(row.credit) }));
+      if (type === "profit-loss") {
+        const profitRows = items.filter((row: any) => ["revenue","expense"].includes(row.kind));
+        return J({ items: profitRows, revenue: profitRows.filter((row: any) => row.kind === "revenue").reduce((sum: number, row: any) => sum + row.credit - row.debit, 0), expenses: profitRows.filter((row: any) => row.kind === "expense").reduce((sum: number, row: any) => sum + row.debit - row.credit, 0) });
+      }
+      if (type === "account") {
+        const [opening]: any[] = from ? (await db.execute(sql`SELECT coalesce(sum(l.debit-l.credit),0)::float8 AS balance FROM platform_journal_lines l JOIN platform_journals j ON j.id=l.journal_id WHERE l.account_code=${code} AND j.date < ${from}`)).rows : [{ balance: 0 }];
+        const entries: any = await db.execute(sql`SELECT j.document_no AS "documentNo",j.date,j.description,j.status,l.description AS "lineDescription",l.debit,l.credit FROM platform_journal_lines l JOIN platform_journals j ON j.id=l.journal_id WHERE l.account_code=${code} AND (${from}::timestamptz IS NULL OR j.date >= ${from}) AND (${to}::timestamptz IS NULL OR j.date < ${to}) ORDER BY j.date,j.document_no,l.line_no`);
+        let running = Number(opening.balance);
+        const ledgerItems = entries.rows.map((entry: any) => { running += Number(entry.debit)-Number(entry.credit); return { ...entry, runningBalance: running }; });
+        const debit = ledgerItems.reduce((sum: number, entry: any) => sum + Number(entry.debit), 0), credit = ledgerItems.reduce((sum: number, entry: any) => sum + Number(entry.credit), 0), balance = running;
+        return J({ items: ledgerItems, account: { ...(items.find((item: any) => item.code === code) ?? {}), debit, credit, openingBalance: Number(opening.balance), balance, closingDebit: Math.max(balance,0), closingCredit: Math.max(-balance,0) } });
+      }
+      const openingRows: any = from ? await db.execute(sql`SELECT a.code,coalesce(sum(l.debit-l.credit) FILTER (WHERE j.id IS NOT NULL),0)::float8 AS balance FROM platform_accounts a LEFT JOIN platform_journal_lines l ON l.account_code=a.code LEFT JOIN platform_journals j ON j.id=l.journal_id AND j.date < ${from} WHERE a.is_active=true GROUP BY a.code`) : { rows: [] };
+      const openingBalances = new Map<string,number>(openingRows.rows.map((row: any) => [String(row.code), Number(row.balance)] as [string,number]));
+      const completeTrial = items.map((row: any) => {
+        const openingBalance = openingBalances.get(row.code) ?? 0;
+        const closingBalance = openingBalance + row.balance;
+        return { ...row, openingBalance, openingDebit: Math.max(openingBalance,0), openingCredit: Math.max(-openingBalance,0), closingBalance, closingDebit: Math.max(closingBalance,0), closingCredit: Math.max(-closingBalance,0) };
+      });
+      return J({ items: completeTrial, debitTotal: completeTrial.reduce((sum: number,row: any)=>sum+row.closingDebit,0), creditTotal: completeTrial.reduce((sum: number,row: any)=>sum+row.closingCredit,0), turnoverDebitTotal: completeTrial.reduce((sum: number,row: any)=>sum+row.debit,0), turnoverCreditTotal: completeTrial.reduce((sum: number,row: any)=>sum+row.credit,0) });
+    }
+  }
+
   /* ------------------------------------------- invoices (subscriptions) */
   if (res === "invoices") {
     need(auth, "accounting");
@@ -260,7 +492,11 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       const discount = quote.base - quote.total + additionalDiscount;
       const amount = b.amount !== undefined && b.amount !== "" ? Math.max(0, num(b.amount)) : quote.total - additionalDiscount;
       const [mx] = await db.select({ n: sql<number>`coalesce(max(${subscriptionInvoices.number}),1000)::int` }).from(subscriptionInvoices);
-      const [row] = await db.insert(subscriptionInvoices).values({ number: mx.n + 1, businessId: biz.id, plan, months, amount, discount, note: str(b.note, 300), createdBy: auth.user.name }).returning();
+      const row = await db.transaction(async (tx) => {
+        const [invoice] = await tx.insert(subscriptionInvoices).values({ number: mx.n + 1, businessId: biz.id, plan, months, amount, discount, note: str(b.note, 300), createdBy: auth.user.name }).returning();
+        if (amount > 0) await postPlatformJournal(tx, { sourceType: "subscription_invoice", sourceId: invoice.id, date: invoice.createdAt, description: `صدور فاکتور اشتراک #${invoice.number} · ${biz.name}`, createdBy: auth.user.name, lines: [{ accountCode: "10301", description: `مطالبه فاکتور #${invoice.number}`, debit: amount }, { accountCode: "4010", description: `درآمد اشتراک · ${biz.name}`, credit: amount }] });
+        return invoice;
+      });
       await audit(auth, "صدور فاکتور اشتراک", "invoice", row.number, `${biz.name} · ${plan} · ${months} ماه`);
       if (b.markPaid) return J({ item: await payInvoice(auth, row.id, str(b.method, 20) || "transfer", str(b.refNo, 40), date(b.paidAt)) }, 201);
       return J({ item: row }, 201);
@@ -276,7 +512,22 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
         await db.update(subscriptionPayments).set({ status: "failed", detail: "مهلت پرداخت پایان یافت" }).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"), sql`${subscriptionPayments.createdAt} < now() - interval '30 minutes'`));
         const [pending] = await db.select({ id: subscriptionPayments.id }).from(subscriptionPayments).where(and(eq(subscriptionPayments.invoiceId, inv.id), eq(subscriptionPayments.status, "pending"))).limit(1);
         if (pending) throw new HttpError(409, "برای این فاکتور پرداخت در حال انجام است؛ ابتدا آن را لغو یا تعیین تکلیف کنید");
-        const [row] = await db.update(subscriptionInvoices).set({ amount, note: b.note === undefined ? inv.note : str(b.note, 300) }).where(and(eq(subscriptionInvoices.id, inv.id), eq(subscriptionInvoices.status, "unpaid"))).returning();
+        const row = await db.transaction(async (tx) => {
+          const [locked] = await tx.select().from(subscriptionInvoices).where(and(eq(subscriptionInvoices.id, inv.id), eq(subscriptionInvoices.status, "unpaid"))).for("update");
+          if (!locked) return null;
+          const [source] = await tx.select().from(platformJournals).where(and(eq(platformJournals.sourceType, "subscription_invoice"), eq(platformJournals.sourceId, inv.id), eq(platformJournals.status, "posted"))).for("update");
+          const [adjustment] = source ? [] : await tx.select().from(platformJournals).where(and(eq(platformJournals.sourceType, "manual"), eq(platformJournals.status, "posted"), ilike(platformJournals.description, `اصلاح مبلغ فاکتور #${locked.number}%`))).orderBy(desc(platformJournals.id)).limit(1).for("update");
+          const accrual = source ?? adjustment;
+          if (accrual) {
+            const lines = await tx.select().from(platformJournalLines).where(eq(platformJournalLines.journalId, accrual.id));
+            await postPlatformJournal(tx, { sourceType: "manual", reversalOf: accrual.id, date: new Date(), description: `برگشت فاکتور #${locked.number} برای اصلاح مبلغ`, createdBy: auth.user.name, lines: lines.map((line) => ({ accountCode: line.accountCode, description: `برگشت · ${line.description}`, debit: line.credit, credit: line.debit })) });
+            await tx.update(platformJournals).set({ status: "reversed" }).where(eq(platformJournals.id, accrual.id));
+          }
+          const [updated] = await tx.update(subscriptionInvoices).set({ amount, note: b.note === undefined ? locked.note : str(b.note, 300) }).where(and(eq(subscriptionInvoices.id, locked.id), eq(subscriptionInvoices.status, "unpaid"))).returning();
+          if (!updated) return null;
+          if (amount > 0) await postPlatformJournal(tx, { sourceType: "manual", date: new Date(), description: `اصلاح مبلغ فاکتور #${updated.number}`, createdBy: auth.user.name, lines: [{ accountCode: "10301", description: `مطالبه اصلاح‌شده #${updated.number}`, debit: amount }, { accountCode: "4010", description: "درآمد اشتراک پس از اصلاح مبلغ", credit: amount }] });
+          return updated;
+        });
         if (!row) throw new HttpError(409, "فاکتور هم‌زمان تغییر کرد");
         await audit(auth, "ویرایش مبلغ فاکتور اشتراک", "invoice", row.number, `${inv.amount} ← ${amount} تومان`);
         return J({ item: row });
@@ -286,7 +537,20 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
         void pending;
         const [activePayment] = await db.select({ id: subscriptionPayments.id }).from(subscriptionPayments).where(and(eq(subscriptionPayments.invoiceId, Number(id)), eq(subscriptionPayments.status, "pending"))).limit(1);
         if (activePayment) throw new HttpError(409, "برای این فاکتور پرداخت در حال انجام است");
-        const [r] = await db.update(subscriptionInvoices).set({ status: "void" }).where(and(eq(subscriptionInvoices.id, Number(id)), eq(subscriptionInvoices.status, "unpaid"))).returning();
+        const r = await db.transaction(async (tx) => {
+          const [invoice] = await tx.select().from(subscriptionInvoices).where(and(eq(subscriptionInvoices.id, Number(id)), eq(subscriptionInvoices.status, "unpaid"))).for("update");
+          if (!invoice) return null;
+          const [source] = await tx.select().from(platformJournals).where(and(eq(platformJournals.sourceType, "subscription_invoice"), eq(platformJournals.sourceId, invoice.id), eq(platformJournals.status, "posted"))).for("update");
+          const [adjustment] = source ? [] : await tx.select().from(platformJournals).where(and(eq(platformJournals.sourceType, "manual"), eq(platformJournals.status, "posted"), ilike(platformJournals.description, `اصلاح مبلغ فاکتور #${invoice.number}%`))).orderBy(desc(platformJournals.id)).limit(1).for("update");
+          const accrual = source ?? adjustment;
+          if (accrual) {
+            const lines = await tx.select().from(platformJournalLines).where(eq(platformJournalLines.journalId, accrual.id));
+            await postPlatformJournal(tx, { sourceType: "manual", reversalOf: accrual.id, date: new Date(), description: `برگشت فاکتور باطل‌شده #${invoice.number}`, createdBy: auth.user.name, lines: lines.map((line) => ({ accountCode: line.accountCode, description: `برگشت · ${line.description}`, debit: line.credit, credit: line.debit })) });
+            await tx.update(platformJournals).set({ status: "reversed" }).where(eq(platformJournals.id, accrual.id));
+          }
+          const [voided] = await tx.update(subscriptionInvoices).set({ status: "void" }).where(and(eq(subscriptionInvoices.id, invoice.id), eq(subscriptionInvoices.status, "unpaid"))).returning();
+          return voided;
+        });
         if (!r) throw new HttpError(400, "فقط فاکتور پرداخت‌نشده قابل ابطال است");
         await db.update(couponRedemptions).set({ status: "released" }).where(and(eq(couponRedemptions.invoiceId, r.id), eq(couponRedemptions.status, "reserved")));
         await audit(auth, "ابطال فاکتور", "invoice", r.number);
@@ -304,24 +568,56 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
       const b = await readJson(req);
       const amount = num(b.amount);
       if (amount <= 0) throw new HttpError(400, "مبلغ هزینه را وارد کنید");
-      const [row] = await db.insert(platformExpenses).values({ category: str(b.category, 60) || "سایر", amount, description: str(b.description, 300), date: date(b.date) ?? new Date(), createdBy: auth.user.name }).returning();
+      const category = str(b.category, 60) || "سایر", expenseDate = date(b.date) ?? new Date();
+      const method = typeof b.paymentMethod === "string" && (["cash","transfer","card","online"] as string[]).includes(b.paymentMethod) ? b.paymentMethod : "transfer";
+      const row = await db.transaction(async (tx) => {
+        const [expense] = await tx.insert(platformExpenses).values({ category, amount, description: str(b.description, 300), date: expenseDate, paymentMethod: method, createdBy: auth.user.name }).returning();
+        await postPlatformJournal(tx, { sourceType: "platform_expense", sourceId: expense.id, date: expense.date, description: `هزینه سامانه · ${expense.category}${expense.description ? ` · ${expense.description}` : ""}`, createdBy: auth.user.name, lines: [{ accountCode: expenseAccountCode(expense.category), description: expense.description || expense.category, debit: amount }, { accountCode: paymentAccountCode(method), description: "پرداخت هزینه سامانه", credit: amount }] });
+        return expense;
+      });
       await audit(auth, "ثبت هزینه", "expense", row.id, `${row.category}: ${amount}`);
       return J({ item: row }, 201);
     }
     if (m === "PATCH" && id) {
       const b = await readJson(req);
-      const set: Record<string, unknown> = {};
-      if (b.amount !== undefined) { if (num(b.amount) <= 0) throw new HttpError(400, "مبلغ نامعتبر است"); set.amount = num(b.amount); }
-      if (typeof b.category === "string") set.category = str(b.category, 60) || "سایر";
-      if (typeof b.description === "string") set.description = str(b.description, 300);
-      if (b.date) set.date = date(b.date);
-      if (!Object.keys(set).length) throw new HttpError(400, "تغییری ارسال نشد");
-      const [row] = await db.update(platformExpenses).set(set).where(eq(platformExpenses.id, Number(id))).returning();
+      const row = await db.transaction(async (tx) => {
+        const [old] = await tx.select().from(platformExpenses).where(eq(platformExpenses.id, Number(id))).for("update");
+        if (!old || old.status !== "active") throw new HttpError(404, "هزینهٔ فعال پیدا نشد");
+        const [source] = await tx.select().from(platformJournals).where(and(eq(platformJournals.sourceType, "platform_expense"), eq(platformJournals.sourceId, old.id))).for("update");
+        if (source && source.status === "posted") {
+          const sourceLines = await tx.select().from(platformJournalLines).where(eq(platformJournalLines.journalId, source.id));
+          const reverse = await postPlatformJournal(tx, { sourceType: "manual", reversalOf: source.id, date: new Date(), description: `برگشت هزینه #${old.id} برای اصلاح`, createdBy: auth.user.name, lines: sourceLines.map((line) => ({ accountCode: line.accountCode, description: `برگشت · ${line.description}`, debit: line.credit, credit: line.debit })) });
+          if (!reverse) throw new HttpError(409, "برگشت هزینه قبلاً ثبت شده است");
+          await tx.update(platformJournals).set({ status: "reversed" }).where(eq(platformJournals.id, source.id));
+        }
+        await tx.update(platformExpenses).set({ status: "void" }).where(eq(platformExpenses.id, old.id));
+        const amount = b.amount === undefined ? old.amount : num(b.amount, -1);
+        if (amount <= 0) throw new HttpError(400, "مبلغ نامعتبر است");
+        const category = typeof b.category === "string" ? str(b.category, 60) || "سایر" : old.category;
+        const description = typeof b.description === "string" ? str(b.description, 300) : old.description;
+        const expenseDate = b.date ? date(b.date) ?? old.date : old.date;
+        const method = typeof b.paymentMethod === "string" && (["cash","transfer","card","online"] as string[]).includes(b.paymentMethod) ? b.paymentMethod : old.paymentMethod;
+        const [created] = await tx.insert(platformExpenses).values({ category, amount, description, date: expenseDate, paymentMethod: method, createdBy: auth.user.name }).returning();
+        await postPlatformJournal(tx, { sourceType: "platform_expense", sourceId: created.id, date: created.date, description: `هزینه اصلاح‌شده · ${created.category}`, createdBy: auth.user.name, lines: [{ accountCode: expenseAccountCode(category), description, debit: amount }, { accountCode: paymentAccountCode(method), description: "پرداخت هزینه سامانه", credit: amount }] });
+        return created;
+      });
       if (!row) throw new HttpError(404, "پیدا نشد");
+      await audit(auth, "اصلاح هزینه و ثبت سند جایگزین", "expense", row.id, `${row.category}: ${row.amount}`);
       return J({ item: row });
     }
     if (m === "DELETE" && id) {
-      const [row] = await db.delete(platformExpenses).where(eq(platformExpenses.id, Number(id))).returning();
+      const row = await db.transaction(async (tx) => {
+        const [expense] = await tx.select().from(platformExpenses).where(eq(platformExpenses.id, Number(id))).for("update");
+        if (!expense || expense.status !== "active") throw new HttpError(404, "هزینهٔ فعال پیدا نشد");
+        const [source] = await tx.select().from(platformJournals).where(and(eq(platformJournals.sourceType, "platform_expense"), eq(platformJournals.sourceId, expense.id))).for("update");
+        if (source && source.status === "posted") {
+          const sourceLines = await tx.select().from(platformJournalLines).where(eq(platformJournalLines.journalId, source.id));
+          await postPlatformJournal(tx, { sourceType: "manual", reversalOf: source.id, date: new Date(), description: `برگشت هزینه سامانه #${expense.id} · ${expense.category}`, createdBy: auth.user.name, lines: sourceLines.map((line) => ({ accountCode: line.accountCode, description: `برگشت · ${line.description}`, debit: line.credit, credit: line.debit })) });
+          await tx.update(platformJournals).set({ status: "reversed" }).where(eq(platformJournals.id, source.id));
+        }
+        const [voided] = await tx.update(platformExpenses).set({ status: "void" }).where(eq(platformExpenses.id, expense.id)).returning();
+        return voided;
+      });
       if (!row) throw new HttpError(404, "پیدا نشد");
       await audit(auth, "حذف هزینه", "expense", row.id, `${row.category}: ${row.amount}`);
       return J({ ok: true });
@@ -334,7 +630,7 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
     const jy = num(q.get("year"), toJ(new Date()).jy);
     const yr = jYearRange(jy);
     const inv = await db.select({ i: subscriptionInvoices, name: businesses.name }).from(subscriptionInvoices).innerJoin(businesses, eq(businesses.id, subscriptionInvoices.businessId)).where(or(eq(subscriptionInvoices.status, "unpaid"), and(eq(subscriptionInvoices.status, "paid"), gte(subscriptionInvoices.paidAt, yr.start))!)!);
-    const exp = await db.select().from(platformExpenses).where(gte(platformExpenses.date, yr.start));
+    const exp = await db.select().from(platformExpenses).where(and(gte(platformExpenses.date, yr.start), eq(platformExpenses.status, "active")));
     const months = Array.from({ length: 12 }, (_, k) => ({ month: k + 1, revenue: 0, expenses: 0, invoices: 0 }));
     const byPlan: Record<string, { amount: number; n: number }> = {}, byMethod: Record<string, number> = {}, byCat: Record<string, number> = {};
     let revenue = 0, expenses = 0;
@@ -732,6 +1028,7 @@ export async function handleAdmin(req: Request, auth: AuthContext, path: string[
           await tx.insert(affiliateWalletEntries).values({ affiliateId: row.affiliateId, kind: "withdrawal_release", amount: row.amount, referenceType: "withdrawal", referenceId: row.id, description: "آزادسازی موجودی درخواست ردشده" }).onConflictDoNothing();
         } else {
           await tx.insert(platformAccountingDocuments).values({ sourceType: "affiliate_payout", sourceId: row.id, date: now, description: `پرداخت پورسانت همکار فروش #${row.affiliateId}`, debitAccount: "بدهی به بازاریاب", creditAccount: "بانک/صندوق", amount: row.amount, createdBy: auth.user.name }).onConflictDoNothing();
+          await postPlatformJournal(tx, { sourceType: "affiliate_payout", sourceId: row.id, date: now, description: `تسویه پورسانت همکار فروش #${row.affiliateId}`, createdBy: auth.user.name, lines: [{ accountCode: "20101", description: "تسویه بدهی پورسانت", debit: row.amount }, { accountCode: "10201", description: "پرداخت بانکی پورسانت", credit: row.amount }] });
         }
         return row;
       });
@@ -810,9 +1107,13 @@ async function settleInvoice(auth: AuthContext | null, id: number, method: strin
             await tx.insert(affiliateWalletEntries).values({ affiliateId: affiliate.id, kind: "commission", amount, referenceType: "commission", referenceId: commission.id, description });
             await tx.insert(platformExpenses).values({ category: "پورسانت فروش", amount, description, date: now, createdBy: "سیستم همکاری در فروش" });
             await tx.insert(platformAccountingDocuments).values({ sourceType: "affiliate_commission", sourceId: commission.id, date: now, description, debitAccount: "هزینه پورسانت فروش", creditAccount: "بدهی به بازاریاب", amount, createdBy: "سیستم" });
+            await postPlatformJournal(tx, { sourceType: "affiliate_commission", sourceId: commission.id, date: now, description, createdBy: "سیستم", lines: [{ accountCode: "5070", description, debit: amount }, { accountCode: "20101", description, credit: amount }] });
           }
         }
       }
+    }
+    if (inv.amount > 0) {
+      await postPlatformJournal(tx, { sourceType: "subscription_receipt", sourceId: inv.id, date: now, description: `دریافت فاکتور اشتراک #${inv.number} · ${biz.name}`, createdBy: auth?.user.name ?? "درگاه پرداخت", lines: [{ accountCode: paymentAccountCode(method), description: `دریافت · ${refNo || method}`, debit: inv.amount }, { accountCode: "10301", description: `تسویه مطالبه فاکتور #${inv.number}`, credit: inv.amount }] });
     }
     return { row, biz, owner, end };
   });

@@ -1644,6 +1644,8 @@ export const platformExpenses = pgTable("platform_expenses", {
   category: text("category").notNull().default("سایر"),
   amount: bigint("amount", { mode: "number" }).notNull(),
   description: text("description").notNull().default(""),
+  paymentMethod: text("payment_method").notNull().default("transfer"),
+  status: text("status").notNull().default("active"), // active | void; void expenses are reversed in the platform ledger
   date: timestamp("date", { withTimezone: true }).notNull().defaultNow(),
   createdBy: text("created_by").notNull().default(""),
   createdAt: created(),
@@ -1898,6 +1900,78 @@ export const platformAccountingDocuments = pgTable("platform_accounting_document
   createdBy: text("created_by").notNull().default("سیستم"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("platform_accounting_source_idx").on(t.sourceType, t.sourceId), index("platform_accounting_date_idx").on(t.date)]);
+
+/** General ledger for the MenuPeak platform itself (separate from each restaurant's books). */
+export const platformAccounts = pgTable("platform_accounts", {
+  code: text("code").primaryKey(),
+  name: text("name").notNull(),
+  parentCode: text("parent_code"),
+  level: text("level").notNull(), // کل | معین | تفصیلی
+  kind: text("kind").notNull(), // asset | liability | equity | revenue | expense
+  normalBalance: text("normal_balance").notNull(), // debit | credit
+  isSystem: boolean("is_system").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: created(),
+});
+
+export const platformJournals = pgTable("platform_journals", {
+  id: serial("id").primaryKey(),
+  documentNo: serial("document_no").notNull().unique(),
+  date: timestamp("date", { withTimezone: true }).notNull().defaultNow(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("posted"), // posted | reversed
+  sourceType: text("source_type").notNull(), // subscription_invoice | subscription_receipt | platform_expense | affiliate_commission | affiliate_payout | platform_check | platform_check_settlement | manual
+  sourceId: integer("source_id"),
+  reversalOf: integer("reversal_of"),
+  createdBy: text("created_by").notNull().default("سیستم"),
+  createdAt: created(),
+}, (t) => [uniqueIndex("platform_journal_source_idx").on(t.sourceType, t.sourceId), index("platform_journal_date_idx").on(t.date)]);
+
+export const platformJournalLines = pgTable("platform_journal_lines", {
+  id: serial("id").primaryKey(),
+  journalId: integer("journal_id").notNull().references(() => platformJournals.id, { onDelete: "cascade" }),
+  lineNo: integer("line_no").notNull(),
+  accountCode: text("account_code").notNull().references(() => platformAccounts.code),
+  description: text("description").notNull().default(""),
+  debit: bigint("debit", { mode: "number" }).notNull().default(0),
+  credit: bigint("credit", { mode: "number" }).notNull().default(0),
+}, (t) => [uniqueIndex("platform_journal_line_no_idx").on(t.journalId, t.lineNo), index("platform_journal_account_idx").on(t.accountCode, t.journalId)]);
+
+export const platformBankStatementEntries = pgTable("platform_bank_statement_entries", {
+  id: serial("id").primaryKey(),
+  accountCode: text("account_code").notNull().references(() => platformAccounts.code),
+  transactionDate: timestamp("transaction_date", { withTimezone: true }).notNull(),
+  description: text("description").notNull().default(""),
+  reference: text("reference").notNull().default(""),
+  amount: bigint("amount", { mode: "number" }).notNull(), // positive = deposit, negative = withdrawal
+  fingerprint: text("fingerprint").notNull().unique(),
+  matchedJournalLineId: integer("matched_journal_line_id").references(() => platformJournalLines.id),
+  createdBy: text("created_by").notNull().default(""),
+  createdAt: created(),
+}, (t) => [uniqueIndex("platform_bank_statement_match_idx").on(t.matchedJournalLineId), index("platform_bank_statement_account_date_idx").on(t.accountCode, t.transactionDate)]);
+
+export const platformChecks = pgTable("platform_checks", {
+  id: serial("id").primaryKey(),
+  direction: text("direction").notNull(), // received | issued
+  checkNumber: text("check_number").notNull(),
+  serialNumber: text("serial_number").notNull().default(""),
+  bankName: text("bank_name").notNull(),
+  branch: text("branch").notNull().default(""),
+  partyName: text("party_name").notNull(),
+  partyPhone: text("party_phone").notNull().default(""),
+  nationalId: text("national_id").notNull().default(""),
+  issueDate: timestamp("issue_date", { withTimezone: true }).notNull(),
+  dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  bankAccountCode: text("bank_account_code").notNull().references(() => platformAccounts.code),
+  counterAccountCode: text("counter_account_code").notNull().references(() => platformAccounts.code),
+  status: text("status").notNull().default("registered"), // registered | cleared | returned | void
+  journalId: integer("journal_id").references(() => platformJournals.id),
+  settlementJournalId: integer("settlement_journal_id").references(() => platformJournals.id),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull().default(""),
+  createdAt: created(),
+}, (t) => [index("platform_checks_due_idx").on(t.status, t.dueDate), index("platform_checks_number_idx").on(t.direction, t.checkNumber)]);
 
 export const reservations = pgTable(
   "reservations",

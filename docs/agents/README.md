@@ -113,7 +113,7 @@
 |---|---|
 | [core-pages/marketing-home.md](core-pages/marketing-home.md) | صفحه اصلی و لندینگ |
 | [core-pages/ai-menu-builder.md](core-pages/ai-menu-builder.md) | صفحهٔ معرفی AI با چهار روش ساخت منو، مراحل، ابزارهای متصل و حسابگر تعاملی؛ پیش‌نویس‌های عملیاتی در `/dashboard/ai` |
-| [core-pages/accounting-software.md](core-pages/accounting-software.md) | لندینگ معرفی حسابداری، گردش نمونهٔ سند، تب‌های اتصال به مسیرهای واقعی پنل و فهرست محدودیت‌های فعلی |
+| [core-pages/accounting-software.md](core-pages/accounting-software.md) | لندینگ تعاملی مسئله‌محور حسابداری؛ ارقام و انیمیشن‌ها نمایشی‌اند و محدودیت‌ها را اعلام می‌کند |
 | [core-pages/demo-preview.md](core-pages/demo-preview.md) | پیش‌نمایش تعاملی پنج منوی نمونه، دسته‌ها، جست‌وجو، جزئیات/تنوع محصول و سبد فقط‌خواندنی |
 | [core-pages/admin-panel.md](core-pages/admin-panel.md) | پنل مدیر سامانه، تنظیم برند، و ناوبری موبایل بدون نوار هدر سراسری |
 | [modules/brand-theme.md](modules/brand-theme.md) | توکن‌های بصری و رنگ سازمانی مشترک |
@@ -126,7 +126,7 @@
 | [core-pages/mini-site-public.md](core-pages/mini-site-public.md) | سایت کوچک عمومی |
 | [core-pages/restaurant-directory.md](core-pages/restaurant-directory.md) | فهرست رستوران‌ها |
 | [core-pages/auth-pages.md](core-pages/auth-pages.md) | ورود، ثبت‌نام، trial و ساخت منو/دسته‌بندی آغازین بر اساس نوع کسب‌وکار |
-| [core-pages/platform-admin.md](core-pages/platform-admin.md) | پنل مدیر سامانه |
+| [core-pages/platform-admin.md](core-pages/platform-admin.md) | پنل مدیر سامانه؛ حسابداری MenuPeak در [راهنمای ماژول](modules/platform-accounting.md) مستند است |
 | [modules/marketing-content.md](modules/marketing-content.md) | فهرست وبلاگ/آموزش، صفحه مستقل ساخت/ویرایش و ادیتور غنی امن محتوا |
 | [core-pages/payment-result.md](core-pages/payment-result.md) | نتیجه پرداخت |
 | [core-pages/print-views.md](core-pages/print-views.md) | رسیدها و اسناد چاپی |
@@ -177,3 +177,8 @@
 
 ### صندوق آفلاین ویندوز
 پیش از تغییر صندوق/همگام‌سازی، [راهنمای کامل ماژول](modules/offline-pos.md)، [نقشهٔ اپ پنل کامل](modules/offline-full-dashboard.md) و [گزارش توسعه](../updates/2026-10-26-offline-pos-desktop.md) را بخوانید. فروش از snapshot سرور و ثبت مالی اتمی می‌آید؛ ساخت/ویرایش گروه‌های گزینهٔ محصول با PIN مدیر، اعتبارسنجی Rust و سرور و کنترل تعارض sync می‌شود؛ فهرست مشتری با ثبت/اصلاح محدود نام در outbox مشتری نیز آفلاین تغییر می‌کند؛ تب رزرو درخواست جدید را محلی نگه می‌دارد و سرور پس از اتصال ظرفیت را دوباره بررسی می‌کند. آرشیو و چاپ فیش حقوقی به‌صورت فقط‌خواندنی با PIN مدیر در [راهنمای جداگانه](modules/offline-payroll.md) آمده است. کیف پول/امتیاز، رضایت پیامک، رزرو قطعی، پیش‌پرداخت و بیشتر عملیات پنل آفلاین نیستند.
+
+
+## حسابداری سامانه MenuPeak
+
+حسابداری مدیر کل، فاکتور اشتراک/دریافت، هزینه، سند دوبل، چک و مغایرت‌گیری بانکی را در دفتر مستقل نگه می‌دارد؛ برای جزئیات API، migration، transactionها و محدودیت‌ها [راهنمای عامل حسابداری سامانه](modules/platform-accounting.md) را بخوانید. این ماژول جایگزین [دفتر حسابداری رستوران](modules/accounting.md) نیست.

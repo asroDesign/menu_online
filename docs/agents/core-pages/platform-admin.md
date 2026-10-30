@@ -34,3 +34,7 @@ RBAC ادمین در سرور؛ هر action حساس audit/confirm؛ عدم اس
 
 RBAC در سرور مرجع است، مخفی‌کردن یک تب در React جای authorization نیست. Loading/error/empty برای هر تب جدا، pagination/filter اگر موجود، و نمایش خطا در عملیات mutation لازم است. tenant انتخاب‌شده باید در کل مسیر API و لینک‌ها ثابت و واضح باشد؛ داده محرمانه tenantهای غیرمجاز نباید در کلاینت cache شود. برای تغییر routeهای مدیر، تمام مجوزها و تست‌های `src/app/api/admin` را مرور کن.
 
+
+## دفتر مالی خود سامانه
+
+در `src/components/admin/accounting.tsx`، مسیر «اشتراک‌ها و حسابداری سامانه» شامل فاکتور/دریافت، هزینه، دفتر روزنامه، کدینگ، گزارش، کنترل بانک و دفتر چک سامانه است. API این دفتر `/api/admin/ledger/*` است و از `need(auth,"accounting")` استفاده می‌کند. دفتر platform مستقل از حسابداری tenant است؛ برای جزئیات schema، مهاجرت و قواعد سند به [راهنمای حسابداری سامانه](../modules/platform-accounting.md) مراجعه کنید.
